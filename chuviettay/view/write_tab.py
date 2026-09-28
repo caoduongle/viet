@@ -118,7 +118,7 @@ class WriteTab(ttk.Frame):
             seed = int(seed_s) if seed_s else None
         except ValueError:
             raise ValueError("Ô 'Seed ngẫu nhiên' phải là một số nguyên (bạn đang nhập: %r)." % seed_s) from None
-        return WriteOptions(
+        opts = WriteOptions(
             scale=self._float(self.v_scale, "Cỡ chữ", 1.0),
             line=self._float(self.v_line, "Dòng cách", None),
             width=self._float(self.v_width, "Bề rộng dòng", None),
@@ -129,6 +129,8 @@ class WriteTab(ttk.Frame):
             seed=seed,
             strict_case=self.v_strict.get(),
         )
+        opts.validate()
+        return opts
 
     # ------------------------------------------------------------ hành động
     def open_txt(self) -> None:

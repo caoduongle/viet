@@ -2,6 +2,8 @@
 phần vẽ cần cửa sổ Tk (Linux không màn hình: chạy `xvfb-run -a pytest`)."""
 import pytest
 
+pytest.importorskip("tkinter")
+
 from chuviettay.view import word_canvas as wc
 from chuviettay.view.word_canvas import BASE_PX, ZOOM, strokes_to_bank_units
 

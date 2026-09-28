@@ -14,6 +14,7 @@ from __future__ import annotations
 import math
 import os
 import random
+import re
 from dataclasses import dataclass, field
 
 from chuviettay.config import MAXH
@@ -21,6 +22,18 @@ from chuviettay.model import xopp
 from chuviettay.model.bank import Bank
 from chuviettay.model.text_utils import Stroke, fmt, normalize_text, place
 from chuviettay.model.writer import Writer
+
+COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
+
+
+def parse_color(c: str) -> str:
+    """Kiểm tra và chuẩn hóa mã màu hex: #RRGGBB hoặc #RRGGBBAA."""
+    s = c.strip()
+    if not COLOR_RE.match(s):
+        raise ValueError(
+            f"Mã màu không hợp lệ: {c!r}. Chỉ chấp nhận định dạng hex #RRGGBB hoặc #RRGGBBAA (ví dụ: #1a237e)."
+        )
+    return s.lower()
 
 
 @dataclass
@@ -36,6 +49,23 @@ class WriteOptions:
     color: str | None = None      # đổi màu mực, ví dụ "#1a237e"; None = màu mặc định trong kho mẫu
     seed: int | None = None       # cố định số ngẫu nhiên (để tái tạo lại đúng kết quả)
     strict_case: bool = False     # không tự hạ chữ hoa đầu từ khi tìm mẫu thay thế
+
+    def validate(self) -> None:
+        """Kiểm tra tính hợp lệ nghiệp vụ của các tùy chọn viết. Ném ValueError nếu sai."""
+        if not math.isfinite(self.scale) or self.scale <= 0:
+            raise ValueError(f"scale phải là số dương hữu hạn, nhận được: {self.scale}")
+        if self.line is not None and (not math.isfinite(self.line) or self.line <= 0):
+            raise ValueError(f"line phải là số dương hữu hạn hoặc None, nhận được: {self.line}")
+        if self.width is not None and (not math.isfinite(self.width) or self.width <= 0):
+            raise ValueError(f"width phải là số dương hữu hạn hoặc None, nhận được: {self.width}")
+        if not math.isfinite(self.space) or self.space <= 0:
+            raise ValueError(f"space phải là số dương hữu hạn, nhận được: {self.space}")
+        if not math.isfinite(self.jitter) or self.jitter < 0:
+            raise ValueError(f"jitter phải là số không âm hữu hạn, nhận được: {self.jitter}")
+        if not math.isfinite(self.wscale) or self.wscale <= 0:
+            raise ValueError(f"wscale phải là số dương hữu hạn, nhận được: {self.wscale}")
+        if self.color is not None:
+            self.color = parse_color(self.color)
 
 
 @dataclass

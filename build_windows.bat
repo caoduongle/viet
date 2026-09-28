@@ -3,8 +3,8 @@ REM Chay file nay tren WINDOWS, trong thu muc co hw_gui.py + thu muc chuviettay.
 REM Can da cai Python (tick "Add python.exe to PATH" luc cai) - tai o python.org.
 cd /d "%~dp0"
 
-echo Dang cai PyInstaller...
-pip install pyinstaller
+echo Dang cai dat cong cu dong goi theo requirements-build.txt...
+pip install -r requirements-build.txt
 if errorlevel 1 (
     echo LOI: khong cai duoc PyInstaller. Kiem tra da cai Python + pip chua.
     pause

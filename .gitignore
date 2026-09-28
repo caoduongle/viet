@@ -3,9 +3,22 @@ __pycache__/
 .pytest_cache/
 *.log
 *.log.[0-9]
-# đóng gói (PyInstaller)
+
+# Khoá file và file tạm
+*.lock
+*.tmp
+
+# Môi trường ảo Python
+.venv/
+venv/
+*.egg-info/
+
+# Đóng gói (PyInstaller) & artifacts
 build/
 dist/
 *.spec
-# dữ liệu cá nhân của bạn -- cân nhắc trước khi đưa lên kho mã công khai:
-# chu_cua_ban.json.gz
+hw_gui-linux
+hw_gui.exe
+
+# Dữ liệu kho mẫu cá nhân (không commit vào repo):
+chu_cua_ban.json.gz

@@ -6,7 +6,13 @@ import json
 import pytest
 
 from chuviettay.config import NANG, TONES
-from chuviettay.model.bank import Bank, BankNotFoundError
+from chuviettay.model.bank import (
+    Bank,
+    BankCorruptedError,
+    BankNotFoundError,
+    BankValidationError,
+    UnsupportedSchemaVersionError,
+)
 
 
 def test_nap_kho_nho(tiny_bank):
@@ -97,8 +103,8 @@ def test_save_roi_nap_lai_giu_nguyen_tieng_viet(tiny_bank, tmp_path):
 
 
 def test_kho_that_nap_duoc_va_chi_muc_hop_ly(real_bank):
-    assert len(real_bank.words) == 362
-    assert sum(len(v) for v in real_bank.words.values()) == 859
+    assert len(real_bank.words) == 13
+    assert sum(len(v) for v in real_bank.words.values()) == 99
     assert len(real_bank.marks[NANG]) > 0
     assert real_bank.can("số") and real_bank.can("sổ")            # "sổ" chưa dạy nhưng ghép được
 
@@ -119,13 +125,121 @@ def test_save_bi_ngat_giua_chung_thi_kho_cu_con_nguyen_va_khong_de_lai_file_tam(
         tiny_bank.save()
     monkeypatch.setattr("chuviettay.model.bank.json.dump", real_dump)
 
+    parent = os.path.dirname(tiny_bank.path)
     assert open(tiny_bank.path, "rb").read() == before                   # file thật không suy suyển một byte
-    assert not os.path.exists(tiny_bank.path + ".tmp")                    # không để rác lại
+    assert not any(f.endswith(".tmp") for f in os.listdir(parent))       # không để rác lại
     assert "mới" not in Bank(tiny_bank.path).words                        # vẫn nạp lại bình thường
 
 
 def test_save_thanh_cong_khong_de_lai_file_tam(tiny_bank):
     tiny_bank.add_sample("mới", [[0, 0, 4, -5]], 4.0)
     tiny_bank.save()
-    assert not os.path.exists(tiny_bank.path + ".tmp")
+    parent = os.path.dirname(tiny_bank.path)
+    assert not any(f.endswith(".tmp") for f in os.listdir(parent))
     assert "mới" in Bank(tiny_bank.path).words
+
+
+# ------------------------------------------------------------ kiểm tra dữ liệu hỏng & schema
+def test_nap_file_rong_0_bytes_bao_loi(tmp_path):
+    p = str(tmp_path / "empty.json.gz")
+    open(p, "wb").close()
+    with pytest.raises(BankCorruptedError, match="0 bytes"):
+        Bank(p)
+
+
+def test_nap_file_gzip_hong_bao_loi(tmp_path):
+    p = str(tmp_path / "bad.json.gz")
+    with open(p, "wb") as f:
+        f.write(b"day khong phai file gzip")
+    with pytest.raises(BankCorruptedError, match="gzip"):
+        Bank(p)
+
+
+def test_nap_file_json_hong_bao_loi(tmp_path):
+    p = str(tmp_path / "bad_json.json.gz")
+    with gzip.open(p, "wb") as f:
+        f.write(b"{khong phai json hop le:")
+    with pytest.raises(BankCorruptedError, match="JSON"):
+        Bank(p)
+
+
+def test_nap_file_thieu_truong_words_bao_loi(tmp_path):
+    p = str(tmp_path / "missing_words.json.gz")
+    d = {"xh": 7.0, "digits": {}, "punct": {}, "pen": {"tool": "pen", "color": "#000", "width": "1"}}
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f)
+    with pytest.raises(BankValidationError, match="words"):
+        Bank(p)
+
+
+def test_nap_file_xh_am_bao_loi(tmp_path):
+    p = str(tmp_path / "bad_xh.json.gz")
+    d = {"xh": -2.0, "words": {}, "digits": {}, "punct": {}, "pen": {"tool": "pen", "color": "#000", "width": "1"}}
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f)
+    with pytest.raises(BankValidationError, match="xh"):
+        Bank(p)
+
+
+def test_nap_file_schema_version_moi_hon_bao_loi(tmp_path):
+    p = str(tmp_path / "future_version.json.gz")
+    d = Bank.empty_dict()
+    d["schema_version"] = 999
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f)
+    with pytest.raises(UnsupportedSchemaVersionError, match="schema_version=999"):
+        Bank(p)
+
+
+def test_di_tru_kho_v1_legacy_sang_v2_trong_bo_nho(tmp_path):
+    p = str(tmp_path / "legacy_v1.json.gz")
+    d = {
+        "xh": 7.0, "wgaps": [11.0], "dgaps": [3.5], "line": 24.0, "v": 1,
+        "x0": 78.0, "width": 500.0, "ratio": 6.6,
+        "pen": {"tool": "pen", "color": "#000000ff", "width": "1.41", "capStyle": "round"},
+        "words": {"ba": [{"w": 8.0, "s": [[0, 0, 4, -5, 8, 0]], "T": "", "vi": -1, "ti": -1}]},
+        "digits": {}, "punct": {},
+    }
+    # File gốc trên đĩa hoàn toàn không có trường schema_version
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f)
+
+    b = Bank(p)
+    # Trong bộ nhớ đã được nâng cấp lên schema_version = 2
+    assert b.d["schema_version"] == 2
+    assert "ba" in b.words
+
+    # Nhưng trên đĩa vẫn giữ nguyên bản gốc (chưa ghi đè vì chỉ đọc)
+    disk_raw = gzip.decompress(open(p, "rb").read()).decode("utf-8")
+    assert "schema_version" not in disk_raw
+
+    # Khi có thao tác save() mới ghi phiên bản 2 xuống đĩa
+    b.save()
+    disk_after = gzip.decompress(open(p, "rb").read()).decode("utf-8")
+    assert '"schema_version":2' in disk_after
+
+
+def test_concurrent_save_an_toan_khong_lam_hong_kho(tmp_path):
+    """Mô phỏng nhiều luồng/tiến trình cùng gọi save(): file kho không bao giờ bị hỏng."""
+    import concurrent.futures
+
+    p = str(tmp_path / "concurrent_bank.json.gz")
+    b_init = Bank.create_empty(p)
+    b_init.add_sample("goc", [[0, 0, 5, 0]], 5.0)
+    b_init.save()
+
+    def do_save(thread_idx: int) -> None:
+        bank = Bank(p)
+        bank.add_sample(f"tu_{thread_idx}", [[0, 0, float(thread_idx), 0]], float(thread_idx))
+        bank.save()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(do_save, i) for i in range(8)]
+        for f in concurrent.futures.as_completed(futures):
+            f.result()  # Đảm bảo không ném ngoại lệ
+
+    # File cuối cùng phải nguyên vẹn và nạp lại bình thường
+    final_bank = Bank(p)
+    assert final_bank.d["schema_version"] == 2
+    assert "goc" in final_bank.words
+    assert not any(f.endswith(".tmp") for f in os.listdir(tmp_path))

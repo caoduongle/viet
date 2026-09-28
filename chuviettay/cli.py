@@ -38,7 +38,7 @@ import logging
 import sys
 
 from chuviettay import paths
-from chuviettay.controller.app_controller import AppController, BankNotFoundError
+from chuviettay.controller.app_controller import AppController, BankError
 from chuviettay.controller.results import WriteOptions
 from chuviettay.formatting import write_report_lines
 from chuviettay.logging_setup import configure_logging
@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         ctl.load_bank(a.bank, create_if_missing=False)
         a.fn(ctl, a)
-    except BankNotFoundError as e:
+    except BankError as e:
         sys.exit(str(e))
     except Exception as e:  # noqa: BLE001 -- chốt chặn cuối: ghi traceback đầy đủ vào log
         _log.exception("Lỗi khi chạy lệnh %r", a.cmd)

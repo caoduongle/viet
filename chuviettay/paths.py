@@ -35,3 +35,14 @@ def app_base_dir() -> str:
 
 def default_bank_path() -> str:
     return os.path.join(app_base_dir(), DEFAULT_BANK_FILENAME)
+
+
+def user_log_dir() -> str:
+    """Thư mục ghi log dự phòng trong thư mục dữ liệu cá nhân của người dùng (OS user data)."""
+    if sys.platform == "win32":
+        base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        return os.path.join(base, "Chuviettay")
+    if sys.platform == "darwin":
+        return os.path.expanduser("~/Library/Logs/Chuviettay")
+    state = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(state, "chuviettay")

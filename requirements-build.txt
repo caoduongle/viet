@@ -1,0 +1,2 @@
+# Pinned packaging dependencies for reproducible standalone builds
+pyinstaller==6.12.0

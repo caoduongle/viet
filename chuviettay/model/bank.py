@@ -22,15 +22,37 @@ import gzip
 import json
 import logging
 import os
+import sys
+import tempfile
 
 from chuviettay.config import NANG, TONES
+from chuviettay.model.file_lock import FileLock
+from chuviettay.model.bank_schema import (
+    CURRENT_VERSION,
+    BankCorruptedError,
+    BankError,
+    BankMigrationError,
+    BankNotFoundError,
+    BankSchemaError,
+    BankValidationError,
+    UnsupportedSchemaVersionError,
+    load_and_validate,
+)
 from chuviettay.model.text_utils import Stroke, find_tone, near_extreme, shift, strip_tone, tone_info, vowel_x
 
 _log = logging.getLogger(__name__)
 
-
-class BankNotFoundError(FileNotFoundError):
-    """Không tìm thấy file kho mẫu tại đường dẫn đã cho."""
+__all__ = [
+    "Bank",
+    "CURRENT_VERSION",
+    "BankError",
+    "BankNotFoundError",
+    "BankCorruptedError",
+    "BankValidationError",
+    "BankSchemaError",
+    "UnsupportedSchemaVersionError",
+    "BankMigrationError",
+]
 
 
 class Bank:
@@ -41,15 +63,11 @@ class Bank:
 
     def __init__(self, path: str):
         self.path = path
-        if not os.path.exists(path):
-            raise BankNotFoundError(
-                "Không thấy kho mẫu: %s (để cùng thư mục với hw_note.py hoặc dùng --bank)" % path)
-        with gzip.open(path, "rt", encoding="utf-8") as f:
-            self.d = json.load(f)
+        self.d = load_and_validate(path)
         self.words: dict[str, list[dict]] = self.d["words"]
         self.digits: dict[str, list[dict]] = self.d["digits"]
         self.punct: dict[str, list[dict]] = self.d["punct"]
-        self.xh: float = self.d["xh"]
+        self.xh: float = float(self.d["xh"])
         self.pen: dict = self.d["pen"]
         self.tl: dict[str, list[tuple[str, dict]]] = {}
         self.marks: dict[str, list[dict]] = {}
@@ -62,6 +80,7 @@ class Bank:
         """Cấu trúc kho mẫu trống, đúng những gì Bank/Writer cần để hoạt động được
         (giữ nguyên từ hw_gui.py bản gốc: new_empty_bank_dict())."""
         return {
+            "schema_version": CURRENT_VERSION,
             "xh": 7.0, "wgaps": [11.0], "dgaps": [3.5], "line": 24.0,
             "words": {}, "digits": {}, "punct": {}, "v": 1,
             "pen": {"tool": "pen", "color": "#000000ff", "width": "1.2", "capStyle": "round"},
@@ -130,21 +149,41 @@ class Bank:
 
     # -------------------------------------------------------------- đọc/ghi
     def save(self) -> None:
-        """Ghi kho mẫu xuống đĩa AN TOÀN: ghi ra file tạm cạnh đó rồi mới đổi tên đè lên file thật
-        (os.replace là thao tác nguyên tử). Nếu chương trình bị tắt/mất điện/đầy đĩa GIỮA CHỪNG, file
-        kho mẫu cũ vẫn còn nguyên -- bản gốc ghi thẳng đè lên file thật nên ngắt giữa chừng là
-        mất trắng cả kho mẫu (hàng giờ viết tay)."""
-        tmp = self.path + ".tmp"
-        try:
-            with gzip.open(tmp, "wt", encoding="utf-8", compresslevel=9) as f:
-                json.dump(self.d, f, ensure_ascii=False, separators=(",", ":"))
-            os.replace(tmp, self.path)
-        except BaseException:
+        """Ghi kho mẫu xuống đĩa AN TOÀN:
+        1. Khóa file liên tiến trình qua {path}.lock (tránh xung đột khi chạy đồng thời GUI/CLI).
+        2. Ghi ra file tạm ngẫu nhiên duy nhất qua tempfile.mkstemp trong cùng thư mục.
+        3. flush + fsync dữ liệu xuống đĩa vật lý, đóng sạch handle trước khi replace.
+        4. os.replace nguyên tử đè lên file thật.
+        5. fsync thư mục cha trên POSIX."""
+        lock_path = self.path + ".lock"
+        with FileLock(lock_path, timeout=10.0):
+            self.d["schema_version"] = CURRENT_VERSION
+            parent_dir = os.path.dirname(self.path) or "."
+            fd, tmp = tempfile.mkstemp(dir=parent_dir, prefix=".bank_", suffix=".tmp")
             try:
-                os.remove(tmp)
-            except OSError:
-                pass
-            raise
+                with os.fdopen(fd, "wb") as raw_f:
+                    with gzip.open(raw_f, "wt", encoding="utf-8", compresslevel=9) as gz_f:
+                        json.dump(self.d, gz_f, ensure_ascii=False, separators=(",", ":"))
+                    raw_f.flush()
+                    os.fsync(raw_f.fileno())
+
+                os.replace(tmp, self.path)
+
+                if sys.platform != "win32":
+                    try:
+                        dirfd = os.open(parent_dir, os.O_RDONLY)
+                        try:
+                            os.fsync(dirfd)
+                        finally:
+                            os.close(dirfd)
+                    except OSError:
+                        pass
+            except BaseException:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                raise
         _log.debug("Đã lưu kho mẫu %s (%d từ)", self.path, len(self.words))
 
     # -------------------------------------------------------------- truy vấn

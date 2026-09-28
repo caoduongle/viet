@@ -12,10 +12,9 @@ import shutil
 import pytest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-# Bản CHỤP CỐ ĐỊNH của một kho mẫu thật (362 từ / 859 mẫu, chụp lúc tái cấu trúc). Test dùng bản này
-# thay vì chu_cua_ban.json.gz của người dùng, để (1) kết quả không đổi khi bạn dạy thêm từ mới và
-# (2) test không bao giờ đọc/ghi dữ liệu thật của bạn.
-REAL_BANK = os.path.join(HERE, "data", "kho_mau_chup_lai.json.gz")
+# Fixture kho mẫu tổng hợp độc lập (sinh bởi scripts/gen_synthetic_bank.py), hoàn toàn
+# không chứa dữ liệu cá nhân nhưng có đầy đủ dấu thanh, từ mốc, chữ số và dấu câu.
+REAL_BANK = os.path.join(HERE, "data", "kho_mau_tong_hop.json.gz")
 
 
 @pytest.fixture(autouse=True)
@@ -27,7 +26,7 @@ def _no_log_file(monkeypatch):
 
 @pytest.fixture
 def real_bank_path(tmp_path):
-    """Bản sao (trong thư mục tạm) của bản chụp kho mẫu thật: 362 từ / 859 mẫu."""
+    """Bản sao (trong thư mục tạm) của fixture kho mẫu tổng hợp."""
     dst = tmp_path / "bank.json.gz"
     shutil.copy(REAL_BANK, dst)
     return str(dst)
