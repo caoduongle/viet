@@ -31,7 +31,7 @@ BANK_FILETYPES = [("Kho mẫu", "*.json.gz"), ("Tất cả", "*.*")]
 
 
 class MainWindow(tk.Tk):
-    def __init__(self, ctl: AppController):
+    def __init__(self, ctl: AppController, create_if_missing: bool = False):
         super().__init__()
         self.ctl = ctl
         self.title("Chữ viết tay của bạn")
@@ -51,7 +51,7 @@ class MainWindow(tk.Tk):
         self._tabs_built = False
 
         try:
-            self.ctl.load_bank(create_if_missing=True)
+            self.ctl.load_bank(create_if_missing=create_if_missing)
         except Exception as e:  # noqa: BLE001
             report_error("Không mở được kho mẫu", e, _log)
         self._sync_ui()
@@ -70,7 +70,7 @@ class MainWindow(tk.Tk):
     def _sync_ui(self) -> None:
         """Đồng bộ cửa sổ với trạng thái Controller (đường dẫn kho mẫu, có/không có tab)."""
         self.path_lbl.configure(text="Kho mẫu: " + self.ctl.bank_path)
-        if self.ctl.bank is None:
+        if not self.ctl.has_bank:
             self.notebook.pack_forget()
             self.placeholder.pack(fill="both", expand=True)
             return

@@ -39,7 +39,7 @@ def pts_xml(pts: list[tuple[float, float]]) -> str:
 
 def save_xopp(path: str, parts: list[str]) -> None:
     """Ghi các đoạn XML (đã có sẵn HEAD/</xournal>) thành file .xopp (nén gzip)."""
-    with gzip.open(path, "wt", encoding="utf-8") as f:
+    with gzip.open(path, "wt", encoding="utf-8", newline="") as f:
         f.write("\n".join(parts))
 
 

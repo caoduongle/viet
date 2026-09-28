@@ -11,7 +11,7 @@ if [ -d tests ] && python3 -c "import pytest" 2>/dev/null; then
     python3 -m pytest -q
 fi
 
-pip3 install --user pyinstaller
+pip3 install --user -r requirements-build.txt
 python3 -m PyInstaller --noconfirm --onefile --windowed --name hw_gui hw_gui.py
 echo
 echo "============================================================"

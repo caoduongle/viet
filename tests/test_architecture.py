@@ -101,3 +101,14 @@ def test_khong_dung_sys_exit_trong_model_controller_view():
 def test_file_khoi_chay_o_thu_muc_goc_chi_la_lop_mong(name):
     src = (PKG.parent / name).read_text(encoding="utf-8")
     assert len(src.splitlines()) < 40, "%s phải chỉ là lối vào mỏng, logic để trong chuviettay/" % name
+
+
+def test_view_khong_truy_cap_truc_tiep_ctl_bank():
+    """Tầng view/ không được truy cập trực tiếp ctl.bank (phải qua các method/property được expose)."""
+    bad = []
+    for f in py_files("view"):
+        tree = ast.parse(f.read_text(encoding="utf-8"), filename=str(f))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "bank":
+                bad.append("%s:%d truy cập .bank" % (f.relative_to(PKG.parent), node.lineno))
+    assert not bad, "View không được truy cập trực tiếp ctl.bank:\n  " + "\n  ".join(bad)

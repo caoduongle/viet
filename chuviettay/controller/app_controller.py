@@ -30,7 +30,9 @@ from chuviettay.controller.results import (
     WriteOptions, WriteResult,
 )
 from chuviettay.model import composer, learning, xopp
-from chuviettay.model.bank import Bank, BankNotFoundError  # noqa: F401  (re-export cho cli.py/view)
+from chuviettay.model.bank import (  # noqa: F401  (re-export cho cli.py/view)
+    Bank, BankCorruptedError, BankError, BankNotFoundError, BankValidationError, UnsupportedSchemaVersionError,
+)
 from chuviettay.model.calibration import compute_scale
 from chuviettay.model.seed_words import SEED
 from chuviettay.model.text_utils import Stroke
@@ -82,6 +84,11 @@ class AppController:
         return bank
 
     @property
+    def has_bank(self) -> bool:
+        """Đã có kho mẫu hợp lệ được nạp hay chưa."""
+        return self.bank is not None
+
+    @property
     def x_height(self) -> float:
         """Chiều cao chữ thường của kho mẫu -- giao diện dùng để vẽ đường kẻ mốc."""
         return self._require_bank().xh
@@ -96,6 +103,7 @@ class AppController:
         """Đổi văn bản thành file .xopp nét viết tay. Kết quả có sẵn `missing` (các
         token chưa có mẫu, tính từ CHÍNH lần viết này theo đúng tuỳ chọn người dùng đã
         đặt) nên nơi gọi không cần tính lại lần nữa."""
+        opts.validate()
         bank = self._require_bank()
         result = composer.write_document(bank, text, opts, out_path)
         _log.info("Viết %s: %d dòng, %d nét, thiếu mẫu %d/%d token",

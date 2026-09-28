@@ -77,8 +77,8 @@ def test_mo_kho_that_cua_nguoi_dung(tk_root, real_bank_path, dlg):
     tk_root.destroy()
     w = MainWindow(AppController(real_bank_path))
     w.update()
-    assert "362 từ, 859 mẫu" in w.bank_tab.stats_lbl.cget("text")
-    assert w.bank_tab.word_list.size() == 362
+    assert "13 từ, 99 mẫu" in w.bank_tab.stats_lbl.cget("text")
+    assert w.bank_tab.word_list.size() == 13
     w.destroy()
 
 
@@ -95,12 +95,25 @@ def test_khoi_dong_that_bai_van_co_cua_so_va_sau_do_chon_kho_thi_dung_tab(tk_roo
     w.destroy()
 
 
+def test_khoi_dong_voi_duong_dan_bank_sai_khong_tu_tao_file(tk_root, dlg, tmp_path):
+    tk_root.destroy()
+    non_existent = str(tmp_path / "bank_typo.json.gz")
+    assert not os.path.exists(non_existent)
+    # Khởi động với create_if_missing=False (tương ứng có truyền --bank)
+    w = MainWindow(AppController(non_existent), create_if_missing=False)
+    w.update()
+    assert dlg.kinds() == ["showerror"]
+    assert not os.path.exists(non_existent), "Gõ sai đường dẫn --bank không được tự tạo file mới!"
+    assert not w._tabs_built
+    w.destroy()
+
+
 def test_chon_kho_khac_cap_nhat_giao_dien(app, real_bank_path, monkeypatch):
     monkeypatch.setattr(filedialog, "askopenfilename", lambda **kw: real_bank_path)
     app.choose_bank()
     assert app.ctl.bank_path == real_bank_path
     assert real_bank_path in app.path_lbl.cget("text")
-    assert "362 từ" in app.bank_tab.stats_lbl.cget("text")
+    assert "13 từ" in app.bank_tab.stats_lbl.cget("text")
 
 
 def test_tao_kho_moi(app, tmp_path, monkeypatch, dlg):
@@ -116,7 +129,7 @@ def test_tao_kho_moi_tren_file_da_co_thi_mo_ra_chu_khong_ghi_de(app, real_bank_p
     monkeypatch.setattr(filedialog, "asksaveasfilename", lambda **kw: real_bank_path)
     app.new_bank()
     assert open(real_bank_path, "rb").read() == before                   # dữ liệu còn nguyên từng byte
-    assert "362 từ" in app.bank_tab.stats_lbl.cget("text") and dlg.kinds() == ["showinfo"]
+    assert "13 từ" in app.bank_tab.stats_lbl.cget("text") and dlg.kinds() == ["showinfo"]
 
 
 def test_loi_bat_ngo_trong_su_kien_duoc_ghi_log_va_hien_hop_thoai(app, dlg, caplog):

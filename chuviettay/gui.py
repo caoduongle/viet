@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
 
     configure_logging(verbose=args.verbose)
     ctl = AppController(args.bank)
-    app = MainWindow(ctl)
+    app = MainWindow(ctl, create_if_missing=(args.bank is None))
     _log.info("Cửa sổ chính đã sẵn sàng")
     app.mainloop()
     _log.info("Đã thoát")

@@ -1,7 +1,8 @@
-"""composer: dàn dòng / chia trang / file kết quả + file lưới ô cho từ thiếu."""
 import os
+import pytest
 
 from chuviettay.model import composer, xopp
+from chuviettay.model.bank import Bank
 from chuviettay.model.composer import WriteOptions, WriteResult
 
 
@@ -44,11 +45,24 @@ def test_cung_seed_cung_ket_qua_khac_seed_khac_ket_qua(tiny_bank):
 
 
 def test_jitter_0_thi_khong_con_ngau_nhien_ve_hinh_dang(tiny_bank):
-    a, _ = composer.compose_document(tiny_bank, "xin", WriteOptions(seed=1, jitter=0))
-    b, _ = composer.compose_document(tiny_bank, "xin", WriteOptions(seed=2, jitter=0))
+    # Khi từ chỉ có 1 mẫu duy nhất, việc đổi seed không thể chọn mẫu nét khác.
+    # Lúc này jitter=0 sẽ tắt toàn bộ yếu tố ngẫu nhiên hình học -> tọa độ nét vẽ giống nhau 100%.
+    one_sample_dict = Bank.empty_dict()
+    one_sample_dict["words"] = {"ba": [{"w": 8.0, "s": [[0, 0, 4, -5, 8, 0]], "T": "", "vi": -1, "ti": -1}]}
+    bank = Bank.create_empty(tiny_bank.path)
+    bank.d = one_sample_dict
+    bank.words = bank.d["words"]
+    bank.rebuild()
+
+    a, _ = composer.compose_document(bank, "ba", WriteOptions(seed=1, jitter=0))
+    b, _ = composer.compose_document(bank, "ba", WriteOptions(seed=2, jitter=0))
     strip = lambda parts: [p for p in parts if p.startswith("<stroke")]
-    # 1 từ chỉ có 1 mẫu để chọn nét khác nhau giữa các seed -> so hình học sau khi bỏ chọn mẫu
-    assert len(strip(a)) == len(strip(b)) == 1
+    assert strip(a) == strip(b)
+
+    # Đối chứng: khi bật jitter thì tọa độ phải khác nhau giữa các seed
+    c, _ = composer.compose_document(bank, "ba", WriteOptions(seed=1, jitter=1.0))
+    d, _ = composer.compose_document(bank, "ba", WriteOptions(seed=2, jitter=1.0))
+    assert strip(c) != strip(d)
 
 
 def test_mau_muc_va_do_day(tiny_bank):
@@ -87,3 +101,42 @@ def test_strict_case_anh_huong_danh_sach_thieu(tiny_bank):
     _, loose = composer.compose_document(tiny_bank, "Xin", WriteOptions(seed=1))
     _, strict = composer.compose_document(tiny_bank, "Xin", WriteOptions(seed=1, strict_case=True))
     assert loose.missing == {} and strict.missing == {"Xin": 1}
+
+
+# ------------------------------------------------------------ kiểm tra tính hợp lệ WriteOptions
+def test_write_options_validate_hop_le():
+    opts = WriteOptions(scale=1.2, line=25.0, width=500.0, space=1.1, jitter=0.5, wscale=1.5, color="#1A237E")
+    opts.validate()
+    assert opts.color == "#1a237e"  # Chuẩn hóa về chữ thường
+
+
+@pytest.mark.parametrize("bad_scale", [0, -1.0, float("nan"), float("inf"), float("-inf")])
+def test_write_options_validate_scale_sai(bad_scale):
+    with pytest.raises(ValueError, match="scale"):
+        WriteOptions(scale=bad_scale).validate()
+
+
+@pytest.mark.parametrize("bad_line", [0, -10.0, float("nan")])
+def test_write_options_validate_line_sai(bad_line):
+    with pytest.raises(ValueError, match="line"):
+        WriteOptions(line=bad_line).validate()
+
+
+@pytest.mark.parametrize("bad_jitter", [-0.1, -5.0, float("nan")])
+def test_write_options_validate_jitter_sai(bad_jitter):
+    with pytest.raises(ValueError, match="jitter"):
+        WriteOptions(jitter=bad_jitter).validate()
+
+
+@pytest.mark.parametrize("good_color", ["#1a237e", "#1A237E", "#ffffff", "#000000ff", "#12345678"])
+def test_write_options_color_hop_le(good_color):
+    opts = WriteOptions(color=good_color)
+    opts.validate()
+    assert opts.color == good_color.lower()
+
+
+@pytest.mark.parametrize("bad_color", ["blue", "red", "1a237e", "#12345", "#1234567", "#000\" width=\"99", "rgb(0,0,0)"])
+def test_write_options_color_khong_hop_le_chong_injection(bad_color):
+    with pytest.raises(ValueError, match="Mã màu không hợp lệ"):
+        WriteOptions(color=bad_color).validate()
+
