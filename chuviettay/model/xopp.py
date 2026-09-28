@@ -1,0 +1,198 @@
+"""
+Đọc/ghi định dạng file Xournal++ (.xopp) -- một file .xopp thực chất là XML nén gzip.
+
+Module này gồm 2 nhóm việc:
+1. XML thô: mở/lưu file .xopp, sinh thẻ <text>/<stroke> (dùng khi "write" tạo văn bản
+   ra chữ viết tay, và khi "check"/"seed" tạo file lưới ô để người dùng viết mẫu vào).
+2. Đọc ngược file lưới ô người dùng đã viết (dùng khi "learn" -- học từ những gì họ
+   vừa viết tay vào các ô).
+
+Toàn bộ công thức/hằng số giữ NGUYÊN từ bản gốc (hw_note.py).
+"""
+from __future__ import annotations
+
+import gzip
+import statistics
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+from xml.sax.saxutils import escape
+
+from chuviettay.config import BASE, CH, COLS, CW, GUIDE, MXT, MYT, PAGE_H, PAGE_W, ROWS, TAG_CALIB, TAG_PLAIN
+from chuviettay.model.text_utils import Stroke, fmt
+
+if TYPE_CHECKING:
+    from chuviettay.model.bank import Bank
+
+# ---------------------------------------------------------------- khung XML file .xopp
+HEAD = ('<?xml version="1.0" standalone="no"?>\n'
+        '<xournal creator="hw_note" fileversion="4">\n'
+        '<title>Xournal++ document - see https://github.com/xournalpp/xournalpp</title>')
+PAGE_OPEN = ('<page width="%s" height="%s">\n'
+             '<background type="solid" color="#ffffffff" style="plain"/>\n<layer>')
+PAGE_CLOSE = '</layer>\n</page>'
+
+
+def pts_xml(pts: list[tuple[float, float]]) -> str:
+    return " ".join("%s %s" % (fmt(x), fmt(y)) for x, y in pts)
+
+
+def save_xopp(path: str, parts: list[str]) -> None:
+    """Ghi các đoạn XML (đã có sẵn HEAD/</xournal>) thành file .xopp (nén gzip)."""
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+
+
+def read_xopp(path: str) -> ET.Element:
+    """Đọc file .xopp, tự nhận biết có nén gzip hay không (một số công cụ khác có thể
+    ghi .xopp không nén), trả về gốc cây XML."""
+    raw = open(path, "rb").read()
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
+    return ET.fromstring(raw)
+
+
+def text_xml(x: float, y: float, s: str, size: int = 9) -> str:
+    return ('<text font="Sans" size="%d" x="%s" y="%s" color="#808080ff">%s</text>'
+            % (size, fmt(x), fmt(y), escape(s)))
+
+
+def guide(pts: list[tuple[float, float]], w: float) -> str:
+    """Một nét kẻ MỐC (đường kẻ dòng, khung ô...) -- không phải nét chữ thật, để mờ."""
+    return '<stroke tool="pen" color="%sff" width="%s">%s</stroke>' % (GUIDE, w, pts_xml(pts))
+
+
+def stroke_xml(pts: list[tuple[float, float]], pen: dict, color: str | None = None, wscale: float = 1.0) -> str:
+    a = dict(pen)
+    w = float(a.pop("width", "1.41")) * wscale
+    if color:
+        a["color"] = color
+    return '<stroke %s width="%s">%s</stroke>' % (
+        " ".join('%s="%s"' % (k, v) for k, v in a.items()), fmt(w), pts_xml(pts))
+
+
+# ---------------------------------------------------------------- file mẫu dạng lưới ô
+def cell_xy(n: int) -> tuple[int, float, float]:
+    """Ô thứ n (đánh số từ 0, theo trang rồi theo hàng rồi theo cột) -> (số trang, x0, y0)."""
+    per = COLS * ROWS
+    p, k = divmod(n, per)
+    r, c = divmod(k, COLS)
+    return p, MXT + c * CW, MYT + r * CH
+
+
+def pick_calib_word(bank: "Bank") -> str | None:
+    """Chọn một từ đã có NHIỀU mẫu và độ rộng ổn định (ít dao động giữa các lần viết),
+    để dùng làm "ô đo cỡ tay" đầu tiên trong file lưới ô -- ưu tiên từ càng nhiều mẫu,
+    càng ổn định càng tốt."""
+    best, best_score = None, -1e9
+    for k, lst in bank.words.items():
+        if len(lst) < 5 or " " in k or not k.isalpha():
+            continue
+        ws = [i["w"] for i in lst]
+        mu = sum(ws) / len(ws)
+        cv = statistics.pstdev(ws) / mu if mu else 1.0
+        score = len(lst) - 6 * cv
+        if score > best_score:
+            best, best_score = k, score
+    return best or next(iter(bank.words), None)
+
+
+def make_grid(path: str, labels: list[str], bank: "Bank", header: str,
+              samples: dict[str, list[Stroke]] | None = None, calib: bool = True) -> None:
+    """Tạo file .xopp dạng lưới ô, mỗi ô có sẵn chữ in mờ + 2 đường kẻ mốc, để người
+    dùng viết tay từng từ trong `labels` vào (dùng cho seed/check/từ còn thiếu).
+
+    samples: {nhãn: danh sách nét} nếu muốn hiện SẴN chữ viết tay đã học trong ô (lệnh
+             check -- xem lại kho mẫu).
+    calib:   có chèn thêm một ô "đo cỡ tay" ở đầu hay không (một từ đã biết sẵn, không
+             đánh dấu gì đặc biệt trên chữ, chỉ nhận ra qua VỊ TRÍ ô đầu tiên + thẻ ẩn
+             hw2c) để công cụ tự chỉnh cỡ chữ mới học cho khớp cỡ tay đã học trước đó.
+    """
+    cw = pick_calib_word(bank) if calib else None
+    if cw:
+        labels = [cw] + list(labels)
+    per = COLS * ROWS
+    npages = max(1, -(-len(labels) // per))
+    o = [HEAD]
+    xh = bank.xh
+    for p in range(npages):
+        o.append(PAGE_OPEN % (PAGE_W, PAGE_H))
+        if p == 0:
+            o.append(text_xml(MXT, 6, header, 8))
+            o.append(text_xml(MXT, 20, "Viết nhỏ như chữ hằng ngày, ĐỪNG lấp đầy ô: chữ cao khoảng bằng đoạn kẻ ngắn phía trên, đặt trên đường kẻ dài.", 8))
+            if cw:
+                o.append(text_xml(MXT, 34, "Ô đầu tiên ('%s') dùng để đo cỡ tay bạn: viết lại đúng từ đó, thế thôi — cỡ nào cũng được, tool tự chỉnh các từ khác cho khớp." % cw, 8))
+            o.append(text_xml(MXT, 46 if cw else 34, TAG_CALIB if cw else TAG_PLAIN, 6))
+        for k in range(p * per, min(len(labels), (p + 1) * per)):
+            _, x0, y0 = cell_xy(k)
+            o.append(guide([(x0, y0), (x0 + CW, y0), (x0 + CW, y0 + CH), (x0, y0 + CH), (x0, y0)], 0.4))
+            o.append(guide([(x0 + 3, y0 + BASE), (x0 + CW - 3, y0 + BASE)], 0.8))
+            o.append(guide([(x0 + 3, y0 + BASE - xh), (x0 + 22, y0 + BASE - xh)], 0.5))
+            o.append(text_xml(x0 + 2, y0 + 1, labels[k]))
+            if samples and labels[k] in samples:
+                for st in samples[labels[k]]:
+                    pts = [(x0 + 8 + st[i], y0 + BASE + st[i + 1]) for i in range(0, len(st), 2)]
+                    o.append(stroke_xml(pts, bank.pen))
+        o.append(PAGE_CLOSE)
+    o.append("</xournal>")
+    save_xopp(path, o)
+
+
+# ---------------------------------------------------------------- đọc ngược file đã viết tay (learn)
+@dataclass
+class RawCell:
+    """Một ô đã đọc được từ file người dùng viết tay, TRƯỚC khi chuyển sang toạ độ
+    tương đối của kho mẫu (đó là việc của learning.py)."""
+    label: str
+    base: float                 # toạ độ y của đường kẻ chân chữ (đáy ô), theo hệ toạ độ trang
+    left: float                 # x nhỏ nhất trong các nét đã viết ở ô này
+    right: float                # x lớn nhất
+    strokes: list[Stroke] = field(default_factory=list)   # nét thô, toạ độ tuyệt đối trong trang
+
+
+def parse_learn_file(path: str) -> tuple[dict[tuple[int, int, int], RawCell], bool]:
+    """Đọc một file .xopp người dùng đã viết tay vào lưới ô (từ seed/check/write),
+    trả về: ({(trang, cột, hàng): RawCell}, có_thẻ_đo_cỡ_tay).
+
+    Cách nhận diện: mỗi ô có một thẻ <text> ghi sẵn NHÃN (chữ cần viết) ở đúng vị trí
+    lưới (MXT/MYT/CW/CH) -- dùng vị trí thẻ đó để biết ô nằm ở (cột, hàng) nào. Các nét
+    <stroke> không phải màu GUIDE (đường kẻ mốc) được gán vào ô có tâm điểm nằm trong
+    đúng ô lưới đó.
+    """
+    root = read_xopp(path)
+    raw: dict[tuple[int, int, int], RawCell] = {}
+    has_calib = False
+    for pi, page in enumerate(root.findall("page")):
+        cells: dict[tuple[int, int], str] = {}
+        for t in page.iter("text"):
+            s = (t.text or "").strip()
+            if s in (TAG_PLAIN, TAG_CALIB):
+                has_calib = has_calib or (s == TAG_CALIB)
+                continue
+            try:
+                x, y = float(t.get("x")), float(t.get("y"))
+            except (TypeError, ValueError):
+                continue
+            col, row = int((x - MXT) // CW), int((y - MYT) // CH)
+            if 0 <= col < COLS and 0 <= row < ROWS and s:
+                cells[(col, row)] = s
+
+        strokes_by_cell: dict[tuple[int, int], list[Stroke]] = {}
+        for st in page.iter("stroke"):
+            if st.get("tool", "pen") != "pen" or (st.get("color") or "").lower()[:7] == GUIDE:
+                continue
+            n = [float(v) for v in (st.text or "").split()]
+            if len(n) < 2:
+                continue
+            cx, cy = sum(n[0::2]) / (len(n) // 2), sum(n[1::2]) / (len(n) // 2)
+            col, row = int((cx - MXT) // CW), int((cy - MYT) // CH)
+            if (col, row) in cells:
+                strokes_by_cell.setdefault((col, row), []).append(n)
+
+        for cell, sts in strokes_by_cell.items():
+            label = cells[cell]
+            base = MYT + cell[1] * CH + BASE
+            left = min(min(s[0::2]) for s in sts)
+            right = max(max(s[0::2]) for s in sts)
+            raw[(pi,) + cell] = RawCell(label=label, base=base, left=left, right=right, strokes=sts)
+    return raw, has_calib
