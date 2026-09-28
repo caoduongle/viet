@@ -1,0 +1,171 @@
+"""
+Writer -- thuật toán lõi: ghép một TOKEN (từ / số / dấu câu / cụm) thành danh sách nét
+viết tay, tra cứu từ Bank.
+
+Đây là phần thuật toán "nhạy cảm" nhất của cả ứng dụng (nhiều heuristic tinh chỉnh qua
+thời gian) nên giữ NGUYÊN 100% logic từ bản gốc (hw_note.py) -- chỉ thêm type hint và
+tách nhỏ docstring cho từng bước, không đổi bất kỳ công thức/hằng số/thứ tự điều kiện
+nào. Đổi bất kỳ chi tiết nào ở đây đều có thể làm sai lệch cách ghép dấu thanh cho các
+từ đã học trước đó.
+"""
+from __future__ import annotations
+
+import random
+
+from chuviettay.config import NANG, NUMRE, TOKRE
+from chuviettay.model.bank import Bank
+from chuviettay.model.text_utils import Stroke, bbox, clamp, near_extreme, shift, strip_tone, tone_info, vowel_x, weight
+
+
+class Writer:
+    """Một phiên ghép chữ cho MỘT lần "write" (giữ self.last để né chọn trùng mẫu 2
+    lần liên tiếp cho cùng một token, và self.missing để gom các phần chưa có mẫu)."""
+
+    def __init__(self, bank: Bank, rnd: random.Random, jitter: float = 1.0,
+                 loose_case: bool = True, space: float = 1.0):
+        self.b = bank
+        self.rnd = rnd
+        self.J = jitter
+        self.loose = loose_case
+        self.space = space
+        self.last: dict[str, int] = {}       # tag -> chỉ số mẫu chọn lần trước (né lặp)
+        self.missing: dict[str, int] = {}     # phần chưa có mẫu -> số lần gặp
+
+    def pick(self, lst: list, tag: str):
+        """Chọn ngẫu nhiên 1 phần tử trong `lst`, né KHÔNG chọn trùng chỉ số đã chọn
+        lần trước cho cùng `tag` (nếu có hơn 1 lựa chọn) -- để cùng một từ xuất hiện
+        nhiều lần trong văn bản không bị lặp y hệt nét viết liên tiếp."""
+        i = self.rnd.randrange(len(lst))
+        if len(lst) > 1 and self.last.get(tag) == i:
+            i = (i + 1 + self.rnd.randrange(len(lst) - 1)) % len(lst)
+        self.last[tag] = i
+        return lst[i]
+
+    # -- một từ tiếng Việt
+    def word(self, core: str) -> tuple[list[Stroke], float] | None:
+        """Ghép MỘT từ (đã tách khỏi số/dấu câu bao quanh). Thử khớp thẳng (kể cả biến
+        thể hạ chữ hoa đầu nếu loose_case), rồi mới thử ghép thân-chữ + dấu-thanh-rời
+        (substitute). None nếu hoàn toàn chưa có mẫu nào dùng được."""
+        variants = [core]
+        if self.loose and core[:1].isupper():
+            variants.append(core[:1].lower() + core[1:])
+        for c in variants:
+            if c in self.b.words:
+                inst = self.pick(self.b.words[c], c)
+                return inst["s"], inst["w"]
+        for c in variants:
+            r = self.substitute(c)
+            if r:
+                return r
+        return None
+
+    def substitute(self, c: str) -> tuple[list[Stroke], float] | None:
+        """Chưa có mẫu cho ĐÚNG từ `c`, nhưng có thể đã có mẫu cho từ khác cùng phần
+        thân (bỏ dấu thanh) + có nét dấu thanh rời phù hợp đã "gặt" được (bank.marks)
+        -- ghép 2 phần đó lại. Nếu nguyên âm mang dấu là "i" thì bỏ chấm trên đầu chữ i
+        gốc trước khi gắn dấu thanh vào (tránh chồng 2 dấu)."""
+        T, vi, hats, letters = tone_info(c)
+        lst = self.b.tl.get(strip_tone(c))
+        if not lst or (T and not self.b.marks.get(T)):
+            return None
+        _, inst = self.pick(lst, "tl:" + strip_tone(c))
+        body = [st for k, st in enumerate(inst["s"]) if k != inst.get("ti", -1)]
+        w = inst["w"]
+        if T and vi >= 0:
+            m = self.pick(self.b.marks[T], "m" + T)
+            xv = vowel_x(letters, vi, w)
+            cx = xv + m["dx"]
+            if T == NANG:
+                cy = max(0.0, near_extreme(body, cx, max)) + m["dy"]
+            else:
+                if letters[vi] == "i":        # có dấu trên thì bỏ chấm của chữ i
+                    xh = self.b.xh
+                    dots = [k for k, st in enumerate(body) if bbox(st)[3] < -0.9 * xh
+                            and bbox(st)[2] - bbox(st)[0] < 5 and abs((bbox(st)[0] + bbox(st)[2]) / 2 - xv) < 4]
+                    if dots:
+                        body = [st for k, st in enumerate(body) if k != dots[0]]
+                cy = near_extreme(body, cx, min) + m["dy"]
+            body = body + [shift(m["s"][0], cx, cy)]
+        return body, w
+
+    # -- số
+    def number(self, s: str) -> tuple[list[Stroke], float, list[str]]:
+        """Ghép một chuỗi số/dấu chấm-phẩy-gạch ngang (đã khớp NUMRE), từng ký tự một,
+        theo mẫu chữ số/dấu phẩy-chấm đã học. -> (nét, độ rộng, ký tự còn thiếu mẫu)."""
+        b, rnd = self.b, self.rnd
+        out: list[Stroke] = []
+        x, missing, first = 0.0, [], True
+        gaps = b.d.get("dgaps") or [3.5]
+        for ch in s:
+            if ch in ",.":
+                lib = b.punct.get(",") or b.punct.get(".")
+                if not lib:
+                    missing.append(ch)
+                    continue
+                g = self.pick(lib, "p,")
+                out += [shift(st, x, 0) for st in g["s"]]
+                x += max(st[i] for st in g["s"] for i in range(0, len(st), 2)) + 0.6
+                first = True
+                continue
+            lib = b.digits.get(ch)
+            if not lib:
+                missing.append(ch)
+                continue
+            g = self.pick(lib, "d" + ch)
+            gap = 0.0 if first else clamp(rnd.choice(gaps), 0.5, 7.0) * (0.5 if ch == "-" else 1.0)
+            out += [shift(st, x + gap, 0) for st in g["s"]]
+            x += gap + g["w"]
+            first = False
+        return out, x, missing
+
+    # -- một token (đã tách khoảng trắng)
+    def token(self, tok: str) -> tuple[list[Stroke], float, list[str]]:
+        """Ghép một token (đã tách theo khoảng trắng, có thể còn kèm dấu ngoặc/dấu câu
+        bao quanh) thành nét viết tay. -> (nét, độ rộng, danh sách phần còn thiếu mẫu).
+
+        Thử khớp NGUYÊN token trước (ví dụ cụm "cà phê" đã dạy như một nhãn); nếu
+        không có mới tách ra lead (dấu mở ngoặc/nháy đầu) + core (phần thân: số hoặc
+        từ) + trail (dấu đóng ngoặc/dấu câu cuối) rồi ghép từng phần."""
+        b = self.b
+        if tok in b.words:
+            inst = self.pick(b.words[tok], tok)
+            return list(inst["s"]), inst["w"], []
+        lead, core, trail = TOKRE.match(tok).groups()
+        strokes: list[Stroke] = []
+        x, miss = 0.0, []
+        for ch in lead:
+            if ch in b.words:
+                inst = self.pick(b.words[ch], ch)
+                strokes += [shift(st, x, 0) for st in inst["s"]]
+                x += inst["w"] + 0.15 * b.xh
+            else:
+                miss.append(ch)
+        if core:
+            if NUMRE.match(core):
+                st, w, m = self.number(core)
+                miss += m
+            else:
+                r = self.word(core)
+                if r:
+                    st, w = r
+                    m = []
+                else:
+                    st, w, m = [], weight(core) * b.d.get("ratio", 6.6), [core]
+                miss += m
+            strokes += [shift(s_, x, 0) for s_ in st]
+            x += w
+        for ch in trail:
+            lib = b.punct.get(ch)
+            if lib and core:
+                g = self.pick(lib, "p" + ch)
+                strokes += [shift(st, x, 0) for st in g["s"]]
+                x += max(st[i] for st in g["s"] for i in range(0, len(st), 2)) + 0.3
+            elif ch in b.words:
+                inst = self.pick(b.words[ch], ch)
+                strokes += [shift(st, x + 0.15 * b.xh, 0) for st in inst["s"]]
+                x += inst["w"] + 0.15 * b.xh
+            else:
+                miss.append(ch)
+        if not core and not lead and trail == tok and tok not in b.words:
+            miss = [tok]
+        return strokes, x, miss

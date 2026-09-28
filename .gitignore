@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+*.log
+*.log.[0-9]
+# đóng gói (PyInstaller)
+build/
+dist/
+*.spec
+# dữ liệu cá nhân của bạn -- cân nhắc trước khi đưa lên kho mã công khai:
+# chu_cua_ban.json.gz
