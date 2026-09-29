@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User audit and feedback on commit `c5d7b6d4c781503e2d027a2872a882f0c688e30f` (CI run 36556305255):
 1. P1: Robust Tk/Tcl runtime probing in `tests/conftest.py` to prevent false-negative evaluation (e.g. Windows Python 3.11 missing `listbox.tcl` causing `MainWindow` crashes during collection or execution) and ensure headless/broken Tk environments skip cleanly.

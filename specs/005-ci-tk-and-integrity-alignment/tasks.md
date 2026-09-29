@@ -81,8 +81,8 @@
 ### Implementation for User Story 4
 
 - [x] T014 [US4] Update `scripts/purge_git_history.ps1` and `scripts/purge_git_history.sh` to include a built-in fallback to `git filter-branch` when `git-filter-repo` is not installed
-- [ ] T015 [US4] Commit all working tree changes to satisfy the clean working directory requirement for history rewriting
-- [ ] T016 [US4] Execute `scripts/purge_git_history.ps1` to purge sensitive blobs from historical commits, create external bundle backup, and verify clean history with zero references
+- [x] T015 [US4] Commit all working tree changes to satisfy the clean working directory requirement for history rewriting
+- [x] T016 [US4] Execute `scripts/purge_git_history.ps1` to purge sensitive blobs from historical commits, create external bundle backup, and verify clean history with zero references
 
 **Checkpoint**: Local git history is completely sanitized of historical blobs.
 
@@ -106,10 +106,10 @@
 
 **Purpose**: Full regression suite, lint check, and release verification.
 
-- [ ] T018 Run `ruff check .` across the repository to verify 0 lint errors
-- [ ] T019 Run complete pytest regression suite (`pytest -v`) across all test modules
-- [ ] T020 Execute `specs/005-ci-tk-and-integrity-alignment/quickstart.md` validation scenarios end-to-end
-- [ ] T021 Update `specs/005-ci-tk-and-integrity-alignment/spec.md` status to "Implemented"
+- [x] T018 Run `ruff check .` across the repository to verify 0 lint errors
+- [x] T019 Run complete pytest regression suite (`pytest -v`) across all test modules
+- [x] T020 Execute `specs/005-ci-tk-and-integrity-alignment/quickstart.md` validation scenarios end-to-end
+- [x] T021 Update `specs/005-ci-tk-and-integrity-alignment/spec.md` status to "Implemented"
 
 ---
 
