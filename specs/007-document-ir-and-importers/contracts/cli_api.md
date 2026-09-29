@@ -26,7 +26,8 @@ hw-note write [-h] [-b BANK] [-o OUT] [-f FILE] [--format {auto,txt,md,docx}]
   - When `auto`:
     - `.md`, `.markdown` -> Markdown parser.
     - `.docx` -> DOCX parser.
-    - `.txt` or any other extension -> Plain text parser.
+    - `.txt` -> Plain text parser (via Document IR).
+    - Other/unrecognized extensions -> raises `UnsupportedFormatError` and exits with error code 1.
     - Text passed directly as CLI positional arguments -> Plain text parser.
 
 ### Diagnostics Output Contract

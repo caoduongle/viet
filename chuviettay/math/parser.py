@@ -210,14 +210,21 @@ class LatexMathParser:
             self.pos += 1
             return SymbolNode(symbol=ch)
 
-        # 5. Từ hoặc số
-        match = re.match(r"[a-zA-Z0-9]+", self.raw[self.pos:])
-        if match:
-            txt = match.group(0)
+        # 5. Số (digits)
+        match_num = re.match(r"[0-9]+", self.raw[self.pos:])
+        if match_num:
+            txt = match_num.group(0)
             self.pos += len(txt)
             return TextNode(text=txt)
 
-        # 6. Các ký tự Unicode khác
+        # 6. Biến chữ hoặc từ ngữ (alphabetic identifiers)
+        match_alpha = re.match(r"[a-zA-Z]+", self.raw[self.pos:])
+        if match_alpha:
+            txt = match_alpha.group(0)
+            self.pos += len(txt)
+            return TextNode(text=txt)
+
+        # 7. Các ký tự Unicode khác
         self.pos += 1
         return SymbolNode(symbol=ch)
 

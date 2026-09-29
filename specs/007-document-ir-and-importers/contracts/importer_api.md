@@ -57,8 +57,8 @@ class BaseImporter(ABC):
 ## 3. Importer Registry & Factory
 
 ```python
-def get_importer_for_path(path: str) -> BaseImporter:
-    """Detects and returns the appropriate importer for a given file path based on extension.
+def get_importer_for_path(path: str, format_name: str = "auto") -> BaseImporter:
+    """Detects and returns the appropriate importer for a given file path based on extension or explicit format.
     
     Supported extensions:
     - .txt -> TxtImporter
@@ -66,23 +66,27 @@ def get_importer_for_path(path: str) -> BaseImporter:
     - .docx -> DocxImporter
     
     Raises:
-        ValueError: If file extension is unsupported.
+        UnsupportedFormatError: If file extension or format name is not in the supported set.
     """
 ```
 
 ---
 
-## 4. Error Handling Contract
+## 4. Error Handling & Diagnostics Contract
 
-1. **`OptionalDependencyError`**:
+1. **`UnsupportedFormatError`**:
+   - Subclasses `ValueError`.
+   - Raised immediately by `get_importer_for_path()` when an unrecognized file extension (e.g. `.pdf`, `.xlsx`, `.jpg`, `.zip`) is provided.
+
+2. **`OptionalDependencyError`**:
    - Subclasses `RuntimeError`.
    - Raised when `MarkdownImporter` or `DocxImporter` is invoked but optional packages (`markdown-it-py`, `python-docx`) are not installed.
-   - Message contract: MUST explain which command to run (e.g. `pip install ".[docs]"`).
+   - Message contract: MUST explain exact command to run: `pip install ".[docs]"`.
 
-2. **`CorruptedDocumentError`**:
+3. **`CorruptedDocumentError`**:
    - Subclasses `ValueError`.
    - Raised when input file cannot be decoded as UTF-8 (for text/markdown) or is an invalid zip archive (for docx).
 
-3. **`UnsupportedContentWarning`**:
-   - Recorded inside `ImportResult.unsupported`.
-   - Parsing MUST NOT crash upon encountering unsupported elements (images, SmartArt, audio); it logs the item in `ImportResult.unsupported` and continues parsing the remaining document.
+4. **Diagnostics Differentiation**:
+   - **`ImportResult.warnings`**: Non-blocking formatting adjustments (e.g. padding jagged table rows, heading level clamped to 1..6).
+   - **`ImportResult.unsupported`**: Content elements that cannot be rendered into handwriting strokes (e.g. `OMML: m:m (Matrix)`, `drawing: embedded image`, `pict: drawing shape`). Parsing MUST NOT crash upon encountering unsupported elements; it logs them and continues.

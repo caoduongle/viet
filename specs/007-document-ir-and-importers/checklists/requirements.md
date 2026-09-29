@@ -14,21 +14,21 @@
 ## Requirement Completeness
 
 - [x] No [NEEDS CLARIFICATION] markers remain (all requirements clearly bounded by user proposal)
-- [x] Requirements are testable and unambiguous (FR-001 through FR-016 define explicit testable behaviors)
-- [x] Success criteria are measurable (SC-001 through SC-008 define concrete metrics)
+- [x] Requirements are testable and unambiguous (FR-001 through FR-026 define explicit testable behaviors)
+- [x] Success criteria are measurable (SC-001 through SC-013 define concrete metrics)
 - [x] Success criteria are technology-agnostic (focus on outcomes, test pass rates, sequencing, and rendering correctness)
 - [x] All acceptance scenarios are defined (Given / When / Then for all 6 user stories)
-- [x] Edge cases are identified (empty paragraphs, unbalanced tables, nested OMML, missing optional dependencies, missing glyphs, large documents)
-- [x] Scope is clearly bounded (focus on TXT, MD, DOCX, Table, Math subset, Schema v3, GUI/CLI)
+- [x] Edge cases are identified (empty paragraphs, unbalanced tables, nested OMML, missing optional dependencies, missing glyphs, large documents, merged cells, double-scaling)
+- [x] Scope is clearly bounded (focus on TXT, MD, DOCX, Table, Math subset, Schema v3, GUI/CLI, streaming PageBuffer)
 - [x] Dependencies and assumptions identified (zero-dependency core preserved, optional docs extras, target Python version)
 
 ## Feature Readiness
 
 - [x] All functional requirements have clear acceptance criteria
-- [x] User scenarios cover primary flows (P1 MVP plaintext IR, P1 Markdown, P2 Table layout, P2 Math AST & layout, P3 DOCX & OMML, P3 GUI/CLI)
-- [x] Feature meets measurable outcomes defined in Success Criteria
+- [x] User scenarios cover primary flows (P0 math AST glyph generation & single-scaling, P1 table rich inlines, P1 table colspan/rowspan, P1 unified TXT IR & blank lines, P2 streaming PageBuffer, P2 OMML unsupported diagnostics & strict format validation)
+- [x] Feature meets measurable outcomes defined in Success Criteria (SC-001 through SC-013)
 - [x] Core contracts cleanly separated between document representation, parsing, layout, and stroke rendering
 
 ## Notes
 
-- Specification validated against all quality checklist items. Ready for `/speckit-plan` or architectural planning workflow.
+- Specification iteration 2 validated against all quality checklist items. Ready for `/speckit-plan` or architectural planning workflow.

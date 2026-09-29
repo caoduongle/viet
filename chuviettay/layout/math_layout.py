@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import random
 from typing import TYPE_CHECKING
 
 from chuviettay.layout.metrics import PositionedGlyph, PositionedStroke, Size
@@ -19,6 +20,7 @@ from chuviettay.math.ast import (
 
 if TYPE_CHECKING:
     from chuviettay.model.bank import Bank
+    from chuviettay.model.writer import Writer
 
 
 @dataclass
@@ -32,10 +34,19 @@ class MathLayoutItem:
 class MathLayoutEngine:
     """Động cơ tính toán kích thước, căn lề đường cơ sở và sinh nét vẽ cho biểu thức toán học."""
 
-    def __init__(self, bank: Bank, S: float = 1.0):
+    def __init__(
+        self,
+        bank: Bank,
+        S: float = 1.0,
+        writer: Writer | None = None,
+        rnd: random.Random | None = None,
+    ):
         self.bank = bank
         self.S = S
-        self.xh = float(bank.xh) * S
+        self.xh = float(getattr(bank, "xh", 10.0)) * S
+        self.rnd = rnd or random.Random(42)
+        from chuviettay.model.writer import Writer
+        self.writer = writer or Writer(bank, self.rnd)
         self.missing_symbols: dict[str, int] = {}
 
     def measure(self, node: MathNode, scale: float = 1.0, depth: int = 0) -> MathLayoutItem:
@@ -84,18 +95,40 @@ class MathLayoutEngine:
         # 2. TextNode: Từ hoặc số
         elif isinstance(node, TextNode):
             txt = node.text
-            char_w = 0.5 * self.xh * eff_scale
-            w = max(5.0 * eff_scale, len(txt) * char_w)
-            ascent = self.xh * eff_scale
-            descent = 0.2 * self.xh * eff_scale
-            return MathLayoutItem(
-                size=Size(width=w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent)
-            )
+            if not txt:
+                return MathLayoutItem(size=Size(width=0.0, height=0.0, ascent=0.0, descent=0.0, baseline=0.0))
+
+            if txt.isdigit():
+                st, w, miss = self.writer.number(txt)
+            else:
+                st, w, miss = self.writer.token(txt)
+
+            if miss:
+                for m in miss:
+                    self.missing_symbols[m] = self.missing_symbols.get(m, 0) + 1
+
+            if st:
+                scaled_w = w * eff_scale
+                ascent = 0.9 * self.xh * eff_scale
+                descent = 0.2 * self.xh * eff_scale
+                glyphs = [PositionedGlyph(strokes=st, x=0.0, y=0.0, scale=eff_scale)]
+                return MathLayoutItem(
+                    size=Size(width=scaled_w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent),
+                    glyphs=glyphs,
+                )
+            else:
+                char_w = 0.5 * self.xh * eff_scale
+                w_fallback = max(10.0 * eff_scale, len(txt) * char_w)
+                ascent = self.xh * eff_scale
+                descent = 0.2 * self.xh * eff_scale
+                return MathLayoutItem(
+                    size=Size(width=w_fallback, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent)
+                )
 
         # 3. SymbolNode: Ký hiệu toán học hoặc toán tử
         elif isinstance(node, SymbolNode):
             sym = node.symbol
-            # Kiểm tra trong kho symbols
+            # 3.1 Kiểm tra trong kho symbols
             if hasattr(self.bank, "symbols") and sym in self.bank.symbols and self.bank.symbols[sym]:
                 sample = self.bank.symbols[sym][0]
                 w = float(sample.get("w", 10.0)) * eff_scale
@@ -106,23 +139,56 @@ class MathLayoutEngine:
                     size=Size(width=w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent),
                     glyphs=glyphs,
                 )
-            elif sym in "+-=<>/*":
-                # Toán tử chuẩn
+
+            # 3.2 Kiểm tra trong kho punct hoặc words của writer
+            st, w, miss = self.writer.token(sym)
+            if st and not miss:
+                scaled_w = w * eff_scale
+                ascent = 0.8 * self.xh * eff_scale
+                descent = 0.2 * self.xh * eff_scale
+                glyphs = [PositionedGlyph(strokes=st, x=0.0, y=0.0, scale=eff_scale)]
+                return MathLayoutItem(
+                    size=Size(width=scaled_w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent),
+                    glyphs=glyphs,
+                )
+
+            # 3.3 Toán tử chuẩn: sinh nét vector nếu chưa có mẫu trong kho
+            if sym in "+-=<>/*":
                 w = 0.7 * self.xh * eff_scale
                 ascent = 0.7 * self.xh * eff_scale
                 descent = 0.1 * self.xh * eff_scale
+                pen_w = 1.41 * eff_scale
+                op_strokes: list[PositionedStroke] = []
+                mid_y = -0.45 * self.xh * eff_scale
+
+                if sym == "-":
+                    op_strokes.append(PositionedStroke(points=[(0.1 * w, mid_y), (0.9 * w, mid_y)], width=pen_w))
+                elif sym == "=":
+                    op_strokes.append(PositionedStroke(points=[(0.1 * w, mid_y - 2.5 * eff_scale), (0.9 * w, mid_y - 2.5 * eff_scale)], width=pen_w))
+                    op_strokes.append(PositionedStroke(points=[(0.1 * w, mid_y + 2.5 * eff_scale), (0.9 * w, mid_y + 2.5 * eff_scale)], width=pen_w))
+                elif sym == "+":
+                    op_strokes.append(PositionedStroke(points=[(0.1 * w, mid_y), (0.9 * w, mid_y)], width=pen_w))
+                    op_strokes.append(PositionedStroke(points=[(0.5 * w, mid_y - 0.4 * w), (0.5 * w, mid_y + 0.4 * w)], width=pen_w))
+                elif sym == "/":
+                    op_strokes.append(PositionedStroke(points=[(0.15 * w, mid_y + 0.45 * self.xh * eff_scale), (0.85 * w, mid_y - 0.45 * self.xh * eff_scale)], width=pen_w))
+                elif sym == "<":
+                    op_strokes.append(PositionedStroke(points=[(0.8 * w, mid_y - 0.35 * self.xh * eff_scale), (0.2 * w, mid_y), (0.8 * w, mid_y + 0.35 * self.xh * eff_scale)], width=pen_w))
+                elif sym == ">":
+                    op_strokes.append(PositionedStroke(points=[(0.2 * w, mid_y - 0.35 * self.xh * eff_scale), (0.8 * w, mid_y), (0.2 * w, mid_y + 0.35 * self.xh * eff_scale)], width=pen_w))
+
                 return MathLayoutItem(
-                    size=Size(width=w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent)
+                    size=Size(width=w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent),
+                    strokes=op_strokes,
                 )
-            else:
-                # Ký hiệu thiếu mẫu: tạo ô giữ chỗ kích thước cố định, ghi nhận missing_symbols
-                self.missing_symbols[sym] = self.missing_symbols.get(sym, 0) + 1
-                w = max(10.0 * eff_scale, 1.2 * self.xh * eff_scale)
-                ascent = 0.9 * self.xh * eff_scale
-                descent = 0.2 * self.xh * eff_scale
-                return MathLayoutItem(
-                    size=Size(width=w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent)
-                )
+
+            # 3.4 Ký hiệu thiếu mẫu: tạo ô giữ chỗ kích thước cố định, ghi nhận missing_symbols
+            self.missing_symbols[sym] = self.missing_symbols.get(sym, 0) + 1
+            w = max(10.0 * eff_scale, 1.2 * self.xh * eff_scale)
+            ascent = 0.9 * self.xh * eff_scale
+            descent = 0.2 * self.xh * eff_scale
+            return MathLayoutItem(
+                size=Size(width=w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent)
+            )
 
         # 4. Fraction: Phân số
         elif isinstance(node, Fraction):

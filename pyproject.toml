@@ -38,6 +38,11 @@ docs = [
 hw-note = "chuviettay.cli:main"
 hw-gui = "chuviettay.gui:main"
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chuviettay*"]
+exclude = ["specs*", "tests*"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

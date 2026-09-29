@@ -21,10 +21,11 @@ def test_txt_importer_multiple_paragraphs():
     importer = TxtImporter()
     raw = "Đoạn một\n\nĐoạn hai dòng một\nĐoạn hai dòng hai"
     res = importer.import_text(raw)
-    assert len(res.document.blocks) == 3
+    assert len(res.document.blocks) == 4
     assert res.document.blocks[0].inlines[0].text == "Đoạn một"
-    assert res.document.blocks[1].inlines[0].text == "Đoạn hai dòng một"
-    assert res.document.blocks[2].inlines[0].text == "Đoạn hai dòng hai"
+    assert len(res.document.blocks[1].inlines) == 0  # Dòng trống được bảo toàn làm phân cách đoạn
+    assert res.document.blocks[2].inlines[0].text == "Đoạn hai dòng một"
+    assert res.document.blocks[3].inlines[0].text == "Đoạn hai dòng hai"
 
 
 def test_txt_importer_empty_text():

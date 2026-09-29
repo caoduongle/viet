@@ -70,7 +70,7 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
     if target_file:
         import os
         ext = os.path.splitext(target_file)[1].lower()
-        if fmt in ("md", "docx") or (fmt == "auto" and ext in (".md", ".markdown", ".docx")):
+        if fmt in ("txt", "md", "docx") or (fmt == "auto" and ext in (".txt", ".md", ".markdown", ".docx")):
             use_doc_importer = True
 
     if use_doc_importer and target_file:

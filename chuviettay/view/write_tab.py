@@ -154,22 +154,27 @@ class WriteTab(ttk.Frame):
             return
 
         ext = os.path.splitext(path)[1].lower()
-        if ext in (".md", ".markdown", ".docx"):
+        if ext in (".md", ".markdown", ".docx", ".txt"):
             try:
                 res = self.ctl.import_document(path)
                 self.current_doc = res.document
                 self.text.delete("1.0", "end")
-                preview_lines = []
-                for b in res.document.blocks:
-                    if hasattr(b, "inlines"):
-                        preview_lines.append(
-                            " ".join(getattr(i, "text", "") for i in b.inlines if hasattr(i, "text"))
-                        )
-                    elif hasattr(b, "latex"):
-                        preview_lines.append(f"$${b.latex}$$")
-                    elif hasattr(b, "rows"):
-                        preview_lines.append(f"[Bảng {len(b.rows)} hàng]")
-                self.text.insert("1.0", "\n".join(preview_lines))
+                if ext == ".txt":
+                    with open(path, encoding="utf-8-sig") as f:
+                        content = f.read()
+                    self.text.insert("1.0", content)
+                else:
+                    preview_lines = []
+                    for b in res.document.blocks:
+                        if hasattr(b, "inlines"):
+                            preview_lines.append(
+                                " ".join(getattr(i, "text", "") for i in b.inlines if hasattr(i, "text"))
+                            )
+                        elif hasattr(b, "latex"):
+                            preview_lines.append(f"$${b.latex}$$")
+                        elif hasattr(b, "rows"):
+                            preview_lines.append(f"[Bảng {len(b.rows)} hàng]")
+                    self.text.insert("1.0", "\n".join(preview_lines))
 
                 info_lines = [f"Đã mở tài liệu: {os.path.basename(path)} ({len(res.document.blocks)} khối)."]
                 if res.warnings:

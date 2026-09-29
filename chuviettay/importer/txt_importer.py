@@ -14,11 +14,15 @@ class TxtImporter(BaseImporter):
     def import_text(self, text: str) -> ImportResult:
         """Phân tích chuỗi văn bản thành danh sách Paragraph."""
         normalized = unicodedata.normalize("NFC", text or "")
+        if not normalized.strip():
+            return ImportResult(document=Document(blocks=[]))
         blocks = []
         for line in normalized.splitlines():
             s = line.strip()
             if s:
                 blocks.append(Paragraph(inlines=[Text(text=s)]))
+            else:
+                blocks.append(Paragraph(inlines=[]))
         return ImportResult(document=Document(blocks=blocks))
 
     def import_file(self, path: str) -> ImportResult:

@@ -30,7 +30,7 @@ def require_dependency(module_name: str, feature_desc: str = "tính năng này",
     except ImportError as exc:
         raise OptionalDependencyError(
             f"Để mở {feature_desc}, bạn cần cài đặt thêm thư viện '{module_name}'. "
-            f"Hãy chạy lệnh: pip install \".[ {extra} ]\" hoặc tải bản đóng gói đầy đủ.",
+            f'Hãy chạy lệnh: pip install ".[{extra}]" hoặc tải bản đóng gói đầy đủ.',
             package_name=module_name,
             extra=extra,
         ) from exc

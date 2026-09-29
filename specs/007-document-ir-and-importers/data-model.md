@@ -219,7 +219,18 @@ class PositionedStroke:
     points: list[tuple[float, float]]
     width: float
     color: str | None
+
+@dataclass
+class MathLayoutItem:
+    """Calculated layout result for a mathematical AST node."""
+    size: Size
+    glyphs: list[PositionedGlyph] = field(default_factory=list)
+    strokes: list[PositionedStroke] = field(default_factory=list)
 ```
+
+### 3.1 Coordinate System & Scaling Invariant
+- **Base Units**: All glyph offsets `(x, y)` and vector points inside `MathLayoutItem` are defined in **unscaled base bank coordinate space** ($S = 1.0$, baseline at $y = 0$).
+- **Single-Scale Invariant**: When rendered inside a text line or heading, `DocumentLayoutEngine._render_text_line()` scales all elements by $s = \text{self.S} \times \text{scale\_mult} \times (1 + \text{jitter})$. Neither `MathLayoutEngine` nor `_layout_inlines()` applies secondary scale multiplication.
 
 ---
 

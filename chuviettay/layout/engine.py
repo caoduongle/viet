@@ -23,10 +23,11 @@ from chuviettay.document.ir import (
     Text,
 )
 from chuviettay.layout.math_layout import MathLayoutEngine
+from chuviettay.layout.stream import PageBuffer
 from chuviettay.layout.table_layout import LaidOutCell, TableLayoutData, TableLayoutEngine
 from chuviettay.math.parser import parse_latex_math
 from chuviettay.model import xopp
-from chuviettay.model.text_utils import Stroke, fmt, normalize_text, place
+from chuviettay.model.text_utils import Stroke, normalize_text, place
 from chuviettay.model.writer import Writer
 
 if TYPE_CHECKING:
@@ -54,6 +55,7 @@ class DocumentLayoutEngine:
         line_items: list[tuple[float, list[Stroke], float]],
         base_y: float,
         start_x: float,
+        scale_mult: float = 1.0,
     ) -> list[str]:
         """Tạo danh sách các thẻ <stroke> XML cho một dòng chữ với hiệu ứng run tay ngẫu nhiên."""
         out = []
@@ -67,7 +69,7 @@ class DocumentLayoutEngine:
         for start, st, w in line_items:
             if not st:
                 continue
-            s = self.S * (1 + self.rnd.gauss(0, 0.02 * self.J))
+            s = self.S * scale_mult * (1 + self.rnd.gauss(0, 0.02 * self.J))
             rot = self.rnd.gauss(0, 0.010 * self.J)
             dy = self.rnd.gauss(0, 0.35 * self.J)
             for pts in place(st, 0.0, 0.0, s, rot):
@@ -117,7 +119,7 @@ class DocumentLayoutEngine:
 
             elif isinstance(inline, MathInline):
                 math_ast = inline.ast or parse_latex_math(inline.latex)
-                math_engine = MathLayoutEngine(self.bank, S=self.S * scale_mult)
+                math_engine = MathLayoutEngine(self.bank, S=1.0, writer=self.wr, rnd=self.rnd)
                 m_item = math_engine.measure(math_ast)
                 for sym, count in math_engine.missing_symbols.items():
                     if missing_symbols is not None:
@@ -126,7 +128,7 @@ class DocumentLayoutEngine:
                     nmiss += count
                 ntok += 1
 
-                # Chuyển đổi MathLayoutItem thành các nét viết tay tương đối
+                # Chuyển đổi MathLayoutItem thành các nét viết tay tương đối trong toạ độ bank (S=1.0)
                 math_strokes: list[Stroke] = []
                 for g in m_item.glyphs:
                     for gst in g.strokes:
@@ -142,7 +144,7 @@ class DocumentLayoutEngine:
                         flat_pts.append(round(pt[1], 2))
                     math_strokes.append(flat_pts)
 
-                items.append((math_strokes, m_item.size.width, list(math_engine.missing_symbols.keys())))
+                items.append((math_strokes, m_item.size.width * self.S * scale_mult, list(math_engine.missing_symbols.keys())))
 
             elif isinstance(inline, LineBreak):
                 items.append(([], 0.0, ["__LINE_BREAK__"]))
@@ -151,7 +153,6 @@ class DocumentLayoutEngine:
 
     def render(self, document: Document, out_path: str) -> WriteResult:
         """Thực hiện bố cục toàn bộ Document IR và ghi file .xopp."""
-        pages_xml: list[list[str]] = []
         cur_page: list[str] = []
         cur_y = 20.0
         max_page_y = MAXH - 40.0
@@ -161,11 +162,13 @@ class DocumentLayoutEngine:
         total_tables = 0
         total_math_blocks = 0
         missing_symbols: dict[str, int] = {}
+        page_w = self.x0 + self.width + 20
+
+        pb = PageBuffer(out_path, page_w, default_page_h=MAXH)
 
         def new_page():
             nonlocal cur_page, cur_y
-            if cur_page or not pages_xml:
-                pages_xml.append(cur_page)
+            pb.append_page(cur_page, page_h=MAXH)
             cur_page = []
             cur_y = 20.0
 
@@ -188,7 +191,7 @@ class DocumentLayoutEngine:
                     return
                 if cur_y + eff_line_h > max_page_y:
                     new_page()
-                line_strokes = self._render_text_line(cur_line, cur_y + eff_line_h, self.x0)
+                line_strokes = self._render_text_line(cur_line, cur_y + eff_line_h, self.x0, scale_mult=scale_mult)
                 cur_page.extend(line_strokes)
                 total_strokes += len(line_strokes)
                 total_lines += 1
@@ -211,10 +214,7 @@ class DocumentLayoutEngine:
 
             flush_line()
 
-        if not document.blocks:
-            # Tài liệu rỗng: sinh 1 trang trắng
-            new_page()
-        else:
+        try:
             for block in document.blocks:
                 if isinstance(block, PageBreak):
                     new_page()
@@ -227,8 +227,13 @@ class DocumentLayoutEngine:
                     cur_y += self.line_h * 0.3
 
                 elif isinstance(block, Paragraph):
-                    render_paragraph_inlines(block.inlines, scale_mult=1.0)
-                    cur_y += self.line_h * 0.2
+                    if not block.inlines:
+                        cur_y += self.line_h * 0.8
+                        if cur_y > max_page_y:
+                            new_page()
+                    else:
+                        render_paragraph_inlines(block.inlines, scale_mult=1.0)
+                        cur_y += self.line_h * 0.2
 
                 elif isinstance(block, ListBlock):
                     for idx, item_blocks in enumerate(block.items):
@@ -248,7 +253,6 @@ class DocumentLayoutEngine:
                         continue
 
                     col_widths = table_engine.compute_column_widths(block)
-                    num_cols = len(col_widths)
                     table_w = sum(col_widths)
 
                     cur_table_cells: list[list[LaidOutCell]] = []
@@ -277,48 +281,135 @@ class DocumentLayoutEngine:
 
                         # 2. Sinh nét chữ bên trong các ô
                         for row_cells in cur_table_cells:
-                            for cell in row_cells:
-                                cell_cur_y = cell.y + table_engine.cell_padding
-                                for t_line in cell.text_lines:
-                                    norm_t = normalize_text(t_line)
-                                    toks = norm_t.split()
-                                    cell_line_items = []
-                                    c_w = 0.0
-                                    for tok in toks:
-                                        st, w, miss = self.wr.token(tok)
-                                        ntok += 1
-                                        if miss:
-                                            nmiss += len(miss)
-                                            for m in miss:
-                                                self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                                        w *= self.S
-                                        sp = 6.0 * self.S * self.opts.space
-                                        start = c_w + (sp if cell_line_items else 0.0)
-                                        cell_line_items.append((start, st, w))
-                                        c_w = start + w
+                            for laid_cell in row_cells:
+                                align = "left"
+                                if block.col_alignments and laid_cell.col < len(block.col_alignments):
+                                    align = block.col_alignments[laid_cell.col].lower()
 
-                                    cell_strokes = self._render_text_line(
-                                        cell_line_items,
-                                        cell_cur_y + self.line_h * 0.8,
-                                        cell.x + table_engine.cell_padding,
-                                    )
-                                    cur_page.extend(cell_strokes)
-                                    total_strokes += len(cell_strokes)
-                                    total_lines += 1
-                                    cell_cur_y += self.line_h
+                                usable_w = max(10.0, laid_cell.width - 2 * table_engine.cell_padding)
+                                cell_cur_y = laid_cell.y + table_engine.cell_padding
+
+                                if laid_cell.rendered_lines:
+                                    for l_items in laid_cell.rendered_lines:
+                                        if not l_items:
+                                            cell_cur_y += self.line_h
+                                            continue
+                                        line_w = l_items[-1][0] + l_items[-1][2]
+                                        if align == "center":
+                                            extra_x = max(0.0, (usable_w - line_w) / 2.0)
+                                        elif align == "right":
+                                            extra_x = max(0.0, usable_w - line_w)
+                                        else:
+                                            extra_x = 0.0
+
+                                        start_x = laid_cell.x + table_engine.cell_padding + extra_x
+                                        cell_strokes = self._render_text_line(
+                                            l_items,
+                                            cell_cur_y + self.line_h * 0.8,
+                                            start_x,
+                                        )
+                                        cur_page.extend(cell_strokes)
+                                        total_strokes += len(cell_strokes)
+                                        total_lines += 1
+                                        cell_cur_y += self.line_h
+                                elif laid_cell.text_lines:
+                                    for t_line in laid_cell.text_lines:
+                                        norm_t = normalize_text(t_line)
+                                        toks = norm_t.split()
+                                        cell_line_items = []
+                                        c_w = 0.0
+                                        for tok in toks:
+                                            st, w, miss = self.wr.token(tok)
+                                            ntok += 1
+                                            if miss:
+                                                nmiss += len(miss)
+                                                for m in miss:
+                                                    self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
+                                            w *= self.S
+                                            sp = 6.0 * self.S * self.opts.space
+                                            start = c_w + (sp if cell_line_items else 0.0)
+                                            cell_line_items.append((start, st, w))
+                                            c_w = start + w
+
+                                        line_w = cell_line_items[-1][0] + cell_line_items[-1][2] if cell_line_items else 0.0
+                                        if align == "center":
+                                            extra_x = max(0.0, (usable_w - line_w) / 2.0)
+                                        elif align == "right":
+                                            extra_x = max(0.0, usable_w - line_w)
+                                        else:
+                                            extra_x = 0.0
+
+                                        start_x = laid_cell.x + table_engine.cell_padding + extra_x
+                                        cell_strokes = self._render_text_line(
+                                            cell_line_items,
+                                            cell_cur_y + self.line_h * 0.8,
+                                            start_x,
+                                        )
+                                        cur_page.extend(cell_strokes)
+                                        total_strokes += len(cell_strokes)
+                                        total_lines += 1
+                                        cell_cur_y += self.line_h
 
                         cur_y = slice_start_y + slice_h
                         cur_table_cells = []
                         cur_table_row_heights = []
 
-                    for row in padded_rows:
-                        row_cell_lines = []
-                        for c_idx, cell in enumerate(row.cells):
-                            txt = table_engine._extract_cell_text(cell)
-                            lines = table_engine.wrap_cell_text(txt, col_widths[c_idx])
-                            row_cell_lines.append(lines)
+                    for r_idx, row in enumerate(padded_rows):
+                        row_cell_lines_items: list[list[list[tuple[float, list[Stroke], float]]]] = []
+                        c_curr = 0
+                        for cell in row.cells:
+                            cs = max(1, getattr(cell, "colspan", 1))
+                            cell_w = sum(col_widths[c_curr : c_curr + cs])
+                            usable_w = max(10.0, cell_w - 2 * table_engine.cell_padding)
 
-                        max_lines = max((len(ls) for ls in row_cell_lines), default=1)
+                            cell_inlines: list[Inline] = []
+                            for blk_idx, b in enumerate(cell.blocks):
+                                if isinstance(b, Paragraph):
+                                    if blk_idx > 0:
+                                        cell_inlines.append(LineBreak())
+                                    cell_inlines.extend(b.inlines)
+                                elif isinstance(b, MathBlock):
+                                    if blk_idx > 0:
+                                        cell_inlines.append(LineBreak())
+                                    cell_inlines.append(MathInline(latex=b.latex, ast=b.ast))
+
+                            if cell_inlines:
+                                items, n_t, n_m = self._layout_inlines(cell_inlines, scale_mult=1.0, missing_symbols=missing_symbols)
+                                ntok += n_t
+                                nmiss += n_m
+                            else:
+                                items = []
+
+                            cell_lines: list[list[tuple[float, list[Stroke], float]]] = []
+                            cur_l: list[tuple[float, list[Stroke], float]] = []
+                            cur_lw = 0.0
+                            for st, w, miss in items:
+                                if miss == ["__LINE_BREAK__"]:
+                                    if cur_l:
+                                        cell_lines.append(cur_l)
+                                        cur_l = []
+                                        cur_lw = 0.0
+                                    continue
+                                sp = 6.0 * self.S * self.opts.space
+                                if cur_l and cur_lw + sp + w > usable_w:
+                                    cell_lines.append(cur_l)
+                                    cur_l = [(0.0, st, w)]
+                                    cur_lw = w
+                                else:
+                                    start_rel = cur_lw + (sp if cur_l else 0.0)
+                                    cur_l.append((start_rel, st, w))
+                                    cur_lw = start_rel + w
+                            if cur_l:
+                                cell_lines.append(cur_l)
+
+                            row_cell_lines_items.append(cell_lines)
+                            c_curr += cs
+
+                        max_lines = max(
+                            (len(cls) for cls, c in zip(row_cell_lines_items, row.cells) if getattr(c, "rowspan", 1) <= 1),
+                            default=1,
+                        )
+                        max_lines = max(max_lines, 1)
                         row_h = max(
                             self.line_h + 2 * table_engine.cell_padding,
                             max_lines * self.line_h + 2 * table_engine.cell_padding,
@@ -330,19 +421,28 @@ class DocumentLayoutEngine:
                             slice_start_y = cur_y
 
                         row_cells = []
-                        cell_x = self.x0
-                        for c_idx in range(num_cols):
-                            w = col_widths[c_idx]
+                        c_curr = 0
+                        for cell_idx, cell in enumerate(row.cells):
+                            cs = max(1, getattr(cell, "colspan", 1))
+                            rs = max(1, getattr(cell, "rowspan", 1))
+                            cell_w = sum(col_widths[c_curr : c_curr + cs])
+                            cell_x = self.x0 + sum(col_widths[:c_curr])
                             row_cells.append(
                                 LaidOutCell(
                                     x=cell_x,
                                     y=cur_y,
-                                    width=w,
+                                    width=cell_w,
                                     height=row_h,
-                                    text_lines=row_cell_lines[c_idx],
+                                    text_lines=[],
+                                    cell=cell,
+                                    col=c_curr,
+                                    row=r_idx,
+                                    colspan=cs,
+                                    rowspan=rs,
+                                    rendered_lines=row_cell_lines_items[cell_idx],
                                 )
                             )
-                            cell_x += w
+                            c_curr += cs
 
                         cur_table_cells.append(row_cells)
                         cur_table_row_heights.append(row_h)
@@ -354,7 +454,7 @@ class DocumentLayoutEngine:
 
                 elif isinstance(block, MathBlock):
                     math_ast = block.ast or parse_latex_math(block.latex)
-                    math_engine = MathLayoutEngine(self.bank, S=self.S)
+                    math_engine = MathLayoutEngine(self.bank, S=self.S, writer=self.wr, rnd=self.rnd)
                     item = math_engine.measure(math_ast)
                     for sym, count in math_engine.missing_symbols.items():
                         missing_symbols[sym] = missing_symbols.get(sym, 0) + count
@@ -389,19 +489,23 @@ class DocumentLayoutEngine:
                     total_lines += 1
                     total_math_blocks += 1
 
-        if cur_page or not pages_xml:
-            pages_xml.append(cur_page)
-
-        # Xuất file XML XOPP
-        o = [xopp.HEAD]
-        for pg in pages_xml:
-            page_h = max(200.0, cur_y + 40.0) if len(pages_xml) == 1 else MAXH
-            o.append(xopp.PAGE_OPEN % (fmt(self.x0 + self.width + 20), fmt(page_h)))
-            o.extend(pg)
-            o.append(xopp.PAGE_CLOSE)
-        o.append("</xournal>")
-
-        xopp.save_xopp(out_path, o)
+            if pb.n_pages == 0:
+                final_page_h = max(200.0, cur_y + 40.0)
+                pb.append_page(cur_page, page_h=final_page_h)
+            else:
+                if cur_page:
+                    pb.append_page(cur_page, page_h=MAXH)
+            cur_page = []
+            pb.close()
+        except Exception:
+            if not pb._f.closed:
+                pb._f.close()
+            if os.path.exists(pb._temp_path):
+                try:
+                    os.remove(pb._temp_path)
+                except OSError:
+                    pass
+            raise
 
         all_missing = dict(self.wr.missing)
         for sym, count in missing_symbols.items():

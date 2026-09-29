@@ -134,6 +134,19 @@ def _parse_omml_element(elem: Any) -> tuple[list[MathNode], str]:
     return _parse_omml_children(elem)
 
 
+UNSUPPORTED_OMML_TAGS = {
+    "m": "matrix",
+    "nary": "n-ary operator (integral/summation)",
+    "limLow": "lower limit",
+    "limUpp": "upper limit",
+    "func": "function apply",
+    "bar": "bar over/under",
+    "acc": "accent",
+    "groupChr": "group character",
+    "eqArr": "equation array",
+}
+
+
 def _parse_omml_children(elem: Any) -> tuple[list[MathNode], str]:
     """Phân tích tập hợp phần tử con của OMML."""
     if elem is None:
@@ -147,7 +160,10 @@ def _parse_omml_children(elem: Any) -> tuple[list[MathNode], str]:
             all_ast.extend(nodes)
             if ltx:
                 all_ltx.append(ltx)
-        elif tag in ("num", "den", "e", "sup", "sub", "deg", "oMath", "oMathPara"):
+        elif tag in (
+            "num", "den", "e", "sup", "sub", "deg", "oMath", "oMathPara",
+            "m", "nary", "limLow", "limUpp", "func", "bar", "acc", "groupChr", "eqArr", "mr", "fName",
+        ):
             nodes, ltx = _parse_omml_children(child)
             all_ast.extend(nodes)
             if ltx:
@@ -244,6 +260,13 @@ class DocxImporter(BaseImporter):
                     inlines.append(Text(text=text_elem.text))
 
             elif tag in ("oMath", "oMathPara"):
+                for sub_el in child.iter():
+                    sub_tag = sub_el.tag.split("}")[-1] if "}" in sub_el.tag else sub_el.tag
+                    if sub_tag in UNSUPPORTED_OMML_TAGS:
+                        msg = f"m:{sub_tag}: unsupported OMML math element ({UNSUPPORTED_OMML_TAGS[sub_tag]})"
+                        if msg not in unsupported:
+                            unsupported.append(msg)
+
                 ast_nodes, ltx = _parse_omml_children(child)
                 math_ast = MathRow(ast_nodes) if len(ast_nodes) > 1 else (ast_nodes[0] if ast_nodes else MathRow([]))
                 inlines.append(MathInline(latex=ltx, ast=math_ast))
@@ -275,17 +298,40 @@ class DocxImporter(BaseImporter):
 
     def _parse_table(self, tbl: Any, unsupported: list[str]) -> Table:
         rows: list[TableRow] = []
+        seen_tc: set[Any] = set()
+
         for r in tbl.rows:
             cells: list[TableCell] = []
             for c in r.cells:
+                if c._tc in seen_tc:
+                    continue
+                seen_tc.add(c._tc)
+
                 # Quét hình ảnh bên trong các ô bảng
                 for d in c._element.iter():
                     d_tag = d.tag.split("}")[-1] if "}" in d.tag else d.tag
                     if d_tag in ("drawing", "pict"):
                         unsupported.append(f"{d_tag} in table cell: embedded image or drawing shape")
 
-                cell_text = c.text.strip()
-                cells.append(TableCell.from_text(cell_text))
-            rows.append(TableRow(cells=cells))
+                try:
+                    colspan = max(1, c._tc.right - c._tc.left)
+                    rowspan = max(1, c._tc.bottom - c._tc.top)
+                except Exception:
+                    colspan = getattr(c._tc, "grid_span", 1) or 1
+                    rowspan = 1
+
+                cell_blocks: list[Block] = []
+                for p in c.paragraphs:
+                    blk = self._parse_paragraph(p, unsupported)
+                    if blk is not None:
+                        cell_blocks.append(blk)
+
+                if not cell_blocks and c.text.strip():
+                    cell_blocks.append(Paragraph(inlines=[Text(text=c.text.strip())]))
+
+                cells.append(TableCell(blocks=cell_blocks, colspan=colspan, rowspan=rowspan))
+
+            if cells:
+                rows.append(TableRow(cells=cells))
 
         return Table(rows=rows, border_style=TableBorder.ALL)

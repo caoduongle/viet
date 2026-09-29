@@ -1,9 +1,10 @@
 """Động cơ đo đạc kích thước bảng, gói chữ trong ô và sinh nét viền bảng."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
-from chuviettay.document.ir import Paragraph, Table, TableBorder, TableCell, TableRow, Text
+from chuviettay.document.ir import MathBlock, MathInline, Paragraph, Symbol, Table, TableBorder, TableCell, TableRow, Text
 from chuviettay.layout.metrics import PositionedStroke
 
 
@@ -15,6 +16,12 @@ class LaidOutCell:
     width: float
     height: float
     text_lines: list[str]
+    cell: TableCell | None = None
+    col: int = 0
+    row: int = 0
+    colspan: int = 1
+    rowspan: int = 1
+    rendered_lines: list[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -42,51 +49,66 @@ class TableLayoutEngine:
         """Tự động đệm thêm ô rỗng cho các hàng ngắn hơn hàng dài nhất."""
         if not table.rows:
             return []
-        max_cols = max(len(r.cells) for r in table.rows)
+        max_cols = max((sum(max(1, getattr(c, "colspan", 1)) for c in r.cells) for r in table.rows), default=1)
         padded_rows = []
         for r in table.rows:
             curr_cells = list(r.cells)
-            while len(curr_cells) < max_cols:
+            curr_cols = sum(max(1, getattr(c, "colspan", 1)) for c in curr_cells)
+            while curr_cols < max_cols:
                 curr_cells.append(TableCell(blocks=[]))
+                curr_cols += 1
             padded_rows.append(TableRow(cells=curr_cells))
         return padded_rows
 
     def _extract_cell_text(self, cell: TableCell) -> str:
-        """Trích xuất chuỗi văn bản thuần trong ô."""
+        """Trích xuất chuỗi văn bản đại diện trong ô."""
         parts = []
         for block in cell.blocks:
             if isinstance(block, Paragraph):
                 for inline in block.inlines:
                     if isinstance(inline, Text):
                         parts.append(inline.text)
+                    elif isinstance(inline, MathInline):
+                        parts.append(inline.latex or "math")
+                    elif isinstance(inline, Symbol):
+                        parts.append(inline.symbol)
+            elif isinstance(block, MathBlock):
+                parts.append(block.latex or "math")
         return " ".join(parts).strip()
 
     def compute_column_widths(self, table: Table) -> list[float]:
-        """Tính toán phân bổ bề rộng cho từng cột."""
+        """Tính toán phân bổ bề rộng cho từng cột xét cả colspan."""
         padded_rows = self.pad_jagged_rows(table)
         if not padded_rows:
             return []
-        num_cols = len(padded_rows[0].cells)
+        num_cols = max((sum(max(1, getattr(c, "colspan", 1)) for c in r.cells) for r in padded_rows), default=1)
 
         natural_widths = [0.0] * num_cols
         min_widths = [0.0] * num_cols
 
         for row in padded_rows:
-            for c_idx, cell in enumerate(row.cells):
+            c_idx = 0
+            for cell in row.cells:
+                cs = max(1, getattr(cell, "colspan", 1))
                 txt = self._extract_cell_text(cell)
                 words = txt.split()
                 longest_w = max((len(w) for w in words), default=0) * self.char_w + 2 * self.cell_padding
                 full_w = len(txt) * self.char_w + 2 * self.cell_padding
-                min_widths[c_idx] = max(min_widths[c_idx], max(30.0, longest_w))
-                natural_widths[c_idx] = max(natural_widths[c_idx], max(40.0, full_w))
+
+                # Phân bổ đều cho các cột spanned
+                per_col_min = max(30.0, longest_w / cs)
+                per_col_nat = max(40.0, full_w / cs)
+                for k in range(cs):
+                    if c_idx + k < num_cols:
+                        min_widths[c_idx + k] = max(min_widths[c_idx + k], per_col_min)
+                        natural_widths[c_idx + k] = max(natural_widths[c_idx + k], per_col_nat)
+                c_idx += cs
 
         total_natural = sum(natural_widths)
         if total_natural <= self.available_width:
-            # Nếu vừa vặn, chia theo tỉ lệ tự nhiên lấp đầy bề rộng khả dụng
             scale = self.available_width / total_natural if total_natural > 0 else 1.0
             return [round(w * scale, 2) for w in natural_widths]
 
-        # Nếu vượt quá, phân phối có cận dưới min_widths
         rem_w = max(0.0, self.available_width - sum(min_widths))
         diff_sum = sum(max(0.0, natural_widths[i] - min_widths[i]) for i in range(num_cols))
         final_widths = []
@@ -94,7 +116,6 @@ class TableLayoutEngine:
             bonus = (rem_w * (natural_widths[i] - min_widths[i]) / diff_sum) if diff_sum > 0 else (rem_w / num_cols)
             final_widths.append(round(min_widths[i] + bonus, 2))
 
-        # Nếu tổng vượt quá do min_widths quá lớn, co lại đồng đều
         tot = sum(final_widths)
         if tot > self.available_width:
             factor = self.available_width / tot
@@ -128,7 +149,7 @@ class TableLayoutEngine:
         return lines
 
     def layout_table(self, table: Table, x0: float, y0: float) -> TableLayoutData:
-        """Đo đạc toàn bộ bảng và bố trí vị trí các ô."""
+        """Đo đạc toàn bộ bảng và bố trí vị trí các ô xét cả colspan và rowspan."""
         padded_rows = self.pad_jagged_rows(table)
         if not padded_rows:
             return TableLayoutData(x=x0, y=y0, width=0.0, height=0.0, col_widths=[], row_heights=[], cells=[])
@@ -137,32 +158,60 @@ class TableLayoutEngine:
         num_cols = len(col_widths)
         total_w = sum(col_widths)
 
-        laid_out_cells: list[list[LaidOutCell]] = []
+        # 1. Tính toán chiều cao ước tính sơ bộ của các hàng
         row_heights: list[float] = []
+        row_cell_lines_all: list[list[list[str]]] = []
 
-        cur_y = y0
         for row in padded_rows:
-            # Gói text từng ô trong hàng
             row_cell_lines = []
-            for c_idx, cell in enumerate(row.cells):
+            c_idx = 0
+            for cell in row.cells:
+                cs = max(1, getattr(cell, "colspan", 1))
+                spanned_w = sum(col_widths[c_idx : c_idx + cs]) if c_idx + cs <= num_cols else col_widths[c_idx]
                 txt = self._extract_cell_text(cell)
-                lines = self.wrap_cell_text(txt, col_widths[c_idx])
+                lines = self.wrap_cell_text(txt, spanned_w)
                 row_cell_lines.append(lines)
+                c_idx += cs
 
-            # Chiều cao hàng = số dòng lớn nhất * line_height + 2 * padding
             max_lines = max((len(ls) for ls in row_cell_lines), default=1)
             row_h = max(self.line_height + 2 * self.cell_padding, max_lines * self.line_height + 2 * self.cell_padding)
             row_heights.append(row_h)
+            row_cell_lines_all.append(row_cell_lines)
 
+        # 2. Định vị toạ độ cho từng ô trong bảng
+        laid_out_cells: list[list[LaidOutCell]] = []
+        cur_y = y0
+
+        for r_idx, row in enumerate(padded_rows):
             row_cells: list[LaidOutCell] = []
-            cur_x = x0
-            for c_idx in range(num_cols):
-                w = col_widths[c_idx]
-                row_cells.append(LaidOutCell(x=cur_x, y=cur_y, width=w, height=row_h, text_lines=row_cell_lines[c_idx]))
-                cur_x += w
+            c_idx = 0
+            for cell_idx, cell in enumerate(row.cells):
+                cs = max(1, getattr(cell, "colspan", 1))
+                rs = max(1, getattr(cell, "rowspan", 1))
+                cell_x = x0 + sum(col_widths[:c_idx])
+                cell_y = cur_y
+                cell_w = sum(col_widths[c_idx : c_idx + cs])
+                cell_h = sum(row_heights[r_idx : r_idx + rs])
+
+                c_lines = row_cell_lines_all[r_idx][cell_idx] if cell_idx < len(row_cell_lines_all[r_idx]) else []
+                row_cells.append(
+                    LaidOutCell(
+                        x=cell_x,
+                        y=cell_y,
+                        width=cell_w,
+                        height=cell_h,
+                        text_lines=c_lines,
+                        cell=cell,
+                        col=c_idx,
+                        row=r_idx,
+                        colspan=cs,
+                        rowspan=rs,
+                    )
+                )
+                c_idx += cs
 
             laid_out_cells.append(row_cells)
-            cur_y += row_h
+            cur_y += row_heights[r_idx]
 
         total_h = cur_y - y0
         return TableLayoutData(
@@ -176,7 +225,7 @@ class TableLayoutEngine:
         )
 
     def generate_border_strokes(self, data: TableLayoutData, style: TableBorder) -> list[PositionedStroke]:
-        """Tạo danh sách các đường nét vẽ thẳng (2 toạ độ điểm) làm khung viền bảng."""
+        """Tạo danh sách các đường nét vẽ thẳng (2 toạ độ điểm) làm khung viền bảng, ẩn nét trong ô gộp."""
         if style == TableBorder.NONE or data.width <= 0 or data.height <= 0:
             return []
 
@@ -187,28 +236,81 @@ class TableLayoutEngine:
 
         strokes: list[PositionedStroke] = []
 
-        # 1. Đường bao trên và dưới (có trong OUTER, ALL, HORIZONTAL)
+        # 1. Khung bao quanh ngoài (OUTER, ALL, HORIZONTAL)
         if style in (TableBorder.OUTER, TableBorder.ALL, TableBorder.HORIZONTAL):
             strokes.append(PositionedStroke(points=[(x1, y1), (x2, y1)]))
             strokes.append(PositionedStroke(points=[(x1, y2), (x2, y2)]))
 
-        # 2. Đường bao trái và phải (có trong OUTER, ALL)
         if style in (TableBorder.OUTER, TableBorder.ALL):
             strokes.append(PositionedStroke(points=[(x1, y1), (x1, y2)]))
             strokes.append(PositionedStroke(points=[(x2, y1), (x2, y2)]))
 
-        # 3. Đường chia ngang giữa các hàng (có trong ALL, HORIZONTAL)
-        if style in (TableBorder.ALL, TableBorder.HORIZONTAL):
-            accum_y = y1
-            for h in data.row_heights[:-1]:  # bỏ hàng cuối vì đã có đường đáy
-                accum_y += h
-                strokes.append(PositionedStroke(points=[(x1, accum_y), (x2, accum_y)]))
+        # Bản đồ các ô và vùng gộp để ẩn nét kẻ bên trong
+        num_rows = len(data.row_heights)
+        num_cols = len(data.col_widths)
 
-        # 4. Đường chia dọc giữa các cột (chỉ có trong ALL)
+        col_xs = [x1]
+        for w in data.col_widths:
+            col_xs.append(col_xs[-1] + w)
+
+        row_ys = [y1]
+        for h in data.row_heights:
+            row_ys.append(row_ys[-1] + h)
+
+        # 2. Đường chia ngang giữa các hàng (ALL, HORIZONTAL) theo từng phân đoạn cột
+        if style in (TableBorder.ALL, TableBorder.HORIZONTAL):
+            for r_idx in range(num_rows - 1):
+                div_y = row_ys[r_idx + 1]
+                cur_seg_start: float | None = None
+                for c_idx in range(num_cols):
+                    # Kiểm tra xem ô tại (r_idx, c_idx) có đang gộp vượt qua hàng này không (rowspan)
+                    is_spanned = False
+                    for r_cells in data.cells:
+                        for cell in r_cells:
+                            if cell.col <= c_idx < cell.col + cell.colspan:
+                                if cell.row <= r_idx < cell.row + cell.rowspan - 1:
+                                    is_spanned = True
+                                    break
+                        if is_spanned:
+                            break
+
+                    if not is_spanned:
+                        if cur_seg_start is None:
+                            cur_seg_start = col_xs[c_idx]
+                    else:
+                        if cur_seg_start is not None:
+                            strokes.append(PositionedStroke(points=[(cur_seg_start, div_y), (col_xs[c_idx], div_y)]))
+                            cur_seg_start = None
+
+                if cur_seg_start is not None:
+                    strokes.append(PositionedStroke(points=[(cur_seg_start, div_y), (col_xs[num_cols], div_y)]))
+
+        # 3. Đường chia dọc giữa các cột (chỉ có trong ALL) theo từng phân đoạn hàng
         if style == TableBorder.ALL:
-            accum_x = x1
-            for w in data.col_widths[:-1]:  # bỏ cột cuối vì đã có đường mép phải
-                accum_x += w
-                strokes.append(PositionedStroke(points=[(accum_x, y1), (accum_x, y2)]))
+            for c_idx in range(num_cols - 1):
+                div_x = col_xs[c_idx + 1]
+                cur_seg_start = None
+                for r_idx in range(num_rows):
+                    # Kiểm tra xem ô tại (r_idx, c_idx) có đang gộp vượt qua cột này không (colspan)
+                    is_spanned = False
+                    for r_cells in data.cells:
+                        for cell in r_cells:
+                            if cell.row <= r_idx < cell.row + cell.rowspan:
+                                if cell.col <= c_idx < cell.col + cell.colspan - 1:
+                                    is_spanned = True
+                                    break
+                        if is_spanned:
+                            break
+
+                    if not is_spanned:
+                        if cur_seg_start is None:
+                            cur_seg_start = row_ys[r_idx]
+                    else:
+                        if cur_seg_start is not None:
+                            strokes.append(PositionedStroke(points=[(div_x, cur_seg_start), (div_x, row_ys[r_idx])]))
+                            cur_seg_start = None
+
+                if cur_seg_start is not None:
+                    strokes.append(PositionedStroke(points=[(div_x, cur_seg_start), (div_x, row_ys[num_rows])]))
 
         return strokes
