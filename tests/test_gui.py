@@ -12,7 +12,7 @@ if not conftest.is_tk_usable():
 
 pytestmark = [pytest.mark.gui]
 
-from tkinter import filedialog, messagebox, simpledialog  # noqa: E402
+from tkinter import TclError, filedialog, messagebox, simpledialog  # noqa: E402
 
 from chuviettay.controller.app_controller import AppController  # noqa: E402
 from chuviettay.model.bank import Bank  # noqa: E402
@@ -47,8 +47,8 @@ def app(tk_root, tiny_bank_path, dlg):
         w = MainWindow(AppController(tiny_bank_path))
         w.withdraw()
         w.update()
-    except Exception as e:
-        pytest.skip(f"Không thể khởi tạo hoặc cập nhật MainWindow ({e})")
+    except TclError as e:
+        pytest.skip(f"Lỗi runtime Tk/Tcl khi khởi tạo MainWindow ({e})")
     yield w
     try:
         w.destroy()
@@ -98,8 +98,8 @@ def test_khoi_dong_that_bai_van_co_cua_so_va_sau_do_chon_kho_thi_dung_tab(tk_roo
     try:
         w = MainWindow(AppController(str(tmp_path / "khong" / "ton" / "tai" / "b.json.gz")))
         w.update()
-    except Exception as e:
-        pytest.skip(f"Không thể khởi tạo hoặc cập nhật MainWindow ({e})")
+    except TclError as e:
+        pytest.skip(f"Lỗi runtime Tk/Tcl khi khởi tạo MainWindow ({e})")
     assert dlg.kinds() == ["showerror"] and not w._tabs_built           # báo lỗi, hiện màn hình hướng dẫn
     assert w.placeholder.winfo_manager() == "pack"
     assert w._switch_bank(tiny_bank_path)
@@ -117,8 +117,8 @@ def test_khoi_dong_voi_duong_dan_bank_sai_khong_tu_tao_file(tk_root, dlg, tmp_pa
     try:
         w = MainWindow(AppController(non_existent), create_if_missing=False)
         w.update()
-    except Exception as e:
-        pytest.skip(f"Không thể khởi tạo hoặc cập nhật MainWindow ({e})")
+    except TclError as e:
+        pytest.skip(f"Lỗi runtime Tk/Tcl khi khởi tạo MainWindow ({e})")
     assert dlg.kinds() == ["showerror"]
     assert not os.path.exists(non_existent), "Gõ sai đường dẫn --bank không được tự tạo file mới!"
     assert not w._tabs_built

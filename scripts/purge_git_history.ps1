@@ -1,4 +1,4 @@
-# scripts/purge_git_history.ps1
+﻿# scripts/purge_git_history.ps1
 # Script hỗ trợ rà soát và xóa vĩnh viễn blob dữ liệu cá nhân khỏi Git history bằng git-filter-repo.
 [CmdletBinding()]
 param(
@@ -30,6 +30,7 @@ Write-Host "Đang quét các commit cũ tìm 'chu_cua_ban.json.gz' và 'kho_mau_
 $found = git log --all --name-only --oneline -- "chu_cua_ban.json.gz" "tests/data/kho_mau_chup_lai.json.gz"
 if (-not $found) {
     Write-Host "✅ Không tìm thấy blob dữ liệu cá nhân nào trong toàn bộ lịch sử commit!" -ForegroundColor Green
+    Write-Host "LƯU Ý VỀ MÁY CHỦ TỪ XA (GitHub): Dù lịch sử nhánh sạch hoàn toàn, các commit cũ vẫn có thể tồn tại trong bộ nhớ đệm máy chủ theo mã SHA cho đến khi GitHub chạy GC hoặc theo yêu cầu hỗ trợ." -ForegroundColor Gray
     exit 0
 } else {
     Write-Host "⚠️ Phát hiện vết dữ liệu cá nhân trong các commit cũ:" -ForegroundColor Yellow
@@ -96,9 +97,15 @@ if ($useFilterRepo) {
     git gc --prune=now
 }
 
-Write-Host "`n✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch sử Git!" -ForegroundColor Green
+Write-Host "`n✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch sử Git của nhánh!" -ForegroundColor Green
 Write-Host "Tệp sao lưu độc lập trước khi xóa: $backupBundle" -ForegroundColor Gray
 Write-Host "Để khôi phục nếu cần: git clone $backupBundle restored-repo" -ForegroundColor Gray
-Write-Host "LƯU Ý: Lịch sử commit đã thay đổi hash. Khi sẵn sàng cập nhật remote repo, chạy:" -ForegroundColor Yellow
-Write-Host "git push --force --mirror origin" -ForegroundColor Yellow
+Write-Host "`nLƯU Ý QUAN TRỌNG VỀ ĐỒNG BỘ VÀ LƯU TRỮ TRÊN GITHUB:" -ForegroundColor Yellow
+Write-Host "1. Cập nhật nhánh remote: chạy 'git push --force --mirror origin' để ghi đè mọi nhánh và thẻ." -ForegroundColor Yellow
+Write-Host "2. Bộ nhớ đệm máy chủ GitHub (Loose Objects): Mặc dù lịch sử nhánh đã được làm sạch 100%," -ForegroundColor Gray
+Write-Host "   GitHub vẫn có thể lưu tạm các commit object cũ qua mã SHA trực tiếp trong database máy chủ" -ForegroundColor Gray
+Write-Host "   cho đến khi Garbage Collection định kỳ của GitHub chạy." -ForegroundColor Gray
+Write-Host "3. Nếu cần xoá vĩnh viễn ngay lập tức khỏi bộ nhớ máy chủ GitHub:" -ForegroundColor Gray
+Write-Host "   Liên hệ GitHub Support (https://support.github.com/contact) và yêu cầu chạy GC/purge cache" -ForegroundColor Gray
+Write-Host "   cho repository caoduongle/viet để thu hồi các unreferenced commit objects." -ForegroundColor Gray
 Write-Host "(Khuyến nghị: kiểm tra kỹ git log và remote refs trước khi push mirror để đảm bảo an toàn tuyệt đối)" -ForegroundColor Gray

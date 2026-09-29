@@ -33,7 +33,7 @@ pytest tests/test_gui.py -k "bank_sai" -v
 
 ---
 
-## Validation Scenario 2: Reconciled 50-Save Large-Bank Benchmark (SC-004)
+## Validation Scenario 2: Reconciled 50-Save Large-Bank Benchmark (SC-003)
 
 **Purpose**: Verify sub-second interactive save latency across 50 consecutive additions on a $\ge 5,000$ sample profile.
 

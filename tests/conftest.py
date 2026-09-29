@@ -157,7 +157,16 @@ def is_tk_usable() -> bool:
         root = tk.Tk()
         root.withdraw()
 
-        # 1. Thẩm tra tệp script Tk/Tcl cốt lõi (ngăn chặn lỗi thiếu listbox.tcl trên Windows)
+        # 1. Thẩm tra tệp script Tcl cốt lõi (init.tcl)
+        try:
+            tcl_lib = root.tk.eval("set tcl_library")
+            init_script = os.path.join(tcl_lib, "init.tcl")
+            if not os.path.exists(init_script):
+                root.tk.eval("source [file join $tcl_library init.tcl]")
+        except Exception as tcl_err:  # noqa: BLE001
+            raise RuntimeError(f"Thiếu hoặc không thể nạp tệp thư viện Tcl init.tcl ({tcl_err})") from tcl_err
+
+        # 2. Thẩm tra tệp script Tk cốt lõi (ngăn chặn lỗi thiếu listbox.tcl trên Windows)
         try:
             tk_lib = root.tk.eval("set tk_library")
             for req_script in ("tk.tcl", "listbox.tcl", "button.tcl", "entry.tcl"):
@@ -168,7 +177,7 @@ def is_tk_usable() -> bool:
         except Exception as script_err:  # noqa: BLE001
             raise RuntimeError(f"Thiếu hoặc không thể nạp tệp thư viện Tk ({script_err})") from script_err
 
-        # 2. Khởi tạo các widget và kích hoạt chu trình cập nhật giao diện
+        # 3. Khởi tạo các widget và kích hoạt chu trình cập nhật giao diện
         ttk.Notebook(root)
         ttk.Button(root)
         lb = tk.Listbox(root)

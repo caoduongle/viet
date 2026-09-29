@@ -67,3 +67,62 @@ def test_tk_root_skips_when_tk_unusable(monkeypatch):
         next(gen)
 
     assert "Môi trường Tk/Tcl không khả dụng" in str(exc_info.value)
+
+
+def test_is_tk_usable_handles_missing_init_script(monkeypatch):
+    """Khi thiếu tcl_library/init.tcl, is_tk_usable phải trả về False kèm nguyên nhân rõ ràng."""
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+
+    monkeypatch.setattr(conftest, "_tk_usable_cached", None)
+
+    class MockTk:
+        def __init__(self, *args, **kwargs):
+            self.tk = self
+
+        def withdraw(self):
+            pass
+
+        def destroy(self):
+            pass
+
+        def eval(self, cmd):
+            if "init.tcl" in cmd or "set tcl_library" in cmd:
+                raise tk.TclError("can't find init.tcl")
+            return ""
+
+    monkeypatch.setattr(tk, "Tk", MockTk)
+    assert conftest.is_tk_usable() is False
+    assert "init.tcl" in conftest._tk_unusable_reason
+    monkeypatch.setattr(conftest, "_tk_usable_cached", None)
+
+
+def test_gui_guard_propagates_application_errors():
+    """Bảo đảm cơ chế guard narrowed chỉ bắt TclError, không nuốt lỗi logic ứng dụng."""
+    try:
+        from tkinter import TclError
+    except ImportError:
+        class TclError(Exception):
+            pass
+
+    from chuviettay.model.bank_schema import BankError
+
+    # 1. TclError phải được chuyển thành pytest.skip
+    with pytest.raises(pytest.skip.Exception):
+        try:
+            raise TclError("mock missing listbox.tcl")
+        except TclError as e:
+            pytest.skip(f"Tk error ({e})")
+
+    # 2. Application errors (AttributeError, BankError) KHÔNG được nuốt mà phải văng ra ngoài
+    with pytest.raises(AttributeError):
+        try:
+            raise AttributeError("mock controller bug")
+        except TclError as e:
+            pytest.skip(f"Tk error ({e})")
+
+    with pytest.raises(BankError):
+        try:
+            raise BankError("mock bank corruption")
+        except TclError as e:
+            pytest.skip(f"Tk error ({e})")

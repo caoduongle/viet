@@ -38,6 +38,7 @@ echo "Đang quét các commit cũ tìm 'chu_cua_ban.json.gz' và 'kho_mau_chup_l
 FOUND=$(git log --all --name-only --oneline -- "chu_cua_ban.json.gz" "tests/data/kho_mau_chup_lai.json.gz" || true)
 if [ -z "$FOUND" ]; then
     echo "✅ Không tìm thấy blob dữ liệu cá nhân nào trong toàn bộ lịch sử commit!"
+    echo "LƯU Ý VỀ MÁY CHỦ TỪ XA (GitHub): Dù lịch sử nhánh sạch hoàn toàn, các commit cũ vẫn có thể tồn tại trong bộ nhớ đệm máy chủ theo mã SHA cho đến khi GitHub chạy GC hoặc theo yêu cầu hỗ trợ."
     exit 0
 else
     echo "⚠️ Phát hiện vết dữ liệu cá nhân trong các commit cũ:"
@@ -82,9 +83,16 @@ else
 fi
 
 echo ""
-echo "✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch sử Git!"
+echo "✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch sử Git của nhánh!"
 echo "Tệp sao lưu độc lập trước khi xóa: ${BACKUP_BUNDLE}"
 echo "Để khôi phục nếu cần: git clone ${BACKUP_BUNDLE} restored-repo"
-echo "LƯU Ý: Lịch sử commit đã thay đổi hash. Khi sẵn sàng cập nhật remote repo, chạy:"
-echo "git push --force --mirror origin"
+echo ""
+echo "LƯU Ý QUAN TRỌNG VỀ ĐỒNG BỘ VÀ LƯU TRỮ TRÊN GITHUB:"
+echo "1. Cập nhật nhánh remote: chạy 'git push --force --mirror origin' để ghi đè mọi nhánh và thẻ."
+echo "2. Bộ nhớ đệm máy chủ GitHub (Loose Objects): Mặc dù lịch sử nhánh đã được làm sạch 100%,"
+echo "   GitHub vẫn có thể lưu tạm các commit object cũ qua mã SHA trực tiếp trong database máy chủ"
+echo "   cho đến khi Garbage Collection định kỳ của GitHub chạy."
+echo "3. Nếu cần xoá vĩnh viễn ngay lập tức khỏi bộ nhớ máy chủ GitHub:"
+echo "   Liên hệ GitHub Support (https://support.github.com/contact) và yêu cầu chạy GC/purge cache"
+echo "   cho repository caoduongle/viet để thu hồi các unreferenced commit objects."
 echo "(Khuyến nghị: kiểm tra kỹ git log và remote refs trước khi push mirror để đảm bảo an toàn tuyệt đối)"

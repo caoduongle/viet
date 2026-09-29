@@ -180,7 +180,7 @@ python3 -m pytest                  # chạy tất cả (test giao diện tự b�
 xvfb-run -a python3 -m pytest      # Linux không màn hình: chạy cả test giao diện thật
 ```
 
-Hơn 210 ca kiểm thử tự động, chia nhóm:
+Hơn 240 ca kiểm thử tự động, chia nhóm:
 
 - **Đơn vị** cho từng hàm/lớp Model (`test_text_utils`, `test_bank`, `test_writer`, `test_xopp`, ...) và
   cho `AppController`; kho mẫu thử là một kho **nhỏ tự dựng** (`tests/conftest.py`) nên tự tính tay được đáp án.
@@ -193,6 +193,13 @@ Hơn 210 ca kiểm thử tự động, chia nhóm:
 
 Test **không bao giờ** đọc hay ghi `chu_cua_ban.json.gz` của bạn: chúng dùng một **bản chụp cố định** trong
 `tests/data/` (và luôn làm việc trên bản sao trong thư mục tạm), nên kết quả không đổi khi bạn dạy thêm từ mới.
+
+### Về dữ liệu cá nhân và lịch sử Git
+
+Repository đã được rà soát và làm sạch hoàn toàn các blob dữ liệu cá nhân (`chu_cua_ban.json.gz` và `kho_mau_chup_lai.json.gz`) khỏi toàn bộ lịch sử commit của các nhánh và thẻ bằng `git-filter-repo` (xem `scripts/purge_git_history.ps1` hoặc `scripts/purge_git_history.sh`).
+
+> [!NOTE]
+> **Lưu ý về lưu trữ đối tượng phía máy chủ (GitHub):** Việc viết lại lịch sử nhánh (`git push --force --mirror`) đảm bảo 100% các nhánh và thẻ công khai không còn tham chiếu tới dữ liệu cũ. Tuy nhiên, các nền tảng máy chủ từ xa như GitHub có thể lưu trữ tạm thời các commit object mồ côi (unreachable objects) trong bộ nhớ đệm máy chủ nếu truy cập trực tiếp bằng mã SHA commit cũ, cho đến khi chu kỳ dọn rác (Garbage Collection) của máy chủ chạy hoặc theo yêu cầu thu hồi bộ nhớ gửi tới GitHub Support.
 
 ## Mở rộng — làm theo công thức
 

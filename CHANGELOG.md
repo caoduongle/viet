@@ -92,7 +92,13 @@ lấy hàm/lớp bên trong sẽ không còn dùng được. Đổi sang:
 - `Bank.save()` tự động huỷ bỏ và bảo vệ file gốc nguyên vẹn nếu phát hiện file trên đĩa bị hỏng trong quá trình hợp nhất, chống mất dữ liệu ngoài ý muốn.
 - Thắt chặt kiểm tra lược đồ `pen.color` bằng `re.fullmatch()`, từ chối các chuỗi mã màu chứa ký tự rác ở đuôi.
 
+### Độ tin cậy kiểm thử, Thẩm tra Tk/Tcl & Vệ sinh Git History
+- **Thu hẹp phạm vi ngoại lệ kiểm thử GUI**: Chỉ bắt `tkinter.TclError` khi khởi tạo `MainWindow` trong `tests/test_gui.py` và fixture `app` (loại bỏ `except Exception`), bảo đảm các lỗi logic nghiệp vụ của Controller và Model gây lỗi kiểm thử lập tức thay vì bị che giấu thành trạng thái bỏ qua (`SKIPPED`).
+- **Khớp hợp đồng thẩm tra Tk/Tcl runtime**: Bổ sung kiểm tra tường minh tệp thư viện cốt lõi `$tcl_library/init.tcl` song song với `$tk_library/{tk.tcl, listbox.tcl, button.tcl, entry.tcl}` trong `tests/conftest.py`.
+- **Minh bạch hóa bộ nhớ đệm máy chủ Git**: Làm rõ cơ chế lưu trữ commit object của GitHub trong tài liệu và script bảo trì (`scripts/purge_git_history.*`), phân biệt rõ ràng giữa việc làm sạch 100% lịch sử nhánh/thẻ với việc máy chủ từ xa lưu tạm các commit mồ côi theo mã SHA cho tới kỳ GC.
+- **Nâng cấp CI & Đồng bộ tài liệu**: Nâng cấp và rà soát các action GitHub Actions (`actions/checkout@v4`, `actions/setup-python@v5`), chuẩn hóa số liệu kiểm thử (>240 ca) và đồng bộ mã kịch bản nghiệm thu.
+
 ### Mới
-- Bộ kiểm thử hơn 160 ca (`pytest`), gồm test giao diện thật chạy dưới màn hình ảo, golden-master so với bản
+- Bộ kiểm thử hơn 240 ca (`pytest`), gồm test giao diện thật chạy dưới màn hình ảo, golden-master so với bản
   gốc, và test kiến trúc. Xem README → "Kiểm thử".
 - Tham số `--bank` cho `hw_gui.py`; cờ `-v` cho cả hai.
