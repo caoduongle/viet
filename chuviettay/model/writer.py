@@ -181,6 +181,10 @@ class Writer:
                 inst = self.pick(b.words[ch], ch)
                 strokes += [shift(st, x + 0.15 * b.xh, 0) for st in inst["s"]]
                 x += inst["w"] + 0.15 * b.xh
+            elif getattr(b, "symbols", None) and ch in b.symbols:
+                inst = self.pick(b.symbols[ch], "sym:" + ch)
+                strokes += [shift(st, x + 0.15 * b.xh, 0) for st in inst["s"]]
+                x += inst["w"] + 0.15 * b.xh
             else:
                 miss.append(ch)
         if not core and not lead and trail == tok and tok not in b.words:

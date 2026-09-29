@@ -117,3 +117,78 @@ def test_write_document_with_math_block(tiny_bank_path, tmp_path):
     strokes = layer.findall("stroke")
     assert len(strokes) >= 1
 
+
+def test_write_document_with_list_block(tiny_bank_path, tmp_path):
+    from chuviettay.document.ir import ListBlock
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+
+    doc = Document(blocks=[
+        ListBlock(
+            ordered=True,
+            items=[
+                [Paragraph(inlines=[Text(text="mục thứ nhất")])],
+                [Paragraph(inlines=[Text(text="mục thứ hai")])],
+            ],
+            start=1,
+        ),
+        ListBlock(
+            ordered=False,
+            items=[
+                [Paragraph(inlines=[Text(text="gạch đầu dòng A")])],
+                [Paragraph(inlines=[Text(text="gạch đầu dòng B")])],
+            ],
+        ),
+    ])
+
+    out = str(tmp_path / "list_pipeline.xopp")
+    res = ctl.write_document(doc, WriteOptions(seed=12), out)
+    assert res.n_lines >= 4
+    assert res.n_strokes > 0
+
+
+def test_write_document_with_inline_math_and_symbols(tiny_bank_path, tmp_path):
+    from chuviettay.document.ir import MathInline, Symbol
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+
+    doc = Document(blocks=[
+        Paragraph(inlines=[
+            Text(text="xin chào"),
+            MathInline(latex="\\Delta = b^2 - 4ac"),
+            Symbol(symbol="≤"),
+            Text(text="1"),
+        ])
+    ])
+
+    out = str(tmp_path / "inline_math_pipeline.xopp")
+    res = ctl.write_document(doc, WriteOptions(seed=12), out)
+    assert res.n_strokes > 0
+    assert "≤" in res.missing_symbols
+    assert res.missing_symbols["≤"] >= 1
+
+
+def test_write_document_table_pagination(tiny_bank_path, tmp_path):
+    from chuviettay.document.ir import Table, TableBorder, TableCell, TableRow
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+
+    # Bảng 5 hàng với khoảng cách dòng 800pt -> tổng chiều cao > 3000pt (MAXH) -> ngắt trang
+    rows = [TableRow(cells=[TableCell.from_text(f"xin {i}"), TableCell.from_text(f"ba {i}")]) for i in range(5)]
+    doc = Document(blocks=[Table(rows=rows, border_style=TableBorder.ALL)])
+
+    out = str(tmp_path / "paginated_table.xopp")
+    res = ctl.write_document(doc, WriteOptions(line=800, seed=12), out)
+    assert res.n_tables == 1
+    assert res.n_strokes > 0
+
+    raw = gzip.decompress(open(out, "rb").read())
+    root = ET.fromstring(raw)
+    pages = root.findall("page")
+    assert len(pages) > 1, "Bảng lớn vượt quá chiều cao trang phải được chia thành nhiều trang"
+    for p in pages:
+        layer = p.find("layer")
+        assert layer is not None
+        strokes = layer.findall("stroke")
+        assert len(strokes) > 0, "Mỗi trang phải có nét viền và nội dung ô"
+

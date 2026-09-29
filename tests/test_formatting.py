@@ -29,3 +29,20 @@ def test_bao_cao_cat_bot_khi_qua_nhieu_tu_thieu():
 def test_khong_co_dong_da_tao_khi_khong_ghi_file_luoi_o():
     r = WriteResult("o", 1, 1, 2, 1, missing={"x": 1})
     assert len(write_report_lines(r)) == 3
+
+
+def test_bao_cao_co_ky_hieu_thieu():
+    r = WriteResult(
+        "ra.xopp",
+        1,
+        10,
+        5,
+        2,
+        missing={"abc": 1},
+        missing_symbols={"∑": 3, "≤": 1},
+    )
+    lines = write_report_lines(r)
+    assert any("Ký hiệu thiếu mẫu" in line for line in lines)
+    sym_line = next(line for line in lines if "Ký hiệu thiếu mẫu" in line)
+    assert "∑ (x3)" in sym_line
+    assert "≤ (x1)" in sym_line

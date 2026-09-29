@@ -25,6 +25,23 @@ class LearnResult:
     file_notes: list[str] = field(default_factory=list)   # ghi chú hiệu chỉnh cỡ tay (nếu file nào có lệch)
 
 
+def is_symbol_label(label: str, bank: Bank | None = None) -> bool:
+    """Xác định xem nhãn ô học có phải là ký hiệu toán học / glyph đặc biệt hay không."""
+    if label.startswith("\\"):
+        return True
+    if bank is not None and hasattr(bank, "symbols") and label in bank.symbols:
+        return True
+    if len(label) == 1:
+        import unicodedata
+        cat = unicodedata.category(label)
+        if cat in ("Sm", "So", "Sk"):
+            return True
+        code = ord(label)
+        if (0x0370 <= code <= 0x03FF) or (0x2190 <= code <= 0x22FF):
+            return True
+    return False
+
+
 def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
     """Đọc từng file trong `paths`, học mọi ô đã viết tay vào kho mẫu `bank`. Nếu ô đầu
     tiên (0,0,0) của một file là ô "đo cỡ tay" (file có thẻ hw2c), tự tính hệ số cỡ tay
@@ -47,7 +64,7 @@ def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
             rel = [[round((v - (r.left if i % 2 == 0 else r.base)) * scale, 2)
                     for i, v in enumerate(s)] for s in r.strokes]
             width = round((r.right - r.left) * scale, 2)
-            if r.label.startswith("\\") or (hasattr(bank, "symbols") and r.label in bank.symbols):
+            if is_symbol_label(r.label, bank):
                 bank.add_symbol_sample(r.label, rel, width)
             else:
                 bank.add_sample(r.label, rel, width)

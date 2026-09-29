@@ -79,12 +79,19 @@ class WriteResult:
     n_missing_tokens: int
     missing: dict[str, int] = field(default_factory=dict)   # token thiếu mẫu -> số lần gặp
     missing_grid_path: str | None = None   # file lưới ô đã tạo để dạy các từ thiếu (None nếu không thiếu gì)
+    missing_symbols: dict[str, int] = field(default_factory=dict)  # ký hiệu toán học thiếu mẫu -> số lần gặp
+    n_tables: int = 0                      # tổng số bảng biểu đã dàn trang
+    n_math_blocks: int = 0                 # tổng số khối công thức toán học đã dàn trang
 
     def missing_sorted(self) -> list[tuple[str, int]]:
         """[(token, số lần gặp), ...] gặp nhiều nhất xếp trước, bằng nhau thì theo chữ
         cái -- một cách sắp xếp duy nhất dùng chung cho file lưới ô, CLI và GUI (bản
         gốc viết lại đúng biểu thức sắp xếp này ở 3 chỗ)."""
         return sorted(self.missing.items(), key=lambda kv: (-kv[1], kv[0]))
+
+    def missing_symbols_sorted(self) -> list[tuple[str, int]]:
+        """[(ký hiệu, số lần gặp), ...] gặp nhiều nhất xếp trước, bằng nhau thì theo chữ cái."""
+        return sorted(self.missing_symbols.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
 def _missing_grid_path(out_path: str) -> str:

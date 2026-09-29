@@ -145,3 +145,29 @@ def test_import_docx_unsupported_elements(tmp_path):
 
     assert len(res.unsupported) > 0
     assert any("drawing" in item.lower() or "picture" in item.lower() for item in res.unsupported)
+
+
+def test_import_docx_hyperlink(tmp_path):
+    import docx
+    from docx.oxml import parse_xml
+    from chuviettay.importer.docx_importer import DocxImporter
+    from chuviettay.document.ir import Paragraph
+
+    doc_path = str(tmp_path / "link.docx")
+    doc = docx.Document()
+    p = doc.add_paragraph("Xem tại ")
+    hyperlink_xml = (
+        '<w:hyperlink xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '  <w:r><w:t>Trang chủ</w:t></w:r>'
+        '</w:hyperlink>'
+    )
+    p._element.append(parse_xml(hyperlink_xml))
+    doc.save(doc_path)
+
+    importer = DocxImporter()
+    res = importer.import_file(doc_path)
+    assert len(res.document.blocks) == 1
+    block = res.document.blocks[0]
+    assert isinstance(block, Paragraph)
+    all_texts = [inline.text for inline in block.inlines if isinstance(inline, Text)]
+    assert any("Trang chủ" in t for t in all_texts)

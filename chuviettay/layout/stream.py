@@ -21,7 +21,9 @@ class PageBuffer:
         self.n_pages = 0
         self._temp_path: str = ""
         # Tạo file tạm thời
-        fd, self._temp_path = tempfile.mkstemp(suffix=".xopp", dir=os.path.dirname(os.path.abspath(out_path)))
+        parent_dir = os.path.dirname(os.path.abspath(out_path)) or "."
+        os.makedirs(parent_dir, exist_ok=True)
+        fd, self._temp_path = tempfile.mkstemp(suffix=".xopp", dir=parent_dir)
         os.close(fd)
         self._f: IO[str] = gzip.open(self._temp_path, "wt", encoding="utf-8", newline="")
         self._f.write(xopp.HEAD + "\n")

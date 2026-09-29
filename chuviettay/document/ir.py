@@ -53,6 +53,11 @@ class Symbol(Inline):
     """Ký hiệu toán học hoặc glyph đặc biệt rời rạc (ví dụ: ≤, ∑, π, α)."""
     symbol: str
 
+    @property
+    def name(self) -> str:
+        """Bí danh tương thích cho thuộc tính symbol."""
+        return self.symbol
+
 
 @dataclass
 class LineBreak(Inline):

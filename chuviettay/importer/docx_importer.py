@@ -249,6 +249,14 @@ class DocxImporter(BaseImporter):
                 inlines.append(MathInline(latex=ltx, ast=math_ast))
                 omml_blocks.append(MathBlock(latex=ltx, ast=math_ast))
 
+            elif tag == "hyperlink":
+                for r_child in child:
+                    r_tag = r_child.tag.split("}")[-1] if "}" in r_child.tag else r_child.tag
+                    if r_tag == "r":
+                        text_elem = next((c for c in r_child if c.tag.endswith("t")), None)
+                        if text_elem is not None and text_elem.text:
+                            inlines.append(Text(text=text_elem.text))
+
             elif tag in ("drawing", "pict"):
                 unsupported.append(f"{tag}: embedded image or drawing shape")
 

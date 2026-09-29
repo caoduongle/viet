@@ -32,4 +32,9 @@ def write_report_lines(result: WriteResult) -> list[str]:
         if result.missing_grid_path:
             lines.append("Đã tạo %s: viết các từ đó một lần, lưu, rồi chạy: python hw_note.py learn %s"
                          % (result.missing_grid_path, result.missing_grid_path))
+    if getattr(result, "missing_symbols", None):
+        sym_items = result.missing_symbols_sorted()
+        lines.append("Ký hiệu thiếu mẫu (%d): %s" % (
+            len(sym_items),
+            ", ".join("%s (x%d)" % (s, c) for s, c in sym_items[:MAX_MISSING_SHOWN])))
     return lines

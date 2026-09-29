@@ -64,3 +64,23 @@ def test_file_chua_viet_gi_thi_khong_them_mau(tiny_bank, tmp_path):
     p = str(tmp_path / "g.xopp")
     xopp.make_grid(p, ["ba"], tiny_bank, "h", calib=False)
     assert learn_from_files(tiny_bank, [p]).n_added == 0
+
+
+def test_hoc_ky_hieu_toan_hoc(tiny_bank, tmp_path):
+    p = str(tmp_path / "sym_grid.xopp")
+    xopp.make_grid(
+        p,
+        ["∑", "\\alpha"],
+        tiny_bank,
+        "h",
+        {"∑": [[0, 0, 4, -5, 8, 0]], "\\alpha": [[0, -5, 4, 0, 8, -5]]},
+        calib=False,
+    )
+    r = learn_from_files(tiny_bank, [p])
+    assert r.n_added == 2
+    # Phải được lưu vào symbols chứ không phải words
+    assert "∑" in tiny_bank.symbols
+    assert len(tiny_bank.symbols["∑"]) == 1
+    assert "\\alpha" in tiny_bank.symbols
+    assert len(tiny_bank.symbols["\\alpha"]) == 1
+    assert "∑" not in tiny_bank.words
