@@ -26,7 +26,7 @@ python -m pytest -q
 # Run specifically non-GUI unit tests
 python -m pytest -q -m "not gui"
 ```
-**Expected Outcome**: 0 errors, 0 failures, 215+ passed tests. Any GUI tests on broken Tk environments report `SKIPPED` rather than `ERROR`.
+**Expected Outcome**: 0 errors, 0 failures, 262+ passed tests. Any GUI tests on broken Tk environments report `SKIPPED` rather than `ERROR`.
 
 ---
 

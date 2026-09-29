@@ -2,3 +2,4 @@
 # ứng dụng chỉ dùng thư viện chuẩn của Python (+ tkinter cho giao diện).
 pytest>=8.0.0
 pyinstaller==6.12.0
+ruff>=0.4.0

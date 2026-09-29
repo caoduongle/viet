@@ -4,7 +4,7 @@
 
 **Created**: 2026-09-29
 
-**Status**: Draft
+**Status**: Implemented
 
 **Input**: User description: "Rà soát lại commit 31f289c và GitHub Actions: 1. CI Windows 3.10 fail do Tk/Tcl init.tcl; 2. Incremental indexing chưa thực sự O(1); 3. Incremental marks lệch rebuild() do mất mark bị lọc; 4. Benchmark và save() chưa tối ưu cho large bank (merge + rebuild + gzip toàn bộ); 5. Lost-update do delete vẫn còn (hồi sinh từ); 6. merge_bank_dicts() stroke_signature chỉ dựa trên 's'; 7. Deep schema validation chưa kiểm tra T/vi/ti invariant; 8. Schema chưa kiểm tra sâu pen (tool/color/width); 9. Git purge script backup branch trong repo không an toàn; 10. README lệch CI (Python 3.11/3.13)."
 

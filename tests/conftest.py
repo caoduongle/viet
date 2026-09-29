@@ -67,6 +67,40 @@ def tiny_bank_dict():
     }
 
 
+def generate_large_synthetic_bank_dict(n_samples: int = 5000) -> dict:
+    """Tạo nhanh kho mẫu tổng hợp có số lượng mẫu lớn (mặc định 5,000) phục vụ benchmark.
+    Bao gồm các từ có dấu thanh để kiểm thử chỉ mục _raw_marks và lọc phân vị."""
+    tones_list = ["", "\u0300", "\u0301", "\u0303", "\u0309", "\u0323"]
+    words_dict = {}
+    samples_per_word = 10
+    num_words = max(1, n_samples // samples_per_word)
+
+    for w_idx in range(num_words):
+        t = tones_list[w_idx % len(tones_list)]
+        word_label = f"word_{w_idx}" if not t else f"word_{w_idx}{t}"
+        samples = []
+        for s_idx in range(samples_per_word):
+            ti = 1 if t else -1
+            vi = 2 if t else -1
+            strokes = [[0.0, 0.0, 5.0, -5.0, 10.0, 0.0]]
+            if t:
+                strokes.append([5.0, -10.0 + s_idx * 0.05, 7.0, -8.0 + s_idx * 0.05])
+            samples.append({"w": 12.0 + (s_idx * 0.1), "s": strokes, "T": t, "vi": vi, "ti": ti})
+        words_dict[word_label] = samples
+
+    return {
+        "schema_version": 2,
+        "xh": 7.0, "wgaps": [11.0], "dgaps": [3.5], "line": 24.0, "v": 1,
+        "x0": 78.0, "width": 500.0, "ratio": 6.6,
+        "pen": {"tool": "pen", "color": "#000000ff", "width": "1.41", "capStyle": "round"},
+        "words": words_dict,
+        "digits": {"1": [{"w": 3.0, "s": [[0, 0, 1, -6]]}]},
+        "punct": {".": [{"w": 1.0, "s": [[0, 0, 0.5, 0.5]]}]},
+        "tombstones": {},
+        "generation": 1,
+    }
+
+
 @pytest.fixture
 def tiny_bank_path(tmp_path):
     p = tmp_path / "tiny.json.gz"
@@ -79,6 +113,24 @@ def tiny_bank_path(tmp_path):
 def tiny_bank(tiny_bank_path):
     from chuviettay.model.bank import Bank
     return Bank(tiny_bank_path)
+
+
+def make_corrupt_bank(path: str, mode: str = "bad_gzip") -> str:
+    """Tạo file kho mẫu bị hỏng ở path:
+    - 'bad_gzip': header/payload gzip không hợp lệ
+    - 'bad_json': gzip hợp lệ nhưng bên trong là JSON sai cú pháp
+    - 'empty': file 0 bytes
+    """
+    if mode == "empty":
+        with open(path, "wb"):
+            pass
+    elif mode == "bad_gzip":
+        with open(path, "wb") as f:
+            f.write(b"not-a-gzip-stream-at-all\x00\x01\x02\x03")
+    elif mode == "bad_json":
+        with gzip.open(path, "wt", encoding="utf-8") as f:
+            f.write("{invalid-json-content: 123,")
+    return path
 
 
 _tk_usable_cached: bool | None = None

@@ -71,3 +71,59 @@ def test_explicit_reteaching_revokes_tombstone(tmp_path):
     assert "xin" in reloaded.words
     assert len(reloaded.words["xin"]) == 1
     assert "xin" not in reloaded.d.get("tombstones", {})
+
+
+def test_stale_snapshot_sample_addition_does_not_resurrect_deleted_word(tmp_path):
+    """Kịch bản chạy đua:
+    T0: Cả A và B cùng mở kho có 'foo' (mẫu S0).
+    T1: A xoá 'foo' và lưu -> 'foo' biến mất, tombstone ghi nhận vào đĩa.
+    T2: B (chưa hề biết 'foo' bị xoá trên đĩa) thêm mẫu S1 vào 'foo' rồi lưu.
+    Kết quả: Khi B hợp nhất với đĩa, mẫu của B xuất phát từ snapshot cũ trước T1,
+    nên 'foo' KHÔNG được hồi sinh trên đĩa và tombstone của 'foo' phải được giữ nguyên."""
+    p = str(tmp_path / "stale_race.json.gz")
+    init_b = Bank.create_empty(p)
+    init_b.add_sample("foo", [[0, 0, 5, 0]], 5.0)
+    init_b.save()
+
+    # T0: Cả A và B nạp kho có 'foo'
+    proc_a = Bank(p)
+    proc_b = Bank(p)
+
+    # T1: A xoá 'foo' và lưu
+    proc_a.drop("foo")
+    proc_a.save()
+
+    # T2: B dùng snapshot cũ thêm mẫu mới cho 'foo' rồi lưu
+    proc_b.add_sample("foo", [[0, 0, 5.5, 0]], 5.5)
+    proc_b.save()
+
+    # Kiểm tra trạng thái trên đĩa
+    final_bank = Bank(p)
+    assert "foo" not in final_bank.words, "'foo' đã bị hồi sinh bởi snapshot cũ của B!"
+    assert "foo" in final_bank.d.get("tombstones", {}), "Tombstone của 'foo' bị xoá trái phép!"
+
+
+def test_tombstones_dict_aliasing_preserved_after_merge(tmp_path):
+    """Kiểm tra tính đồng nhất đối tượng (object identity) của _tombstones và d['tombstones']:
+    Sau khi Bank.save() kích hoạt merge_bank_dicts, self._tombstones và self.d['tombstones']
+    phải trỏ tới cùng một dictionary trong bộ nhớ."""
+    p = str(tmp_path / "aliasing.json.gz")
+    b1 = Bank.create_empty(p)
+    b1.add_sample("xin", [[0, 0, 5, 0]], 5.0)
+    b1.save()
+
+    b2 = Bank(p)
+    # Tiến trình 1 xoá 'xin' và lưu
+    b1.drop("xin")
+    b1.save()
+
+    # Tiến trình 2 lưu một thay đổi khác -> kích hoạt merge_bank_dicts
+    b2.add_sample("chao", [[0, 0, 6, 0]], 6.0)
+    b2.save()
+
+    # Sau khi save/merge, b2._tombstones PHẢI là b2.d["tombstones"]
+    assert b2._tombstones is b2.d["tombstones"], "_tombstones và d['tombstones'] bị phân tách sau merge!"
+
+    # Thử gọi drop() trên b2 và kiểm tra xem d['tombstones'] có nhận được ngay lập tức không
+    b2.drop("chao")
+    assert "chao" in b2.d["tombstones"], "Đột biến _tombstones sau merge không phản ánh vào d['tombstones']!"

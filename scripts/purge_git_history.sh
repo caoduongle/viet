@@ -72,4 +72,5 @@ echo "✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch sử Gi
 echo "Tệp sao lưu độc lập trước khi xóa: ${BACKUP_BUNDLE}"
 echo "Để khôi phục nếu cần: git clone ${BACKUP_BUNDLE} restored-repo"
 echo "LƯU Ý: Lịch sử commit đã thay đổi hash. Khi sẵn sàng cập nhật remote repo, chạy:"
-echo "git push --force --all origin"
+echo "git push --force --mirror origin"
+echo "(Khuyến nghị: kiểm tra kỹ git log và remote refs trước khi push mirror để đảm bảo an toàn tuyệt đối)"

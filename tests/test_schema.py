@@ -204,6 +204,44 @@ def test_tombstones_invalid_values_fails(minimal_valid_bank_dict):
         validate_bank_dict(d)
 
 
+def test_tombstones_structured_valid(minimal_valid_bank_dict):
+    d = copy.deepcopy(minimal_valid_bank_dict)
+    d["tombstones"] = {
+        "xin": {"deleted_at": 1719000000.0, "generation": 1},
+        "chao": {"deleted_at": 1719000050.5},
+        "ba": 1719000100.0,
+    }
+    assert validate_bank_dict(d) == 2
+
+
+def test_tombstones_structured_invalid_deleted_at(minimal_valid_bank_dict):
+    d = copy.deepcopy(minimal_valid_bank_dict)
+    d["tombstones"] = {"xin": {"deleted_at": "invalid-ts", "generation": 1}}
+    with pytest.raises(BankValidationError, match="deleted_at"):
+        validate_bank_dict(d)
+
+
+def test_tombstones_structured_invalid_generation(minimal_valid_bank_dict):
+    d = copy.deepcopy(minimal_valid_bank_dict)
+    d["tombstones"] = {"xin": {"deleted_at": 1719000000.0, "generation": -5}}
+    with pytest.raises(BankValidationError, match="generation"):
+        validate_bank_dict(d)
+
+
+def test_root_generation_valid(minimal_valid_bank_dict):
+    d = copy.deepcopy(minimal_valid_bank_dict)
+    d["generation"] = 42
+    assert validate_bank_dict(d) == 2
+
+
+@pytest.mark.parametrize("invalid_gen", [-1, -99, "invalid", 1.5, True])
+def test_root_generation_invalid_fails(minimal_valid_bank_dict, invalid_gen):
+    d = copy.deepcopy(minimal_valid_bank_dict)
+    d["generation"] = invalid_gen
+    with pytest.raises(BankValidationError, match="generation"):
+        validate_bank_dict(d)
+
+
 # ------------------------------------------------------------------ real-world legacy bank compatibility
 def test_real_world_chu_cua_ban_loads_cleanly():
     if os.path.exists("chu_cua_ban.json.gz"):
