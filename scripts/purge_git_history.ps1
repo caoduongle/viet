@@ -77,4 +77,5 @@ Write-Host "`n✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch
 Write-Host "Tệp sao lưu độc lập trước khi xóa: $backupBundle" -ForegroundColor Gray
 Write-Host "Để khôi phục nếu cần: git clone $backupBundle restored-repo" -ForegroundColor Gray
 Write-Host "LƯU Ý: Lịch sử commit đã thay đổi hash. Khi sẵn sàng cập nhật remote repo, chạy:" -ForegroundColor Yellow
-Write-Host "git push --force --all origin" -ForegroundColor Yellow
+Write-Host "git push --force --mirror origin" -ForegroundColor Yellow
+Write-Host "(Khuyến nghị: kiểm tra kỹ git log và remote refs trước khi push mirror để đảm bảo an toàn tuyệt đối)" -ForegroundColor Gray

@@ -9,6 +9,7 @@ from chuviettay.config import NANG, TONES
 from chuviettay.model.bank import (
     Bank,
     BankCorruptedError,
+    BankError,
     BankNotFoundError,
     BankValidationError,
     UnsupportedSchemaVersionError,
@@ -459,4 +460,126 @@ def test_merge_bank_dicts_preserves_samples_with_same_strokes_different_metadata
     widths = [s["w"] for s in samples]
     assert widths.count(10.0) == 2
     assert widths.count(12.0) == 1
+
+
+# ------------------------------------------------------------------ US1 tests: Safe persistence abort
+def test_save_aborts_and_does_not_overwrite_when_disk_corrupted(tmp_path):
+    """Khi file trên đĩa bị corrupt hoặc không thể load_and_validate, Bank.save()
+    bắt buộc phải raise BankError, dọn sạch file tạm, và KHÔNG được ghi đè file trên đĩa."""
+    from tests.conftest import make_corrupt_bank
+    p = str(tmp_path / "bank.json.gz")
+    b = Bank.create_empty(p)
+    b.add_sample("xin", [[0, 0, 5, 0]], 5.0)
+    b.save()
+
+    # Làm hỏng file trên đĩa từ một nguồn bên ngoài
+    make_corrupt_bank(p, mode="bad_gzip")
+    with open(p, "rb") as f:
+        corrupted_bytes = f.read()
+
+    # Thay đổi trong bộ nhớ và lưu lại -> phải raise BankCorruptedError hoặc BankError
+    b.add_sample("chao", [[0, 0, 6, 0]], 6.0)
+    with pytest.raises(BankError):
+        b.save()
+
+    # File trên đĩa phải còn nguyên vẹn byte-identical với trạng thái corrupt
+    with open(p, "rb") as f:
+        assert f.read() == corrupted_bytes
+
+    # Thư mục cha không còn sót file .tmp
+    parent = tmp_path
+    tmp_files = list(parent.glob("*.tmp")) + list(parent.glob(".bank_*.tmp"))
+    assert len(tmp_files) == 0
+
+
+def test_save_force_overwrite_replaces_corrupt_disk(tmp_path):
+    """Khi người dùng chỉ định rõ force_overwrite=True, Bank.save() bỏ qua merge
+    và ghi đè thành công lên file hỏng trên đĩa."""
+    from tests.conftest import make_corrupt_bank
+    p = str(tmp_path / "bank.json.gz")
+    b = Bank.create_empty(p)
+    b.add_sample("xin", [[0, 0, 5, 0]], 5.0)
+    b.save()
+
+    # Làm hỏng file trên đĩa
+    make_corrupt_bank(p, mode="bad_json")
+
+    # Lưu với force_overwrite=True
+    b.add_sample("chao", [[0, 0, 6, 0]], 6.0)
+    b.save(force_overwrite=True)
+
+    # Nạp lại file từ đĩa phải thành công và có đủ 'xin', 'chao'
+    reloaded = Bank(p)
+    assert "xin" in reloaded.words
+    assert "chao" in reloaded.words
+
+
+# ------------------------------------------------------------------ US4 benchmark: 5,000 samples
+def test_large_bank_persistence_benchmark_5000_samples(tmp_path):
+    """Benchmark độ trễ ghi kho mẫu với 5,000 mẫu:
+    1. Tạo file kho mẫu với 5,000 mẫu thực tế có đủ dấu thanh.
+    2. Nạp kho mẫu lên bộ nhớ và đo thời gian thực hiện 20 lần dạy từ liên tiếp (add_sample_incremental + save).
+    3. Kiểm tra độ trễ trung bình mỗi lần lưu < 1.0 giây (bảo đảm đường dẫn nhanh fast-path hoạt động hiệu quả)."""
+    import time
+    from tests.conftest import generate_large_synthetic_bank_dict
+
+    p = tmp_path / "large_5000.json.gz"
+    large_d = generate_large_synthetic_bank_dict(n_samples=5000)
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(large_d, f, ensure_ascii=False)
+
+    bank = Bank(str(p))
+    total_samples = sum(len(s_list) for s_list in bank.words.values())
+    assert total_samples >= 5000
+
+    num_incremental = 20
+    latencies = []
+    t_start_batch = time.perf_counter()
+
+    for i in range(num_incremental):
+        t0 = time.perf_counter()
+        bank.add_sample_incremental(
+            "chào",
+            [[0.0, 0.0, 5.0, -6.0, 10.0, 0.0, 14.0, -5.0], [7.0, -11.0 + i * 0.05, 9.0, -9.0 + i * 0.05]],
+            14.0,
+        )
+        bank.save()
+        latencies.append(time.perf_counter() - t0)
+
+    t_total = time.perf_counter() - t_start_batch
+    avg_latency = sum(latencies) / len(latencies)
+    max_latency = max(latencies)
+
+    # Đảm bảo độ trễ mỗi lần lưu dưới 1.0s và tổng 20 lần dưới 15.0s
+    assert avg_latency < 1.0, f"Độ trễ trung bình quá lớn: {avg_latency:.3f}s (> 1.0s)"
+    assert max_latency < 1.5, f"Độ trễ lớn nhất vượt ngưỡng: {max_latency:.3f}s (> 1.5s)"
+    assert t_total < 15.0, f"Tổng thời gian batch 20 lần vượt ngưỡng: {t_total:.3f}s (> 15.0s)"
+
+    # Nạp lại kiểm tra tính toàn vẹn
+    reloaded = Bank(str(p))
+    assert len(reloaded.words["chào"]) >= num_incremental
+
+
+# ------------------------------------------------------------------ US5 tests: In-memory consistency on drop
+def test_drop_prunes_tl_raw_marks_and_updates_can_immediately(tiny_bank):
+    """Khi drop(word), các chỉ mục tra cứu trong bộ nhớ (tl, _raw_marks, marks)
+    phải được dọn dẹp ngay lập tức và can(word) trả về False mà không cần gọi rebuild()."""
+    # tiny_bank có 'chào' (dấu huyền)
+    assert tiny_bank.can("chào")
+    assert "chao" in tiny_bank.tl
+    assert len(tiny_bank.marks["\u0300"]) > 0
+    assert len(tiny_bank._raw_marks["\u0300"]) > 0
+
+    # Xoá 'chào'
+    removed = tiny_bank.drop("chào")
+    assert removed == 2
+    assert "chào" not in tiny_bank.words
+
+    # can("chào") phải False ngay lập tức vì không còn thân 'chào' và không còn dấu huyền
+    assert not tiny_bank.can("chào")
+    assert "chao" not in tiny_bank.tl
+
+    # Dấu huyền trong _raw_marks và marks xuất phát từ 'chào' phải bị loại bỏ
+    assert len(tiny_bank._raw_marks["\u0300"]) == 0
+    assert len(tiny_bank.marks["\u0300"]) == 0
 

@@ -84,10 +84,10 @@ lấy hàm/lớp bên trong sẽ không còn dùng được. Đổi sang:
 | `SEED` | `chuviettay.model.seed_words.SEED` |
 | `BANK_PATH` | `chuviettay.paths.default_bank_path()` |
 
-### Còn tồn tại từ bản gốc (chưa sửa, cần lưu ý)
-- App giữ kho mẫu trong bộ nhớ và **ghi đè cả file** mỗi lần dạy/xoá từ. Nếu trong lúc cửa sổ đang mở bạn chạy
-  `hw_note.py learn/drop` ở dòng lệnh rồi lại **dạy tiếp trong cửa sổ**, phần dòng lệnh vừa thêm có thể bị ghi
-  đè. Tab Viết chữ thì luôn nạp lại kho mới nhất từ đĩa trước mỗi lần viết (giống bản gốc).
+### An toàn đa tiến trình & Đồng bộ đồng thời (Đã giải quyết)
+- Hệ thống hỗ trợ hoàn toàn an toàn đa tiến trình (cross-process concurrency) giữa GUI và CLI thông qua `FileLock` (khóa cấp OS), kiểm tra cache `mtime_ns`/`size` và thuật toán hợp nhất `merge_bank_dicts()` nguyên tử.
+- Xung đột xóa và dạy từ được giải quyết thông qua cơ chế Deletion Tombstones có ghi nhận thế hệ (generation) và timestamp, ngăn ngừa tuyệt đối tình trạng snapshot cũ hồi sinh từ đã xoá.
+- `Bank.save()` tự động huỷ bỏ và bảo vệ file gốc nguyên vẹn nếu phát hiện file trên đĩa bị hỏng, chống mất dữ liệu ngoài ý muốn.
 
 ### Mới
 - Bộ kiểm thử hơn 160 ca (`pytest`), gồm test giao diện thật chạy dưới màn hình ảo, golden-master so với bản

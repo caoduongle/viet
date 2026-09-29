@@ -55,3 +55,26 @@ def test_raw_marks_retains_filtered_outliers(tmp_path):
     assert len(b._raw_marks["\u0300"]) == 12, "Toàn bộ 12 dấu phải còn nguyên trong _raw_marks"
     # marks áp dụng lọc phân vị 10-90% khi có >= 10 mẫu -> loại bỏ biên (còn 9 mẫu)
     assert len(b.marks["\u0300"]) == 9, "marks phải lọc phân vị khi có 12 mẫu (còn 9 mẫu)"
+
+
+def test_tone_marks_parity_across_different_counts(tmp_path):
+    """Kiểm tra tính tương đương tuyệt đối giữa incremental và rebuild
+    ở các mốc số lượng dấu: < 10 (chưa lọc), == 10 (bắt đầu lọc), và > 10."""
+    p = str(tmp_path / "parity_counts.json.gz")
+    b = Bank.create_empty(p)
+
+    for i in range(25):
+        dy_off = (i - 12) * 0.15
+        dx_off = (i % 5 - 2) * 0.1
+        b.add_sample_incremental(
+            "chào",
+            [[0, 0, 5, -6, 10, 0, 14, -5], [7 + dx_off, -11 + dy_off, 9 + dx_off, -9 + dy_off]],
+            14.0,
+        )
+        if i in (5, 9, 10, 15, 24):
+            inc_marks = {t: list(b.marks[t]) for t in TONES}
+            b_rebuilt = Bank.create_empty(str(tmp_path / f"rebuilt_{i}.json.gz"))
+            b_rebuilt.words = {k: list(v) for k, v in b.words.items()}
+            b_rebuilt.rebuild()
+            rebuilt_marks = {t: list(b_rebuilt.marks[t]) for t in TONES}
+            assert inc_marks == rebuilt_marks, f"Marks không khớp ở mốc {i+1} mẫu!"

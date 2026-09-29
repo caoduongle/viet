@@ -256,8 +256,30 @@ def validate_bank_dict(d: Any, context: str = "", allow_legacy: bool = False) ->
         for t_k, t_v in tombstones.items():
             if not isinstance(t_k, str):
                 raise BankValidationError(f"Khoá của 'tombstones' phải là chuỗi, nhận được: {t_k!r}{ctx}")
-            if not isinstance(t_v, (int, float)) or isinstance(t_v, bool) or not math.isfinite(t_v):
-                raise BankValidationError(f"Giá trị tombstone['{t_k}'] phải là timestamp số hữu hạn, nhận được: {t_v!r}{ctx}")
+            if isinstance(t_v, dict):
+                del_at = t_v.get("deleted_at")
+                if not isinstance(del_at, (int, float)) or isinstance(del_at, bool) or not math.isfinite(del_at):
+                    raise BankValidationError(
+                        f"Giá trị tombstone['{t_k}']['deleted_at'] phải là timestamp số hữu hạn, nhận được: {del_at!r}{ctx}"
+                    )
+                if "generation" in t_v:
+                    gen = t_v["generation"]
+                    if not isinstance(gen, int) or isinstance(gen, bool) or gen < 0:
+                        raise BankValidationError(
+                            f"Giá trị tombstone['{t_k}']['generation'] phải là số nguyên không âm, nhận được: {gen!r}{ctx}"
+                        )
+            elif isinstance(t_v, (int, float)) and not isinstance(t_v, bool) and math.isfinite(t_v):
+                pass
+            else:
+                raise BankValidationError(
+                    f"Giá trị tombstone['{t_k}'] phải là timestamp số hữu hạn hoặc dict cấu trúc, nhận được: {t_v!r}{ctx}"
+                )
+
+    # Kiểm tra generation nếu có
+    if "generation" in d:
+        gen = d["generation"]
+        if not isinstance(gen, int) or isinstance(gen, bool) or gen < 0:
+            raise BankValidationError(f"Trường 'generation' phải là số nguyên không âm, nhận được: {gen!r}{ctx}")
 
     # 5. Kiểm tra sâu cấu trúc danh sách mẫu trong words/digits/punct
     for c_name in ("words", "digits", "punct"):
