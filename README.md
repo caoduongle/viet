@@ -189,11 +189,11 @@ Gặp triệu chứng nào thì mở file nào trước:
 
 ```bash
 pip install -r requirements-dev.txt
-python3 -m pytest                  # chạy tất cả (test giao diện tự bỏ qua nếu không có màn hình)
-xvfb-run -a python3 -m pytest      # Linux không màn hình: chạy cả test giao diện thật
+python3 -m pytest -vv -s --timeout=30             # chạy tất cả kèm watchdog timeout
+xvfb-run -a python3 -m pytest -vv -s --timeout=30 # Linux không màn hình: chạy cả test giao diện thật
 ```
 
-Hơn 240 ca kiểm thử tự động, chia nhóm:
+Hơn 370 ca kiểm thử tự động, chia nhóm:
 
 - **Đơn vị** cho từng hàm/lớp Model (`test_text_utils`, `test_bank`, `test_writer`, `test_xopp`, ...) và
   cho `AppController`; kho mẫu thử là một kho **nhỏ tự dựng** (`tests/conftest.py`) nên tự tính tay được đáp án.

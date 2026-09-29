@@ -98,7 +98,15 @@ lấy hàm/lớp bên trong sẽ không còn dùng được. Đổi sang:
 - **Minh bạch hóa bộ nhớ đệm máy chủ Git**: Làm rõ cơ chế lưu trữ commit object của GitHub trong tài liệu và script bảo trì (`scripts/purge_git_history.*`), phân biệt rõ ràng giữa việc làm sạch 100% lịch sử nhánh/thẻ với việc máy chủ từ xa lưu tạm các commit mồ côi theo mã SHA cho tới kỳ GC.
 - **Nâng cấp CI & Đồng bộ tài liệu**: Nâng cấp và rà soát các action GitHub Actions (`actions/checkout@v4`, `actions/setup-python@v5`), chuẩn hóa số liệu kiểm thử (>240 ca) và đồng bộ mã kịch bản nghiệm thu.
 
+### Phòng chống Treo/Deadlock CI, Kiểm thử Chẩn đoán Timeout & An toàn Bộ nạp Tài liệu (Feature 008)
+- **Cấu hình Timeout & Tự động hủy job cũ trên CI**: Bổ sung `timeout-minutes: 10` cho test job, `timeout-minutes: 5` cho lint job; kích hoạt `concurrency.cancel-in-progress: true` vô điều kiện để giải phóng runner ngay khi có commit mới.
+- **Tích hợp Watchdog Timeout (`pytest-timeout`)**: Kiểm soát từng ca kiểm thử với ngưỡng 30s (`--timeout=30`), tự động ngắt và in traceback call-stack chi tiết nếu test bị kẹt; gắn `@pytest.mark.timeout(120)` cho benchmark lớn.
+- **Bảo vệ an toàn pha thu thập kiểm thử (Collection Phase Safety)**: Sử dụng `pytest.importorskip` cho tất cả các kiểm thử tài liệu mở rộng (`python-docx`, `markdown-it-py`), triệt tiêu hoàn toàn lỗi crash `ModuleNotFoundError` khi chạy trong môi trường tối giản.
+- **Mock tự động hộp thoại Tkinter trong kiểm thử không đầu**: Thêm fixture autouse `_safe_gui_dialogs` trong `tests/conftest.py` và hoàn thiện mocking trong `tests/test_gui_document.py`, ngăn chặn vĩnh viễn tình trạng mở popup modal chờ người dùng bấm trên môi trường Linux `xvfb`.
+- **Hiển thị tiến trình trực tiếp (Streaming Logs)**: Đổi cờ pytest trên CI từ `-q` sang `-vv -s` để theo dõi tiến trình chạy và log từng ca kiểm thử theo thời gian thực.
+
 ### Mới
-- Bộ kiểm thử hơn 240 ca (`pytest`), gồm test giao diện thật chạy dưới màn hình ảo, golden-master so với bản
-  gốc, và test kiến trúc. Xem README → "Kiểm thử".
+- Bộ kiểm thử hơn 370 ca (`pytest`), gồm test giao diện thật chạy dưới màn hình ảo, golden-master so với bản
+  gốc, test bộ nạp tài liệu và test kiến trúc. Xem README → "Kiểm thử".
 - Tham số `--bank` cho `hw_gui.py`; cờ `-v` cho cả hai.
+

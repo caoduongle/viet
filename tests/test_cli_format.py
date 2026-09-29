@@ -16,6 +16,7 @@ def test_cli_parser_format_argument():
 
 
 def test_cli_write_markdown_file(tmp_path, tiny_bank_path, capsys):
+    pytest.importorskip("markdown_it", reason="Cần cài đặt markdown-it-py để chạy kiểm thử định dạng Markdown")
     md_file = tmp_path / "sample.md"
     md_file.write_text("# Tiêu đề\n\nNội dung văn bản", encoding="utf-8")
     out_xopp = tmp_path / "sample.xopp"
@@ -36,8 +37,10 @@ def test_cli_write_markdown_file(tmp_path, tiny_bank_path, capsys):
 
 
 def test_cli_write_docx_file(tmp_path, tiny_bank_path, capsys):
+    pytest.importorskip("docx", reason="Cần cài đặt python-docx để chạy kiểm thử định dạng Word")
     import docx
     docx_file = tmp_path / "sample.docx"
+
     doc = docx.Document()
     doc.add_paragraph("Đoạn văn trong Word")
     doc.save(str(docx_file))

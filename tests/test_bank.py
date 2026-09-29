@@ -525,6 +525,7 @@ def test_save_force_overwrite_replaces_corrupt_disk(tmp_path):
 
 
 # ------------------------------------------------------------------ US4 benchmark: 5,000 samples
+@pytest.mark.timeout(120)
 def test_large_bank_persistence_benchmark_5000_samples(tmp_path):
     """Benchmark độ trễ ghi kho mẫu với 5,000 mẫu:
     1. Tạo file kho mẫu với 5,000 mẫu thực tế có đủ dấu thanh.

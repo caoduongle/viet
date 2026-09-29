@@ -1,9 +1,13 @@
 """Kiểm thử bộ nạp tài liệu MarkdownImporter."""
 import pytest
 
+pytest.importorskip("markdown_it", reason="Cần cài đặt markdown-it-py để chạy kiểm thử định dạng Markdown")
+pytest.importorskip("mdit_py_plugins", reason="Cần cài đặt mdit-py-plugins để chạy kiểm thử định dạng Markdown")
+
 from chuviettay.document.ir import Heading, ListBlock, MathBlock, MathInline, Paragraph, Table, Text
 from chuviettay.importer.dependency import OptionalDependencyError
 from chuviettay.importer.markdown_importer import MarkdownImporter
+
 
 
 def test_markdown_headings():

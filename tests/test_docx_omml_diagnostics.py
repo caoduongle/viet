@@ -1,15 +1,13 @@
 """Kiểm thử phát hiện và phân loại các thẻ OMML chưa được hỗ trợ vào ImportResult.unsupported."""
 import pytest
-from docx import Document as DocxDoc
-from docx.oxml import parse_xml
 
-from chuviettay.importer.dependency import require_dependency
-from chuviettay.importer.docx_importer import DocxImporter
+pytest.importorskip("docx", reason="Cần cài đặt python-docx để chạy kiểm thử định dạng Word")
 
+from docx import Document as DocxDoc  # noqa: E402
+from docx.oxml import parse_xml  # noqa: E402
 
-@pytest.fixture(autouse=True)
-def require_docx():
-    require_dependency("docx", "tài liệu Word (.docx)", "docs")
+from chuviettay.importer.docx_importer import DocxImporter  # noqa: E402
+
 
 
 def test_docx_omml_unsupported_tags_logged(tmp_path):

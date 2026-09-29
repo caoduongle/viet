@@ -70,6 +70,7 @@ def test_table_rowspan_measurement_and_border_suppression():
 
 
 def test_docx_import_table_with_merged_cells(tmp_path):
+    pytest.importorskip("docx", reason="Cần cài đặt python-docx để chạy kiểm thử bảng Word")
     import docx
     from chuviettay.importer.docx_importer import DocxImporter
 

@@ -226,3 +226,25 @@ def tk_root():
         root.destroy()
     except Exception:  # noqa: BLE001, S110
         pass
+
+
+@pytest.fixture(autouse=True)
+def _safe_gui_dialogs(monkeypatch):
+    """Bảo đảm mọi hộp thoại Tkinter (messagebox, simpledialog) không mở popup chặn tiến trình khi test trên headless/xvfb."""
+    try:
+        from tkinter import messagebox, simpledialog
+    except (ImportError, Exception):  # noqa: BLE001
+        return
+
+    # Mock các hộp thoại thông báo và xác nhận để không treo modal loop trên xvfb
+    for name in ("showinfo", "showwarning", "showerror"):
+        monkeypatch.setattr(messagebox, name, lambda *a, **kw: "ok")
+    for name in ("askokcancel", "askyesno", "askyesnocancel", "askretrycancel"):
+        monkeypatch.setattr(messagebox, name, lambda *a, **kw: True)
+    monkeypatch.setattr(messagebox, "askquestion", lambda *a, **kw: "yes")
+
+    # Mock các hộp thoại nhập liệu đơn giản
+    monkeypatch.setattr(simpledialog, "askstring", lambda *a, **kw: "")
+    monkeypatch.setattr(simpledialog, "askinteger", lambda *a, **kw: 0)
+    monkeypatch.setattr(simpledialog, "askfloat", lambda *a, **kw: 0.0)
+

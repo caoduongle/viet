@@ -2,13 +2,11 @@
 import io
 import pytest
 
+pytest.importorskip("docx", reason="Cần cài đặt python-docx để chạy kiểm thử định dạng Word")
+
 from chuviettay.document.ir import Heading, MathBlock, Paragraph, Table, Text
 from chuviettay.importer.dependency import require_dependency
 
-
-@pytest.fixture(autouse=True)
-def require_docx():
-    require_dependency("docx", "tài liệu Word (.docx)", "docs")
 
 
 def test_import_docx_sequential_order(tmp_path):
