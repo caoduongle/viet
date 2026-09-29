@@ -73,3 +73,74 @@ def test_cli_write_txt_backward_compatible(tmp_path, tiny_bank_path, capsys):
     ])
     assert ret == 0
     assert out_xopp.exists()
+
+
+def test_cli_write_sample_fixtures_e2e(tmp_path, tiny_bank_path):
+    """Kiểm thử chuyển đổi bộ tài liệu mẫu thực tế fixtures/sample.{txt,md,docx} sang .xopp."""
+    import gzip
+    import os
+
+    fixtures_dir = os.path.join(os.path.dirname(__file__), "fixtures")
+    sample_txt = os.path.join(fixtures_dir, "sample.txt")
+    sample_md = os.path.join(fixtures_dir, "sample.md")
+    sample_docx = os.path.join(fixtures_dir, "sample.docx")
+
+    # 1. Chuyển đổi sample.txt
+    if os.path.exists(sample_txt):
+        out_txt = tmp_path / "sample_txt.xopp"
+        ret = main([
+            "--bank", str(tiny_bank_path),
+            "write",
+            "-f", sample_txt,
+            "-o", str(out_txt),
+            "--format", "auto",
+        ])
+        assert ret == 0
+        assert out_txt.exists()
+        with gzip.open(out_txt, "rt", encoding="utf-8") as gz:
+            content = gz.read()
+            assert "<xournal" in content
+            assert "<page" in content
+            assert "<stroke" in content
+
+    # 2. Chuyển đổi sample.md
+    if os.path.exists(sample_md):
+        try:
+            import markdown_it  # noqa: F401
+            out_md = tmp_path / "sample_md.xopp"
+            ret = main([
+                "--bank", str(tiny_bank_path),
+                "write",
+                "-f", sample_md,
+                "-o", str(out_md),
+                "--format", "auto",
+            ])
+            assert ret == 0
+            assert out_md.exists()
+            with gzip.open(out_md, "rt", encoding="utf-8") as gz:
+                content = gz.read()
+                assert "<xournal" in content
+                assert "<stroke" in content
+        except ImportError:
+            pass
+
+    # 3. Chuyển đổi sample.docx
+    if os.path.exists(sample_docx):
+        try:
+            import docx  # noqa: F401
+            out_docx = tmp_path / "sample_docx.xopp"
+            ret = main([
+                "--bank", str(tiny_bank_path),
+                "write",
+                "-f", sample_docx,
+                "-o", str(out_docx),
+                "--format", "auto",
+            ])
+            assert ret == 0
+            assert out_docx.exists()
+            with gzip.open(out_docx, "rt", encoding="utf-8") as gz:
+                content = gz.read()
+                assert "<xournal" in content
+        except ImportError:
+            pass
+

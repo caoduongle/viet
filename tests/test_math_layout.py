@@ -69,3 +69,89 @@ def test_math_layout_fraction_and_symbol_measurement(tiny_bank_path):
     layout_sym = engine.measure(sym)
     assert layout_sym.size.width > 5.0
     assert "∑" in engine.missing_symbols
+
+
+def test_math_layout_root_deduplication(tiny_bank_path):
+    """Kiểm tra căn thức không bị nhân đôi ký tự hoặc nét vẽ."""
+    from chuviettay.model.bank import Bank
+    from chuviettay.layout.math_layout import MathLayoutEngine
+
+    bank = Bank(tiny_bank_path)
+    engine = MathLayoutEngine(bank)
+
+    # Biểu thức \sqrt{x^2 + 1}
+    ast = parse_latex_math("\\sqrt{x^2 + 1}")
+    root_node = ast.items[0]
+    assert isinstance(root_node, Root)
+
+    # Đo riêng radicand
+    rad_item = engine.measure(root_node.radicand)
+    rad_glyph_count = len(rad_item.glyphs)
+    assert rad_glyph_count > 0, "Radicand phải chứa ít nhất 1 glyph"
+
+    # Đo toàn bộ căn thức
+    root_item = engine.measure(root_node)
+
+    # Số lượng glyph trong căn thức PHẢI bằng chính xác số lượng glyph của radicand (không được nhân đôi)
+    assert len(root_item.glyphs) == rad_glyph_count, (
+        f"Lỗi nhân đôi glyph: có {len(root_item.glyphs)} glyphs nhưng radicand chỉ có {rad_glyph_count}"
+    )
+
+    # Mọi glyph trong căn thức đều phải được dịch sang phải dấu căn (x > 0)
+    for g in root_item.glyphs:
+        assert g.x >= 5.0, f"Glyph '{g.char}' vẫn ở toạ độ gốc (x={g.x})"
+
+    # Nét vẽ trong root_item: 1 nét dấu căn + số nét đã dịch của radicand (không bị duplicate)
+    assert len(root_item.strokes) == 1 + len(rad_item.strokes), (
+        f"Lỗi nhân đôi nét: {len(root_item.strokes)} nét trong root_item so với {1 + len(rad_item.strokes)} nét mong đợi"
+    )
+
+
+def test_math_layout_root_with_degree(tiny_bank_path):
+    r"""Kiểm tra căn thức bậc n (\sqrt[n]{x}) hiển thị đúng bậc và radicand."""
+    from chuviettay.model.bank import Bank
+    from chuviettay.layout.math_layout import MathLayoutEngine
+
+    bank = Bank(tiny_bank_path)
+    engine = MathLayoutEngine(bank)
+
+    # tiny_bank có số '1' và '2'
+    ast = parse_latex_math("\\sqrt[2]{1}")
+    root_node = ast.items[0]
+    assert isinstance(root_node, Root)
+    assert root_node.degree is not None
+
+    root_item = engine.measure(root_node)
+    # Phải có 2 glyphs: 1 cho bậc '2' và 1 cho radicand '1'
+    assert len(root_item.glyphs) == 2
+    # Bậc căn phải đặt ở góc trái trước dấu căn (x < hook_start_x), radicand nằm sau dấu căn
+    deg_g, rad_g = root_item.glyphs[0], root_item.glyphs[1]
+    assert deg_g.x < rad_g.x
+
+
+def test_math_layout_text_node_handwriting_strokes(real_bank):
+    """Kiểm tra các biểu thức toán thực sự sinh nét chữ viết tay (total_glyph_strokes > 0) khi có mẫu trong kho."""
+    from chuviettay.layout.math_layout import MathLayoutEngine
+
+    # Cung cấp mẫu nét chữ cho biến toán học 'x' và 'i'
+    real_bank.symbols["x"] = [{"s": [[0.0, 0.0, 5.0, -7.0], [0.0, -7.0, 5.0, 0.0]], "w": 6.0}]
+    real_bank.symbols["i"] = [{"s": [[0.0, 0.0, 1.0, -5.0], [0.5, -7.0, 0.5, -6.5]], "w": 3.0}]
+
+    engine = MathLayoutEngine(real_bank)
+
+    formulas = [
+        "x^2 + 1",
+        "\\sqrt{x}",
+        "\\sqrt{x^2 + 1}",
+        "\\frac{x + 1}{2}",
+        "x_i^2",
+    ]
+
+    for f in formulas:
+        ast = parse_latex_math(f)
+        item = engine.measure(ast)
+        assert len(item.glyphs) > 0, f"Biểu thức '{f}' không sinh glyph nào"
+        total_strokes = sum(len(g.strokes) for g in item.glyphs)
+        assert total_strokes > 0, f"Biểu thức '{f}' có glyphs nhưng không có nét chữ viết tay nào"
+
+

@@ -248,31 +248,84 @@ class DocumentLayoutEngine:
 
                 elif isinstance(block, Table):
                     table_engine = TableLayoutEngine(self.width, self.line_h)
-                    padded_rows = table_engine.pad_jagged_rows(block)
-                    if not padded_rows:
+
+                    def cell_inlines_formatter(cell: TableCell, usable_w: float) -> list[list[tuple[float, list[Stroke], float]]]:
+                        nonlocal ntok, nmiss
+                        cell_inlines: list[Inline] = []
+                        for blk_idx, b in enumerate(cell.blocks):
+                            if isinstance(b, Paragraph):
+                                if blk_idx > 0:
+                                    cell_inlines.append(LineBreak())
+                                cell_inlines.extend(b.inlines)
+                            elif isinstance(b, MathBlock):
+                                if blk_idx > 0:
+                                    cell_inlines.append(LineBreak())
+                                cell_inlines.append(MathInline(latex=b.latex, ast=b.ast))
+
+                        if cell_inlines:
+                            items, n_t, n_m = self._layout_inlines(cell_inlines, scale_mult=1.0, missing_symbols=missing_symbols)
+                            ntok += n_t
+                            nmiss += n_m
+                        else:
+                            items = []
+
+                        cell_lines: list[list[tuple[float, list[Stroke], float]]] = []
+                        cur_l: list[tuple[float, list[Stroke], float]] = []
+                        cur_lw = 0.0
+                        for st, w, miss in items:
+                            if miss == ["__LINE_BREAK__"]:
+                                if cur_l:
+                                    cell_lines.append(cur_l)
+                                    cur_l = []
+                                    cur_lw = 0.0
+                                continue
+                            sp = 6.0 * self.S * self.opts.space
+                            if cur_l and cur_lw + sp + w > usable_w:
+                                cell_lines.append(cur_l)
+                                cur_l = [(0.0, st, w)]
+                                cur_lw = w
+                            else:
+                                start_rel = cur_lw + (sp if cur_l else 0.0)
+                                cur_l.append((start_rel, st, w))
+                                cur_lw = start_rel + w
+                        if cur_l:
+                            cell_lines.append(cur_l)
+                        return cell_lines
+
+                    full_table_data = table_engine.layout_table(
+                        block,
+                        x0=self.x0,
+                        y0=cur_y,
+                        cell_inlines_formatter=cell_inlines_formatter,
+                    )
+                    if full_table_data.width <= 0 or not full_table_data.cells:
                         continue
 
-                    col_widths = table_engine.compute_column_widths(block)
-                    table_w = sum(col_widths)
+                    curr_row_idx = 0
+                    num_rows = len(full_table_data.row_heights)
 
-                    cur_table_cells: list[list[LaidOutCell]] = []
-                    cur_table_row_heights: list[float] = []
-                    slice_start_y = cur_y
+                    while curr_row_idx < num_rows:
+                        avail_h = max_page_y - cur_y
+                        if avail_h < self.line_h + 2 * table_engine.cell_padding and cur_y > 30.0:
+                            new_page()
+                            avail_h = max_page_y - cur_y
 
-                    def flush_table_slice():
-                        nonlocal cur_table_cells, cur_table_row_heights, slice_start_y, cur_y, total_strokes, total_lines, ntok, nmiss
-                        if not cur_table_cells:
-                            return
-                        slice_h = sum(cur_table_row_heights)
-                        slice_data = TableLayoutData(
-                            x=self.x0,
-                            y=slice_start_y,
-                            width=table_w,
-                            height=slice_h,
-                            col_widths=col_widths,
-                            row_heights=cur_table_row_heights,
-                            cells=cur_table_cells,
+                        slice_data, next_row = full_table_data.slice_page(
+                            curr_row_idx,
+                            max_height=avail_h,
+                            new_y=cur_y,
                         )
+                        if not slice_data.cells or next_row == curr_row_idx:
+                            new_page()
+                            avail_h = max_page_y - cur_y
+                            slice_data, next_row = full_table_data.slice_page(
+                                curr_row_idx,
+                                max_height=avail_h,
+                                new_y=cur_y,
+                            )
+                            if not slice_data.cells or next_row == curr_row_idx:
+                                break
+
                         # 1. Sinh nét viền bảng cho trang hiện tại
                         border_strokes = table_engine.generate_border_strokes(slice_data, block.border_style)
                         for bs in border_strokes:
@@ -280,7 +333,7 @@ class DocumentLayoutEngine:
                             total_strokes += 1
 
                         # 2. Sinh nét chữ bên trong các ô
-                        for row_cells in cur_table_cells:
+                        for row_cells in slice_data.cells:
                             for laid_cell in row_cells:
                                 align = "left"
                                 if block.col_alignments and laid_cell.col < len(block.col_alignments):
@@ -312,143 +365,13 @@ class DocumentLayoutEngine:
                                         total_strokes += len(cell_strokes)
                                         total_lines += 1
                                         cell_cur_y += self.line_h
-                                elif laid_cell.text_lines:
-                                    for t_line in laid_cell.text_lines:
-                                        norm_t = normalize_text(t_line)
-                                        toks = norm_t.split()
-                                        cell_line_items = []
-                                        c_w = 0.0
-                                        for tok in toks:
-                                            st, w, miss = self.wr.token(tok)
-                                            ntok += 1
-                                            if miss:
-                                                nmiss += len(miss)
-                                                for m in miss:
-                                                    self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                                            w *= self.S
-                                            sp = 6.0 * self.S * self.opts.space
-                                            start = c_w + (sp if cell_line_items else 0.0)
-                                            cell_line_items.append((start, st, w))
-                                            c_w = start + w
 
-                                        line_w = cell_line_items[-1][0] + cell_line_items[-1][2] if cell_line_items else 0.0
-                                        if align == "center":
-                                            extra_x = max(0.0, (usable_w - line_w) / 2.0)
-                                        elif align == "right":
-                                            extra_x = max(0.0, usable_w - line_w)
-                                        else:
-                                            extra_x = 0.0
+                        cur_y += slice_data.height
+                        curr_row_idx = next_row
 
-                                        start_x = laid_cell.x + table_engine.cell_padding + extra_x
-                                        cell_strokes = self._render_text_line(
-                                            cell_line_items,
-                                            cell_cur_y + self.line_h * 0.8,
-                                            start_x,
-                                        )
-                                        cur_page.extend(cell_strokes)
-                                        total_strokes += len(cell_strokes)
-                                        total_lines += 1
-                                        cell_cur_y += self.line_h
-
-                        cur_y = slice_start_y + slice_h
-                        cur_table_cells = []
-                        cur_table_row_heights = []
-
-                    for r_idx, row in enumerate(padded_rows):
-                        row_cell_lines_items: list[list[list[tuple[float, list[Stroke], float]]]] = []
-                        c_curr = 0
-                        for cell in row.cells:
-                            cs = max(1, getattr(cell, "colspan", 1))
-                            cell_w = sum(col_widths[c_curr : c_curr + cs])
-                            usable_w = max(10.0, cell_w - 2 * table_engine.cell_padding)
-
-                            cell_inlines: list[Inline] = []
-                            for blk_idx, b in enumerate(cell.blocks):
-                                if isinstance(b, Paragraph):
-                                    if blk_idx > 0:
-                                        cell_inlines.append(LineBreak())
-                                    cell_inlines.extend(b.inlines)
-                                elif isinstance(b, MathBlock):
-                                    if blk_idx > 0:
-                                        cell_inlines.append(LineBreak())
-                                    cell_inlines.append(MathInline(latex=b.latex, ast=b.ast))
-
-                            if cell_inlines:
-                                items, n_t, n_m = self._layout_inlines(cell_inlines, scale_mult=1.0, missing_symbols=missing_symbols)
-                                ntok += n_t
-                                nmiss += n_m
-                            else:
-                                items = []
-
-                            cell_lines: list[list[tuple[float, list[Stroke], float]]] = []
-                            cur_l: list[tuple[float, list[Stroke], float]] = []
-                            cur_lw = 0.0
-                            for st, w, miss in items:
-                                if miss == ["__LINE_BREAK__"]:
-                                    if cur_l:
-                                        cell_lines.append(cur_l)
-                                        cur_l = []
-                                        cur_lw = 0.0
-                                    continue
-                                sp = 6.0 * self.S * self.opts.space
-                                if cur_l and cur_lw + sp + w > usable_w:
-                                    cell_lines.append(cur_l)
-                                    cur_l = [(0.0, st, w)]
-                                    cur_lw = w
-                                else:
-                                    start_rel = cur_lw + (sp if cur_l else 0.0)
-                                    cur_l.append((start_rel, st, w))
-                                    cur_lw = start_rel + w
-                            if cur_l:
-                                cell_lines.append(cur_l)
-
-                            row_cell_lines_items.append(cell_lines)
-                            c_curr += cs
-
-                        max_lines = max(
-                            (len(cls) for cls, c in zip(row_cell_lines_items, row.cells) if getattr(c, "rowspan", 1) <= 1),
-                            default=1,
-                        )
-                        max_lines = max(max_lines, 1)
-                        row_h = max(
-                            self.line_h + 2 * table_engine.cell_padding,
-                            max_lines * self.line_h + 2 * table_engine.cell_padding,
-                        )
-
-                        if cur_y + row_h > max_page_y and (cur_y > 30.0 or cur_table_cells):
-                            flush_table_slice()
+                        if curr_row_idx < num_rows:
                             new_page()
-                            slice_start_y = cur_y
 
-                        row_cells = []
-                        c_curr = 0
-                        for cell_idx, cell in enumerate(row.cells):
-                            cs = max(1, getattr(cell, "colspan", 1))
-                            rs = max(1, getattr(cell, "rowspan", 1))
-                            cell_w = sum(col_widths[c_curr : c_curr + cs])
-                            cell_x = self.x0 + sum(col_widths[:c_curr])
-                            row_cells.append(
-                                LaidOutCell(
-                                    x=cell_x,
-                                    y=cur_y,
-                                    width=cell_w,
-                                    height=row_h,
-                                    text_lines=[],
-                                    cell=cell,
-                                    col=c_curr,
-                                    row=r_idx,
-                                    colspan=cs,
-                                    rowspan=rs,
-                                    rendered_lines=row_cell_lines_items[cell_idx],
-                                )
-                            )
-                            c_curr += cs
-
-                        cur_table_cells.append(row_cells)
-                        cur_table_row_heights.append(row_h)
-                        cur_y += row_h
-
-                    flush_table_slice()
                     cur_y += self.line_h * 0.4
                     total_tables += 1
 

@@ -1,1 +1,16 @@
-xin chào bạn
+Cộng hòa Xã hội Chủ nghĩa Việt Nam
+Độc lập - Tự do - Hạnh phúc
+
+BÀI TẬP TOÁN VÀ TIẾNG VIỆT CÓ DẤU
+
+1. Khảo sát hàm số và biểu thức đại số:
+   Cho biểu thức f(x) = x² + 2x + 1. Hãy tính giá trị tại x = 3.
+
+2. Danh sách công thức toán cần nhớ:
+   - Căn bậc hai: √(x² + 1)
+   - Phân số: (a + b) / c và (x + 1) / 2
+   - Ký hiệu so sánh: x ≤ 10, y ≥ 5, a ≠ b
+   - Ký hiệu toán học: π ≈ 3.14159, α = 30°, β = 60°, tổng ∑ x_i
+
+3. Kết luận:
+   Tài liệu kiểm thử định dạng văn bản thuần với đầy đủ thanh dấu tiếng Việt và dòng trắng cách quãng.

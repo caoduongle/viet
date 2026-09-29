@@ -26,9 +26,19 @@ def test_unsupported_format_name_raises_error(invalid_fmt):
 
 
 def test_supported_formats_return_correct_importer():
+    from chuviettay.importer.dependency import OptionalDependencyError
+
     assert isinstance(get_importer_for_path("file.txt"), TxtImporter)
-    assert isinstance(get_importer_for_path("file.md"), MarkdownImporter)
-    assert isinstance(get_importer_for_path("file.markdown"), MarkdownImporter)
-    assert isinstance(get_importer_for_path("file.docx"), DocxImporter)
+    try:
+        assert isinstance(get_importer_for_path("file.md"), MarkdownImporter)
+        assert isinstance(get_importer_for_path("file.markdown"), MarkdownImporter)
+    except OptionalDependencyError as exc:
+        assert exc.package_name == "markdown_it"
+
+    try:
+        assert isinstance(get_importer_for_path("file.docx"), DocxImporter)
+    except OptionalDependencyError as exc:
+        assert exc.package_name == "docx"
+
     assert isinstance(get_importer_for_path("", format_name="txt"), TxtImporter)
     assert isinstance(get_importer_for_path("", format_name="auto"), TxtImporter)
