@@ -254,7 +254,7 @@ def test_di_tru_kho_v1_thieu_metadata_tu_dong_dien_defaults(tmp_path):
     with gzip.open(p, "wt", encoding="utf-8") as f:
         json.dump(d, f)
     b = Bank(p)
-    assert b.d["schema_version"] == 2
+    assert b.d["schema_version"] == 3
     assert b.d["line"] == 24.0
     assert b.d["width"] == 500.0
     assert b.d["x0"] == 78.0
@@ -275,18 +275,18 @@ def test_di_tru_kho_v1_legacy_sang_v2_trong_bo_nho(tmp_path):
         json.dump(d, f)
 
     b = Bank(p)
-    # Trong bộ nhớ đã được nâng cấp lên schema_version = 2
-    assert b.d["schema_version"] == 2
+    # Trong bộ nhớ đã được nâng cấp lên schema_version = 3
+    assert b.d["schema_version"] == 3
     assert "ba" in b.words
 
     # Nhưng trên đĩa vẫn giữ nguyên bản gốc (chưa ghi đè vì chỉ đọc)
     disk_raw = gzip.decompress(open(p, "rb").read()).decode("utf-8")
     assert "schema_version" not in disk_raw
 
-    # Khi có thao tác save() mới ghi phiên bản 2 xuống đĩa
+    # Khi có thao tác save() mới ghi phiên bản 3 xuống đĩa
     b.save()
     disk_after = gzip.decompress(open(p, "rb").read()).decode("utf-8")
-    assert '"schema_version":2' in disk_after
+    assert '"schema_version":3' in disk_after
 
 
 def test_concurrent_save_an_toan_khong_lam_hong_kho(tmp_path):
@@ -311,7 +311,7 @@ def test_concurrent_save_an_toan_khong_lam_hong_kho(tmp_path):
 
     # File cuối cùng phải nguyên vẹn và nạp lại bình thường
     final_bank = Bank(p)
-    assert final_bank.d["schema_version"] == 2
+    assert final_bank.d["schema_version"] == 3
     assert "goc" in final_bank.words
     assert not any(f.endswith(".tmp") for f in os.listdir(tmp_path))
 
@@ -367,12 +367,12 @@ def test_create_empty_atomic_pipeline(tmp_path):
     p = str(tmp_path / "new_empty_bank.json.gz")
     b = Bank.create_empty(p)
     assert os.path.exists(p)
-    assert b.d["schema_version"] == 2
+    assert b.d["schema_version"] == 3
     assert b.words == {}
     assert not any(f.endswith(".tmp") for f in os.listdir(tmp_path))
     # Mở lại kiểm tra tính toàn vẹn
     reloaded = Bank(p)
-    assert reloaded.d["schema_version"] == 2
+    assert reloaded.d["schema_version"] == 3
 
 
 def test_incremental_teach_performance_and_correctness(tmp_path):

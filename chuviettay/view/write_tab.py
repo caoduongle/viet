@@ -32,6 +32,7 @@ class WriteTab(ttk.Frame):
         self.ctl = ctl
         self.on_teach_missing = on_teach_missing
         self.last_missing: list[tuple[str, int]] = []
+        self.current_doc = None
 
         left = ttk.Frame(self)
         left.pack(side="left", fill="both", expand=True)
@@ -45,10 +46,11 @@ class WriteTab(ttk.Frame):
         ttk.Label(left, text="Văn bản cần viết:").pack(anchor="w")
         self.text = tk.Text(left, height=14, wrap="word", font=("Sans", 12))
         self.text.pack(fill="both", expand=True, pady=(2, 6))
+        self.text.bind("<KeyRelease>", self._on_text_modified)
 
         btnrow = ttk.Frame(left)
         btnrow.pack(fill="x")
-        ttk.Button(btnrow, text="Mở file .txt...", command=self.open_txt).pack(side="left")
+        ttk.Button(btnrow, text="Mở tài liệu...", command=self.open_document).pack(side="left")
         ttk.Button(btnrow, text="Tạo file viết tay (.xopp)...", command=self.do_write).pack(side="left", padx=6)
 
         ttk.Label(left, text="Kết quả:").pack(anchor="w", pady=(10, 0))
@@ -132,19 +134,72 @@ class WriteTab(ttk.Frame):
         opts.validate()
         return opts
 
+    def _on_text_modified(self, event=None) -> None:
+        self.current_doc = None
+
     # ------------------------------------------------------------ hành động
-    def open_txt(self) -> None:
-        path = filedialog.askopenfilename(filetypes=[("Text", "*.txt"), ("Tất cả", "*.*")])
+    def open_document(self) -> None:
+        import os
+
+        path = filedialog.askopenfilename(
+            filetypes=[
+                ("Tài liệu hỗ trợ", "*.txt;*.md;*.markdown;*.docx"),
+                ("Văn bản thuần (.txt)", "*.txt"),
+                ("Markdown (.md)", "*.md;*.markdown"),
+                ("Word (.docx)", "*.docx"),
+                ("Tất cả", "*.*"),
+            ]
+        )
         if not path:
             return
-        try:
-            with open(path, encoding="utf-8-sig") as f:
-                content = f.read()
-        except Exception as e:  # noqa: BLE001
-            report_error("Không đọc được file văn bản", e, _log)
-            return
-        self.text.delete("1.0", "end")
-        self.text.insert("1.0", content)
+
+        ext = os.path.splitext(path)[1].lower()
+        if ext in (".md", ".markdown", ".docx"):
+            try:
+                res = self.ctl.import_document(path)
+                self.current_doc = res.document
+                self.text.delete("1.0", "end")
+                preview_lines = []
+                for b in res.document.blocks:
+                    if hasattr(b, "inlines"):
+                        preview_lines.append(
+                            " ".join(getattr(i, "text", "") for i in b.inlines if hasattr(i, "text"))
+                        )
+                    elif hasattr(b, "latex"):
+                        preview_lines.append(f"$${b.latex}$$")
+                    elif hasattr(b, "rows"):
+                        preview_lines.append(f"[Bảng {len(b.rows)} hàng]")
+                self.text.insert("1.0", "\n".join(preview_lines))
+
+                info_lines = [f"Đã mở tài liệu: {os.path.basename(path)} ({len(res.document.blocks)} khối)."]
+                if res.warnings:
+                    info_lines.append("Cảnh báo: " + "; ".join(res.warnings))
+                if res.unsupported:
+                    info_lines.append("Chưa hỗ trợ (đã bỏ qua): " + "; ".join(res.unsupported))
+
+                self.status.configure(state="normal")
+                self.status.delete("1.0", "end")
+                self.status.insert("1.0", "\n".join(info_lines) + "\n")
+                self.status.configure(state="disabled")
+            except Exception as e:  # noqa: BLE001
+                report_error("Không đọc được tài liệu", e, _log)
+                return
+        else:
+            self.current_doc = None
+            try:
+                with open(path, encoding="utf-8-sig") as f:
+                    content = f.read()
+            except Exception as e:  # noqa: BLE001
+                report_error("Không đọc được file văn bản", e, _log)
+                return
+            self.text.delete("1.0", "end")
+            self.text.insert("1.0", content)
+            self.status.configure(state="normal")
+            self.status.delete("1.0", "end")
+            self.status.insert("1.0", f"Đã mở tệp: {os.path.basename(path)}\n")
+            self.status.configure(state="disabled")
+
+    open_txt = open_document
 
     def pick_color(self) -> None:
         _rgb, hexval = colorchooser.askcolor(title="Chọn màu chữ")
@@ -153,7 +208,7 @@ class WriteTab(ttk.Frame):
 
     def do_write(self) -> None:
         text = self.text.get("1.0", "end").strip("\n")
-        if not text.strip():
+        if not text.strip() and not self.current_doc:
             messagebox.showwarning("Thiếu văn bản", "Hãy gõ hoặc dán văn bản trước đã.")
             return
         try:
@@ -170,7 +225,10 @@ class WriteTab(ttk.Frame):
             # Luôn viết bằng kho mẫu MỚI NHẤT trên đĩa (bản gốc: cmd_write tự nạp lại kho mỗi lần bấm),
             # để nếu bạn vừa chạy `hw_note.py learn ...` ở cửa sổ dòng lệnh khác thì từ mới có hiệu lực ngay.
             self.ctl.reload_bank()
-            result = self.ctl.write_text(text, opts, out)
+            if self.current_doc is not None:
+                result = self.ctl.write_document(self.current_doc, opts, out)
+            else:
+                result = self.ctl.write_text(text, opts, out)
         except Exception as e:  # noqa: BLE001
             report_error("Lỗi khi viết văn bản", e, _log)
             return

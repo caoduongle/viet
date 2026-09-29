@@ -47,7 +47,10 @@ def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
             rel = [[round((v - (r.left if i % 2 == 0 else r.base)) * scale, 2)
                     for i, v in enumerate(s)] for s in r.strokes]
             width = round((r.right - r.left) * scale, 2)
-            bank.add_sample(r.label, rel, width)
+            if r.label.startswith("\\") or (hasattr(bank, "symbols") and r.label in bank.symbols):
+                bank.add_symbol_sample(r.label, rel, width)
+            else:
+                bank.add_sample(r.label, rel, width)
             added += 1
 
         if abs(scale - 1.0) > 0.05:

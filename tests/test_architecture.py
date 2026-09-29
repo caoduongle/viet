@@ -81,15 +81,33 @@ def test_cli_chi_noi_chuyen_voi_controller_khong_cham_vao_model_hay_view():
     assert not bad, "cli.py chỉ được gọi Controller:\n  " + "\n  ".join(bad)
 
 
-def test_khong_print_hay_input_trong_model_controller_view():
-    bad = print_calls(py_files("model") + py_files("controller") + py_files("view"))
+def test_khong_print_hay_input_trong_cac_lop_loi():
+    core_files = (
+        py_files("model")
+        + py_files("controller")
+        + py_files("view")
+        + py_files("document")
+        + py_files("importer")
+        + py_files("layout")
+        + py_files("math")
+    )
+    bad = print_calls(core_files)
     assert not bad, ("Chỉ cli.py được in ra màn hình; các lớp còn lại trả dữ liệu / ghi log:\n  "
                      + "\n  ".join(bad))
 
 
-def test_khong_dung_sys_exit_trong_model_controller_view():
+def test_khong_dung_sys_exit_trong_cac_lop_loi():
     bad = []
-    for f in py_files("model") + py_files("controller") + py_files("view"):
+    core_files = (
+        py_files("model")
+        + py_files("controller")
+        + py_files("view")
+        + py_files("document")
+        + py_files("importer")
+        + py_files("layout")
+        + py_files("math")
+    )
+    for f in core_files:
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
             if (isinstance(node, ast.Attribute) and node.attr == "exit"
                     and isinstance(node.value, ast.Name) and node.value.id == "sys"):
@@ -112,3 +130,33 @@ def test_view_khong_truy_cap_truc_tiep_ctl_bank():
             if isinstance(node, ast.Attribute) and node.attr == "bank":
                 bad.append("%s:%d truy cập .bank" % (f.relative_to(PKG.parent), node.lineno))
     assert not bad, "View không được truy cập trực tiếp ctl.bank:\n  " + "\n  ".join(bad)
+
+
+def test_document_ir_hoan_toan_doc_lap():
+    """Tầng document/ (IR) là cấu trúc dữ liệu thuần, không phụ thuộc controller, view, model hay layout."""
+    bad = violations(
+        py_files("document"),
+        ["chuviettay.controller", "chuviettay.model", "chuviettay.layout", "chuviettay.importer"] + UI_AND_ENTRY,
+    )
+    assert not bad, "Document IR phải hoàn toàn độc lập:\n  " + "\n  ".join(bad)
+
+
+def test_math_package_doc_lap_voi_giao_dien_va_model():
+    """Tầng math/ (AST, parser) không phụ thuộc model, controller hay view."""
+    bad = violations(
+        py_files("math"),
+        ["chuviettay.controller", "chuviettay.model", "chuviettay.layout", "chuviettay.importer"] + UI_AND_ENTRY,
+    )
+    assert not bad, "Math package phải hoàn toàn độc lập với UI/Model/Controller:\n  " + "\n  ".join(bad)
+
+
+def test_importer_khong_phu_thuoc_view_hay_cli():
+    """Tầng importer/ không được phụ thuộc vào giao diện (view) hay CLI."""
+    bad = violations(py_files("importer"), ["chuviettay.controller"] + UI_AND_ENTRY)
+    assert not bad, "Importer không được phụ thuộc View/CLI/Controller:\n  " + "\n  ".join(bad)
+
+
+def test_layout_engine_khong_phu_thuoc_view_cli_hay_importer():
+    """Tầng layout/ không được phụ thuộc vào giao diện người dùng, CLI hay các bộ importer."""
+    bad = violations(py_files("layout"), ["chuviettay.importer"] + UI_AND_ENTRY)
+    assert not bad, "Layout Engine không được phụ thuộc View/CLI/Importer:\n  " + "\n  ".join(bad)

@@ -16,10 +16,21 @@ Giao diện có ba tab:
 
 ## Cài đặt
 
-Cần **Python 3.10+** (đã kiểm thử liên tục trên CI với Python 3.10, 3.11, 3.12, 3.13). Không cần cài thư viện ngoài nào khi chạy ứng dụng — hoàn toàn dùng thư viện chuẩn Python (zero external runtime dependencies). Riêng giao diện cần **tkinter**:
+Cần **Python 3.10+** (đã kiểm thử liên tục trên CI với Python 3.10, 3.11, 3.12, 3.13). Lõi cơ bản không cần bất kỳ thư viện ngoài nào (Zero Core Dependencies), hoàn toàn dùng thư viện chuẩn Python. Riêng giao diện đồ hoạ cần **tkinter**:
 
 - **Ubuntu/Debian**: `sudo apt install python3-tk`
 - **Windows / macOS**: bản Python tải từ [python.org](https://www.python.org/) đã có sẵn tkinter.
+
+### Mở rộng hỗ trợ Markdown (.md) và Word (.docx)
+Để mở và chuyển đổi trực tiếp các file tài liệu định dạng Markdown hoặc Word kèm bảng biểu và công thức toán học:
+
+```bash
+pip install "chuviettay[docs]"
+# hoặc trong thư mục mã nguồn:
+pip install ".[docs]"
+```
+
+Gói `docs` bao gồm `markdown-it-py`, `mdit-py-plugins` và `python-docx`. Nếu không cài gói này, ứng dụng vẫn hoạt động 100% với văn bản thuần `.txt` mà không phát sinh lỗi.
 
 ## Chạy
 
@@ -70,7 +81,9 @@ mẫu mới..."** (chọn file đã có thì app chỉ mở nó ra, **không bao
 | `stats` | Ô thống kê ở đầu tab Kho mẫu |
 
 Xem `python3 hw_note.py --help` (và `python3 hw_note.py write --help`) để biết đủ tuỳ chọn:
-`--scale`, `--line`, `--width`, `--space`, `--jitter`, `--wscale`, `--color`, `--seed`, `--strict-case`.
+`--format {auto,txt,md,docx}`, `--scale`, `--line`, `--width`, `--space`, `--jitter`, `--wscale`, `--color`, `--seed`, `--strict-case`.
+
+Định dạng đầu vào tự động nhận diện theo đuôi mở rộng (`.txt`, `.md`, `.markdown`, `.docx`), hỗ trợ bảng dữ liệu (GFM / Word) và công thức toán học (LaTeX / OMML) căn chỉnh theo baseline nét viết tay.
 
 ---
 

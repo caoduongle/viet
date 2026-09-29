@@ -21,7 +21,7 @@ from chuviettay.model.bank_schema import (
 @pytest.fixture
 def minimal_valid_bank_dict():
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "xh": 7.0,
         "line": 24.0,
         "width": 500.0,
@@ -58,6 +58,7 @@ def minimal_valid_bank_dict():
             ".": [{"s": [[0.0, 0.0, 1.0, 0.0]]}],  # punct không bắt buộc có 'w'
             ",": [{"w": 3.0, "s": [[0.0, 0.0, 1.0, -2.0]]}],  # punct có 'w' vẫn hợp lệ
         },
+        "symbols": {},
         "tombstones": {
             "cũ": 1727500000.0,
         },
@@ -66,7 +67,7 @@ def minimal_valid_bank_dict():
 
 def test_minimal_valid_bank_passes(minimal_valid_bank_dict):
     version = validate_bank_dict(minimal_valid_bank_dict)
-    assert version == 2
+    assert version == 3
 
 
 # ------------------------------------------------------------------ punct w optional
@@ -174,7 +175,7 @@ def test_pen_color_invalid_format_fails(minimal_valid_bank_dict, invalid_color):
 def test_pen_color_valid_formats(minimal_valid_bank_dict, valid_color):
     d = copy.deepcopy(minimal_valid_bank_dict)
     d["pen"]["color"] = valid_color
-    assert validate_bank_dict(d) == 2
+    assert validate_bank_dict(d) == 3
 
 
 @pytest.mark.parametrize("invalid_width", [0, -1.5, "0", "-2", "abc", None, True])
@@ -189,7 +190,7 @@ def test_pen_width_invalid_fails(minimal_valid_bank_dict, invalid_width):
 def test_pen_width_valid(minimal_valid_bank_dict, valid_width):
     d = copy.deepcopy(minimal_valid_bank_dict)
     d["pen"]["width"] = valid_width
-    assert validate_bank_dict(d) == 2
+    assert validate_bank_dict(d) == 3
 
 
 # ------------------------------------------------------------------ tombstones validation
@@ -214,7 +215,7 @@ def test_tombstones_structured_valid(minimal_valid_bank_dict):
         "chao": {"deleted_at": 1719000050.5},
         "ba": 1719000100.0,
     }
-    assert validate_bank_dict(d) == 2
+    assert validate_bank_dict(d) == 3
 
 
 def test_tombstones_structured_invalid_deleted_at(minimal_valid_bank_dict):
@@ -234,7 +235,7 @@ def test_tombstones_structured_invalid_generation(minimal_valid_bank_dict):
 def test_root_generation_valid(minimal_valid_bank_dict):
     d = copy.deepcopy(minimal_valid_bank_dict)
     d["generation"] = 42
-    assert validate_bank_dict(d) == 2
+    assert validate_bank_dict(d) == 3
 
 
 @pytest.mark.parametrize("invalid_gen", [-1, -99, "invalid", 1.5, True])

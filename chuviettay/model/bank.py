@@ -158,8 +158,8 @@ def merge_bank_dicts(
     if disk_gen > base_gen:
         base["generation"] = disk_gen
 
-    # 2. Hợp nhất words, digits, punct
-    for c_name in ("words", "digits", "punct"):
+    # 2. Hợp nhất words, digits, punct, symbols
+    for c_name in ("words", "digits", "punct", "symbols"):
         disk_c = disk.get(c_name, {})
         base_c = base.setdefault(c_name, {})
         for label, disk_samples in disk_c.items():
@@ -190,6 +190,7 @@ class Bank:
         self.words: dict[str, list[dict]] = self.d["words"]
         self.digits: dict[str, list[dict]] = self.d["digits"]
         self.punct: dict[str, list[dict]] = self.d["punct"]
+        self.symbols: dict[str, list[dict]] = self.d.setdefault("symbols", {})
         self.xh: float = float(self.d["xh"])
         self.pen: dict = self.d["pen"]
         self.tl: dict[str, list[tuple[str, dict]]] = {}
@@ -211,7 +212,7 @@ class Bank:
         except OSError:
             pass
         self.rebuild()
-        _log.debug("Đã mở kho mẫu %s (%d từ)", path, len(self.words))
+        _log.debug("Đã mở kho mẫu %s (%d từ, %d ký hiệu)", path, len(self.words), len(self.symbols))
 
     # -------------------------------------------------------------- tạo kho mới
     @staticmethod
@@ -221,7 +222,7 @@ class Bank:
         return {
             "schema_version": CURRENT_VERSION,
             "xh": 7.0, "wgaps": [11.0], "dgaps": [3.5], "line": 24.0,
-            "words": {}, "digits": {}, "punct": {}, "v": 1,
+            "words": {}, "digits": {}, "punct": {}, "symbols": {}, "v": 1,
             "pen": {"tool": "pen", "color": "#000000ff", "width": "1.2", "capStyle": "round"},
             "x0": 78.0, "width": 500.0, "ratio": 6.6,
             "tombstones": {},
@@ -237,6 +238,7 @@ class Bank:
         bank.words = bank.d["words"]
         bank.digits = bank.d["digits"]
         bank.punct = bank.d["punct"]
+        bank.symbols = bank.d["symbols"]
         bank.xh = float(bank.d["xh"])
         bank.pen = bank.d["pen"]
         bank.tl = {}
@@ -486,3 +488,14 @@ class Bank:
             self._refresh_tone_marks(T)
 
         return count
+
+    def add_symbol_sample(self, symbol: str, rel_strokes: list[Stroke], width: float) -> dict:
+        """Thêm MỘT mẫu ký hiệu toán học mới vào kho symbols."""
+        inst = {"w": round(width, 2), "s": rel_strokes}
+        self.symbols.setdefault(symbol, []).append(inst)
+        return inst
+
+    def drop_symbol(self, symbol: str) -> int:
+        """Xoá toàn bộ mẫu của `symbol` khỏi kho symbols."""
+        removed = self.symbols.pop(symbol, [])
+        return len(removed)

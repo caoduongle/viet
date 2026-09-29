@@ -49,9 +49,10 @@ _log = logging.getLogger(__name__)
 # ---------------------------------------------------------------- các lệnh
 # Mỗi hàm: nhận (controller, args đã parse), gọi Controller, in kết quả ra màn hình.
 def _read_text(a: argparse.Namespace) -> str:
-    """Nguồn văn bản cho lệnh write: file (-f), hoặc gõ thẳng (-t), hoặc đọc stdin."""
-    if a.file:
-        with open(a.file, encoding="utf-8-sig") as f:
+    """Nguồn văn bản cho lệnh write: file (-f hoặc positional), hoặc gõ thẳng (-t), hoặc đọc stdin."""
+    target_file = getattr(a, "file", None) or getattr(a, "file_pos", None)
+    if target_file:
+        with open(target_file, encoding="utf-8-sig") as f:
             return f.read()
     if a.text:
         return a.text
@@ -59,11 +60,30 @@ def _read_text(a: argparse.Namespace) -> str:
 
 
 def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
-    text = _read_text(a)
     opts = WriteOptions(
         scale=a.scale, line=a.line, width=a.width, space=a.space, jitter=a.jitter,
         wscale=a.wscale, color=a.color, seed=a.seed, strict_case=a.strict_case)
-    result = ctl.write_text(text, opts, a.out)
+
+    target_file = getattr(a, "file", None) or getattr(a, "file_pos", None)
+    fmt = getattr(a, "format", "auto")
+    use_doc_importer = False
+    if target_file:
+        import os
+        ext = os.path.splitext(target_file)[1].lower()
+        if fmt in ("md", "docx") or (fmt == "auto" and ext in (".md", ".markdown", ".docx")):
+            use_doc_importer = True
+
+    if use_doc_importer and target_file:
+        import_res = ctl.import_document(target_file, fmt)
+        for warn in import_res.warnings:
+            print(f"Cảnh báo: {warn}")
+        for unsupp in import_res.unsupported:
+            print(f"Chưa hỗ trợ: {unsupp}")
+        result = ctl.write_document(import_res.document, opts, a.out)
+    else:
+        text = _read_text(a)
+        result = ctl.write_text(text, opts, a.out)
+
     for line in write_report_lines(result):
         print(line)
 
@@ -111,8 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     w = sub.add_parser("write", help="đổi văn bản thành chữ viết tay")
+    w.add_argument("file_pos", nargs="?", default=None, metavar="file", help="đường dẫn file tài liệu")
     w.add_argument("-f", "--file", help="file văn bản UTF-8")
     w.add_argument("-t", "--text", help="hoặc gõ thẳng văn bản")
+    w.add_argument("--format", choices=["auto", "txt", "md", "docx"], default="auto",
+                   help="định dạng tài liệu đầu vào (mặc định: auto)")
     w.add_argument("-o", "--out", default="ra.xopp")
     w.add_argument("--scale", type=float, default=1.0, help="nhân cỡ chữ")
     w.add_argument("--line", type=float, help="khoảng cách dòng (pt)")

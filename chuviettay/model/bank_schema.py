@@ -17,13 +17,14 @@ from typing import Any
 
 from chuviettay.config import TONES
 
-CURRENT_VERSION = 2
+CURRENT_VERSION = 3
 
-# Các trường bắt buộc ở cấp cao nhất và kiểu dữ liệu tương ứng
+# Các trường bắt buộc ở cấp cao nhất và kiểu dữ liệu tương ứng (Schema v3)
 REQUIRED_METADATA_KEYS: dict[str, type | tuple[type, ...]] = {
     "words": dict,
     "digits": dict,
     "punct": dict,
+    "symbols": dict,
     "xh": (int, float),
     "pen": dict,
     "line": (int, float),
@@ -46,6 +47,21 @@ DEFAULT_METRICS: dict[str, Any] = {
 }
 
 _REQUIRED_FIELDS = REQUIRED_METADATA_KEYS
+
+_V2_REQUIRED_FIELDS: dict[str, type | tuple[type, ...]] = {
+    "words": dict,
+    "digits": dict,
+    "punct": dict,
+    "xh": (int, float),
+    "pen": dict,
+    "line": (int, float),
+    "width": (int, float),
+    "x0": (int, float),
+    "wgaps": list,
+    "dgaps": list,
+    "ratio": (int, float),
+    "v": (int, float),
+}
 
 _V1_REQUIRED_FIELDS: dict[str, type | tuple[type, ...]] = {
     "words": dict,
@@ -186,7 +202,13 @@ def validate_bank_dict(d: Any, context: str = "", allow_legacy: bool = False) ->
 
     # 2. Kiểm tra các trường bắt buộc
     is_legacy_v1 = allow_legacy and version == 1
-    fields_to_check = _V1_REQUIRED_FIELDS if is_legacy_v1 else _REQUIRED_FIELDS
+    is_legacy_v2 = allow_legacy and version == 2
+    if is_legacy_v1:
+        fields_to_check = _V1_REQUIRED_FIELDS
+    elif is_legacy_v2:
+        fields_to_check = _V2_REQUIRED_FIELDS
+    else:
+        fields_to_check = _REQUIRED_FIELDS
     for key, expected_types in fields_to_check.items():
         if key not in d:
             raise BankValidationError(f"Kho mẫu thiếu trường bắt buộc: '{key}'{ctx}")
@@ -281,8 +303,9 @@ def validate_bank_dict(d: Any, context: str = "", allow_legacy: bool = False) ->
         if not isinstance(gen, int) or isinstance(gen, bool) or gen < 0:
             raise BankValidationError(f"Trường 'generation' phải là số nguyên không âm, nhận được: {gen!r}{ctx}")
 
-    # 5. Kiểm tra sâu cấu trúc danh sách mẫu trong words/digits/punct
-    for c_name in ("words", "digits", "punct"):
+    # 5. Kiểm tra sâu cấu trúc danh sách mẫu trong words/digits/punct/symbols
+    categories = ("words", "digits", "punct", "symbols") if "symbols" in d else ("words", "digits", "punct")
+    for c_name in categories:
         container = d[c_name]
         is_punct = (c_name == "punct")
         for label, samples in container.items():
@@ -306,8 +329,17 @@ def _migrate_v1_to_v2(d: dict[str, Any]) -> dict[str, Any]:
     return d
 
 
+def _migrate_v2_to_v3(d: dict[str, Any]) -> dict[str, Any]:
+    """Nâng cấp từ v2 lên v3: thêm schema_version = 3 và chuẩn bị kho symbols."""
+    d["schema_version"] = 3
+    if "symbols" not in d:
+        d["symbols"] = {}
+    return d
+
+
 _MIGRATORS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _migrate_v1_to_v2,
+    2: _migrate_v2_to_v3,
 }
 
 

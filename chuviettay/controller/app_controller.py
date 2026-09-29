@@ -29,6 +29,9 @@ from chuviettay.controller.results import (
     BankStats, CheckResult, DropResult, LearnResult, SeedResult, TeachOutcome,
     WriteOptions, WriteResult,
 )
+from chuviettay.document.ir import Document
+from chuviettay.importer.base import ImportResult
+from chuviettay.layout.engine import DocumentLayoutEngine
 from chuviettay.model import composer, learning, xopp
 from chuviettay.model.bank import (  # noqa: F401  (re-export cho cli.py/view)
     Bank, BankCorruptedError, BankError, BankNotFoundError, BankValidationError, UnsupportedSchemaVersionError,
@@ -110,6 +113,32 @@ class AppController:
                   out_path, result.n_lines, result.n_strokes,
                   result.n_missing_tokens, result.n_tokens)
         return result
+
+    def write_document(self, document: Document, opts: WriteOptions, out_path: str) -> WriteResult:
+        """Đổi Document IR thành file .xopp nét viết tay qua DocumentLayoutEngine."""
+        opts.validate()
+        bank = self._require_bank()
+        engine = DocumentLayoutEngine(bank, opts)
+        result = engine.render(document, out_path)
+        _log.info("Viết document %s: %d dòng, %d nét, thiếu mẫu %d/%d token",
+                  out_path, result.n_lines, result.n_strokes,
+                  result.n_missing_tokens, result.n_tokens)
+        return result
+
+    def import_document(self, file_path: str, fmt: str = "auto") -> ImportResult:
+        """Nạp tài liệu từ file_path (hỗ trợ .txt, .md, .docx) thành Document IR."""
+        from chuviettay.importer.base import get_importer_for_path
+
+        importer = get_importer_for_path(file_path, fmt)
+        res = importer.import_file(file_path)
+        _log.info(
+            "Nạp tài liệu %s: %d khối, %d cảnh báo, %d phần tử chưa hỗ trợ",
+            file_path,
+            len(res.document.blocks),
+            len(res.warnings),
+            len(res.unsupported),
+        )
+        return res
 
     # ------------------------------------------------------------------ học / dạy
     def learn_from_files(self, files: list[str]) -> LearnResult:

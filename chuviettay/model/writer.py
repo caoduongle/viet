@@ -118,6 +118,16 @@ class Writer:
             first = False
         return out, x, missing
 
+    def symbol(self, sym: str) -> tuple[list[Stroke], float, list[str]]:
+        """Ghép một ký hiệu toán học / glyph đặc biệt từ bank.symbols.
+        Nếu chưa có mẫu, trả về ([], fallback_width, [sym])."""
+        b = self.b
+        if getattr(b, "symbols", None) and sym in b.symbols:
+            inst = self.pick(b.symbols[sym], "sym:" + sym)
+            return list(inst["s"]), inst["w"], []
+        fallback_w = 0.8 * getattr(b, "xh", 10.0)
+        return [], fallback_w, [sym]
+
     # -- một token (đã tách khoảng trắng)
     def token(self, tok: str) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một token (đã tách theo khoảng trắng, có thể còn kèm dấu ngoặc/dấu câu
@@ -130,12 +140,19 @@ class Writer:
         if tok in b.words:
             inst = self.pick(b.words[tok], tok)
             return list(inst["s"]), inst["w"], []
+        if getattr(b, "symbols", None) and tok in b.symbols:
+            inst = self.pick(b.symbols[tok], "sym:" + tok)
+            return list(inst["s"]), inst["w"], []
         lead, core, trail = TOKRE.match(tok).groups()
         strokes: list[Stroke] = []
         x, miss = 0.0, []
         for ch in lead:
             if ch in b.words:
                 inst = self.pick(b.words[ch], ch)
+                strokes += [shift(st, x, 0) for st in inst["s"]]
+                x += inst["w"] + 0.15 * b.xh
+            elif getattr(b, "symbols", None) and ch in b.symbols:
+                inst = self.pick(b.symbols[ch], "sym:" + ch)
                 strokes += [shift(st, x, 0) for st in inst["s"]]
                 x += inst["w"] + 0.15 * b.xh
             else:
