@@ -44,18 +44,28 @@ if ($CheckOnly) {
 # 4. Kiểm tra git-filter-repo hoặc fallback git filter-branch
 $useFilterRepo = $false
 try {
-    $null = git filter-repo --version
-    $useFilterRepo = $true
-} catch {
-    try {
-        $null = py -3 -m git_filter_repo --version
+    $repoVersion = & git filter-repo --version 2>$null
+    if ($LASTEXITCODE -eq 0 -and $repoVersion) {
         $useFilterRepo = $true
-    } catch {
-        try {
-            $null = python -m git_filter_repo --version
-            $useFilterRepo = $true
-        } catch {}
     }
+} catch {}
+
+if (-not $useFilterRepo) {
+    try {
+        $repoVersion = & py -3 -m git_filter_repo --version 2>$null
+        if ($LASTEXITCODE -eq 0 -and $repoVersion) {
+            $useFilterRepo = $true
+        }
+    } catch {}
+}
+
+if (-not $useFilterRepo) {
+    try {
+        $repoVersion = & python -m git_filter_repo --version 2>$null
+        if ($LASTEXITCODE -eq 0 -and $repoVersion) {
+            $useFilterRepo = $true
+        }
+    } catch {}
 }
 
 # 5. Tạo standalone bundle backup bên ngoài thư mục repo

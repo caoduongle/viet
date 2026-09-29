@@ -52,7 +52,7 @@ fi
 
 # 4. Kiểm tra git-filter-repo hoặc fallback git filter-branch
 USE_FILTER_REPO=false
-if command -v git-filter-repo > /dev/null 2>&1; then
+if command -v git-filter-repo > /dev/null 2>&1 && git filter-repo --version > /dev/null 2>&1; then
     USE_FILTER_REPO=true
 elif python3 -m git_filter_repo --version > /dev/null 2>&1; then
     USE_FILTER_REPO=true
