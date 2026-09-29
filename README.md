@@ -16,8 +16,7 @@ Giao diện có ba tab:
 
 ## Cài đặt
 
-Cần Python 3 (đã kiểm thử với 3.12). Không cần cài thư viện ngoài nào — chỉ dùng thư viện
-chuẩn. Riêng giao diện cần **tkinter**:
+Cần **Python 3.10+** (đã kiểm thử liên tục trên CI với Python 3.10, 3.11, 3.12, 3.13). Không cần cài thư viện ngoài nào khi chạy ứng dụng — hoàn toàn dùng thư viện chuẩn Python (zero external runtime dependencies). Riêng giao diện cần **tkinter**:
 
 - **Ubuntu/Debian**: `sudo apt install python3-tk`
 - **Windows / macOS**: bản Python tải từ [python.org](https://www.python.org/) đã có sẵn tkinter.
@@ -169,12 +168,12 @@ Gặp triệu chứng nào thì mở file nào trước:
 ## Kiểm thử
 
 ```bash
-pip install pytest
+pip install -r requirements-dev.txt
 python3 -m pytest                  # chạy tất cả (test giao diện tự bỏ qua nếu không có màn hình)
 xvfb-run -a python3 -m pytest      # Linux không màn hình: chạy cả test giao diện thật
 ```
 
-Hơn 160 ca, chia nhóm:
+Hơn 210 ca kiểm thử tự động, chia nhóm:
 
 - **Đơn vị** cho từng hàm/lớp Model (`test_text_utils`, `test_bank`, `test_writer`, `test_xopp`, ...) và
   cho `AppController`; kho mẫu thử là một kho **nhỏ tự dựng** (`tests/conftest.py`) nên tự tính tay được đáp án.
@@ -205,21 +204,24 @@ Test **không bao giờ** đọc hay ghi `chu_cua_ban.json.gz` của bạn: chú
 `MainWindow._build_tabs`. Cần nói chuyện với tab khác thì truyền callback từ `MainWindow`
 (các tab không gọi nhau trực tiếp).
 
-## Đóng gói thành file .exe (chạy được mà không cần cài Python)
+## Đóng gói ứng dụng (hoặc tải từ GitHub Releases)
 
-**Windows** — phải build trên chính máy Windows (PyInstaller chỉ tạo file chạy cho đúng hệ điều hành
-đang dùng):
+Người dùng cuối có thể tải các bản đóng gói chạy ngay (standalone binaries) từ mục **GitHub Releases** của repository (bao gồm `hw_gui-windows.zip` cho Windows và `hw_gui-linux.tar.gz` cho Linux x86_64).
+
+Nếu tự đóng gói từ mã nguồn:
+
+**Windows** — build trên máy Windows:
 
 1. Cài Python từ [python.org](https://www.python.org/) (tick **"Add python.exe to PATH"**).
-2. Copy `hw_gui.py`, `hw_note.py`, **thư mục `chuviettay/`** và `build_windows.bat` vào cùng một thư mục.
-3. Bấm đúp `build_windows.bat` → có `hw_gui.exe` trong thư mục con `dist`.
+2. Chạy `pip install -r requirements-dev.txt`.
+3. Bấm đúp `build_windows.bat` (hoặc chạy trong PowerShell/cmd) → tạo `hw_gui.exe` trong thư mục `dist/`.
 4. Copy `hw_gui.exe` ra một thư mục riêng, để **cạnh nó** file `chu_cua_ban.json.gz` rồi bấm đúp là chạy.
    Kho mẫu và file log luôn nằm **cạnh file `.exe`** (không nằm trong thư mục tạm của PyInstaller).
 
-**Linux / macOS**: chạy `./build_linux_mac.sh` (macOS phải build trên máy Mac). File `hw_gui-linux` kèm sẵn
-trong gói này được build từ đúng mã nguồn hiện tại trên Ubuntu 24.04; máy Linux đời cũ hơn nên tự build lại.
+**Linux / macOS**:
+1. Cài `requirements-dev.txt`.
+2. Chạy `./build_linux_mac.sh` (macOS phải build trên máy Mac) → tạo binary trong `dist/`.
 
-Lưu ý: file `.exe` khá nặng (~15–25MB) vì gói kèm cả Python; Windows có thể cảnh báo "Windows protected
-your PC" vì chưa có chữ ký số — chọn **More info → Run anyway**.
+Lưu ý: file binary độc lập nặng (~15–25MB) vì gói kèm môi trường Python; Windows có thể cảnh báo "Windows protected your PC" vì chưa có chữ ký số — chọn **More info → Run anyway**.
 
 Xem `CHANGELOG.md` để biết chi tiết những gì đã thay đổi so với bản một-file trước đây.

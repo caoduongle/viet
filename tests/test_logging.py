@@ -38,3 +38,34 @@ def test_logging_fallback_khi_primary_directory_loi(monkeypatch, tmp_path):
     assert "fallback_user_dir" in actual_path
     assert os.path.exists(actual_path)
     assert logging_setup.log_path() == actual_path
+
+
+def test_logging_total_failure_returns_none(monkeypatch):
+    monkeypatch.setattr(logging_setup, "_configured", False)
+    monkeypatch.setattr(logging_setup, "_active_log_path", None)
+    monkeypatch.setattr(logging_setup, "_logging_failed", False)
+
+    def mock_fail(filename, **kwargs):
+        raise OSError("Read-only filesystem")
+
+    monkeypatch.setattr("chuviettay.logging_setup.logging.handlers.RotatingFileHandler", mock_fail)
+
+    actual_path = logging_setup.configure_logging()
+    assert actual_path is None
+    assert logging_setup.log_path() is None
+
+
+def test_report_error_with_no_log_path(monkeypatch):
+    from chuviettay.view.dialogs import report_error
+
+    monkeypatch.setattr("chuviettay.view.dialogs.log_path", lambda: None)
+    called_boxes = []
+    monkeypatch.setattr("tkinter.messagebox.showerror", lambda title, msg: called_boxes.append((title, msg)))
+
+    report_error("Lỗi test", ValueError("Chi tiết lỗi"))
+    assert len(called_boxes) == 1
+    assert called_boxes[0][0] == "Lỗi test"
+    assert "Chi tiết lỗi" in called_boxes[0][1]
+    assert "không hoạt động" in called_boxes[0][1]
+    assert "None" not in called_boxes[0][1]
+

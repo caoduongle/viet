@@ -1,4 +1,4 @@
 # Chỉ cần khi PHÁT TRIỂN (chạy kiểm thử / đóng gói). Người dùng cuối không cần cài gì cả:
 # ứng dụng chỉ dùng thư viện chuẩn của Python (+ tkinter cho giao diện).
-pytest>=8
-pyinstaller>=6
+pytest>=8.0.0
+pyinstaller==6.12.0

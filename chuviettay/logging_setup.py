@@ -28,28 +28,31 @@ from chuviettay.paths import app_base_dir, user_log_dir
 LOG_FILENAME = "chuviettay.log"
 _configured = False
 _active_log_path: str | None = None
+_logging_failed = False
 
 
-def log_path() -> str:
-    """Trả về đường dẫn file log thực tế đang hoạt động, hoặc đường dẫn mặc định nếu chưa bật log."""
-    global _active_log_path
+def log_path() -> str | None:
+    """Trả về đường dẫn file log thực tế đang hoạt động, hoặc None nếu không ghi được log."""
+    if _logging_failed:
+        return None
     if _active_log_path is not None:
         return _active_log_path
     return os.path.join(app_base_dir(), LOG_FILENAME)
 
 
-def configure_logging(verbose: bool = False, console: bool | None = None) -> str:
+def configure_logging(verbose: bool = False, console: bool | None = None) -> str | None:
     """Bật ghi log (idempotent -- gọi nhiều lần chỉ thiết lập một lần). Trả về đường
-    dẫn file log, để hiển thị cho người dùng khi cần (ví dụ trong hộp thoại lỗi:
+    dẫn file log hoặc None nếu không thể ghi ra file, để hiển thị cho người dùng khi cần (ví dụ trong hộp thoại lỗi:
     "chi tiết đã được ghi vào <đường dẫn>").
 
     verbose: ghi cả mức DEBUG (mặc định chỉ INFO trở lên).
     console: có in log ra stderr không (mặc định: chỉ khi verbose).
     """
-    global _configured, _active_log_path
+    global _configured, _active_log_path, _logging_failed
     if _configured:
         return log_path()
     _configured = True
+    _logging_failed = False
 
     if console is None:
         console = verbose
@@ -81,6 +84,7 @@ def configure_logging(verbose: bool = False, console: bool | None = None) -> str
         except OSError:
             # Không ghi được cả 2 nơi -- không làm sập ứng dụng, tiếp tục chạy
             _active_log_path = None
+            _logging_failed = True
 
     if console and sys.stderr is not None:     # .exe --windowed trên Windows: không có stderr
         handler = logging.StreamHandler(sys.stderr)
@@ -88,5 +92,8 @@ def configure_logging(verbose: bool = False, console: bool | None = None) -> str
         root.addHandler(handler)
 
     actual_path = log_path()
-    logging.getLogger(__name__).info("=== Khởi động chuviettay (log tại: %s) ===", actual_path)
+    if actual_path:
+        logging.getLogger(__name__).info("=== Khởi động chuviettay (log tại: %s) ===", actual_path)
+    else:
+        logging.getLogger(__name__).warning("=== Khởi động chuviettay (không thể ghi log ra file) ===")
     return actual_path

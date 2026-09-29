@@ -1,7 +1,7 @@
 """Bank: nạp/lưu/tạo mới/thêm-xoá mẫu/chỉ mục tra cứu."""
 import gzip
-import os
 import json
+import os
 
 import pytest
 
@@ -191,6 +191,65 @@ def test_nap_file_schema_version_moi_hon_bao_loi(tmp_path):
         Bank(p)
 
 
+def test_nap_file_stroke_so_luong_toa_do_le_bao_loi(tmp_path):
+    p = str(tmp_path / "odd_stroke.json.gz")
+    d = Bank.empty_dict()
+    d["words"]["test"] = [{"w": 5.0, "s": [[0, 0, 5]], "T": "", "vi": -1, "ti": -1}]
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f)
+    with pytest.raises(BankValidationError, match="chẵn"):
+        Bank(p)
+
+
+def test_nap_file_stroke_toa_do_nan_inf_bao_loi(tmp_path):
+    p = str(tmp_path / "nan_stroke.json.gz")
+    d = Bank.empty_dict()
+    d["words"]["test"] = [{"w": 5.0, "s": [[0, 0, float("nan"), 0]], "T": "", "vi": -1, "ti": -1}]
+    # Cho phép nan qua allow_nan=True để kiểm tra validator bắt được
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f, allow_nan=True)
+    with pytest.raises(BankValidationError, match="hữu hạn"):
+        Bank(p)
+
+
+def test_nap_file_stroke_rong_bao_loi(tmp_path):
+    p = str(tmp_path / "empty_stroke.json.gz")
+    d = Bank.empty_dict()
+    d["words"]["test"] = [{"w": 5.0, "s": [], "T": "", "vi": -1, "ti": -1}]
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f)
+    with pytest.raises(BankValidationError, match="không rỗng"):
+        Bank(p)
+
+
+def test_nap_file_thieu_metadata_line_bao_loi(tmp_path):
+    p = str(tmp_path / "missing_line.json.gz")
+    d = Bank.empty_dict()
+    del d["line"]
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f)
+    with pytest.raises(BankValidationError, match="line"):
+        Bank(p)
+
+
+def test_di_tru_kho_v1_thieu_metadata_tu_dong_dien_defaults(tmp_path):
+    p = str(tmp_path / "legacy_missing_metrics.json.gz")
+    d = {
+        "xh": 7.0,
+        "pen": {"tool": "pen", "color": "#000000ff", "width": "1.2", "capStyle": "round"},
+        "words": {"a": [{"w": 5.0, "s": [[0, 0, 5, 0]], "T": "", "vi": -1, "ti": -1}]},
+        "digits": {}, "punct": {},
+    }
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f)
+    b = Bank(p)
+    assert b.d["schema_version"] == 2
+    assert b.d["line"] == 24.0
+    assert b.d["width"] == 500.0
+    assert b.d["x0"] == 78.0
+    assert b.d["wgaps"] == [11.0]
+
+
 def test_di_tru_kho_v1_legacy_sang_v2_trong_bo_nho(tmp_path):
     p = str(tmp_path / "legacy_v1.json.gz")
     d = {
@@ -220,7 +279,7 @@ def test_di_tru_kho_v1_legacy_sang_v2_trong_bo_nho(tmp_path):
 
 
 def test_concurrent_save_an_toan_khong_lam_hong_kho(tmp_path):
-    """Mô phỏng nhiều luồng/tiến trình cùng gọi save(): file kho không bao giờ bị hỏng."""
+    """Mô phỏng nhiều luồng/tiến trình cùng gọi save(): file kho không bị hỏng VÀ không mất dữ liệu (no lost updates)."""
     import concurrent.futures
 
     p = str(tmp_path / "concurrent_bank.json.gz")
@@ -230,7 +289,8 @@ def test_concurrent_save_an_toan_khong_lam_hong_kho(tmp_path):
 
     def do_save(thread_idx: int) -> None:
         bank = Bank(p)
-        bank.add_sample(f"tu_{thread_idx}", [[0, 0, float(thread_idx), 0]], float(thread_idx))
+        w_val = float(thread_idx + 1)
+        bank.add_sample(f"tu_{thread_idx}", [[0, 0, w_val, 0]], w_val)
         bank.save()
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
@@ -243,3 +303,83 @@ def test_concurrent_save_an_toan_khong_lam_hong_kho(tmp_path):
     assert final_bank.d["schema_version"] == 2
     assert "goc" in final_bank.words
     assert not any(f.endswith(".tmp") for f in os.listdir(tmp_path))
+
+    # TẤT CẢ các từ được ghi đồng thời đều phải còn nguyên (không bị lost update)
+    for i in range(8):
+        assert f"tu_{i}" in final_bank.words, f"tu_{i} bị mất sau concurrent save!"
+
+
+def test_merge_bank_dicts_deduplicates_and_respects_deleted_words():
+    """Kiểm tra merge_bank_dicts khử trùng mẫu và không hồi sinh từ đã xóa."""
+    from chuviettay.model.bank import merge_bank_dicts
+
+    base = {
+        "words": {
+            "xin": [{"w": 8.0, "s": [[0, 0, 5, 5]], "T": "", "vi": -1, "ti": -1}],
+            "chao": [{"w": 9.0, "s": [[0, 0, 6, 6]], "T": "", "vi": -1, "ti": -1}],
+        },
+        "digits": {},
+        "punct": {},
+    }
+
+    disk = {
+        "words": {
+            # "xin" có 1 mẫu trùng toạ độ (sẽ bỏ qua) và 1 mẫu mới (sẽ thêm vào)
+            "xin": [
+                {"w": 8.0, "s": [[0.0, 0.0, 5.0, 5.0]], "T": "", "vi": -1, "ti": -1},
+                {"w": 8.5, "s": [[0, 0, 7, 7]], "T": "", "vi": -1, "ti": -1},
+            ],
+            # "ban" là từ mới trên đĩa -> thêm vào base
+            "ban": [{"w": 7.0, "s": [[0, 0, 4, 4]], "T": "", "vi": -1, "ti": -1}],
+            # "chao" đã bị xóa khỏi base -> không được hồi sinh
+            "chao": [{"w": 9.0, "s": [[0, 0, 6, 6]], "T": "", "vi": -1, "ti": -1}],
+        },
+        "digits": {"1": [{"w": 4.0, "s": [[0, 0, 0, 10]], "T": "", "vi": -1, "ti": -1}]},
+        "punct": {},
+    }
+
+    deleted_words = {"chao"}
+    merged = merge_bank_dicts(base, disk, deleted_words=deleted_words)
+
+    # 1. "xin" phải có đúng 2 mẫu (1 gốc + 1 mới, không bị trùng mẫu [[0,0,5,5]])
+    assert len(merged["words"]["xin"]) == 2
+    # 2. "ban" được gộp vào
+    assert "ban" in merged["words"]
+    # 3. "chao" nằm trong deleted_words nên không được có trong merged
+    assert "chao" not in merged["words"]
+    # 4. "digits" được gộp đúng
+    assert "1" in merged["digits"]
+
+
+def test_create_empty_atomic_pipeline(tmp_path):
+    """Kiểm tra Bank.create_empty() tạo file hợp lệ, nguyên tử và không để lại file rác."""
+    p = str(tmp_path / "new_empty_bank.json.gz")
+    b = Bank.create_empty(p)
+    assert os.path.exists(p)
+    assert b.d["schema_version"] == 2
+    assert b.words == {}
+    assert not any(f.endswith(".tmp") for f in os.listdir(tmp_path))
+    # Mở lại kiểm tra tính toàn vẹn
+    reloaded = Bank(p)
+    assert reloaded.d["schema_version"] == 2
+
+
+def test_incremental_teach_performance_and_correctness(tmp_path):
+    """Kiểm tra add_sample_incremental hoạt động chính xác và đạt hiệu năng cao."""
+    import time
+
+    p = str(tmp_path / "incremental_bank.json.gz")
+    b = Bank.create_empty(p)
+
+    start = time.perf_counter()
+    for i in range(50):
+        w = f"word_{i}"
+        b.add_sample_incremental(w, [[0.0, 0.0, 5.0, 0.0]], 5.0)
+    b.save()
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 1.0, f"Thêm 50 từ tăng dần mất {elapsed:.2f}s (quá ngưỡng 1.0s)"
+    assert len(b.words) == 50
+    for i in range(50):
+        assert b.can(f"word_{i}")
+        assert f"word_{i}" in b.tl

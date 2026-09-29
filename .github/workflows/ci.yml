@@ -101,11 +101,13 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Compress-Archive -Path dist/hw_gui.exe, README.md, LICENSE -DestinationPath ${{ matrix.archive_name }}
+          Copy-Item README.md, LICENSE dist/
+          Compress-Archive -Path dist/hw_gui.exe, dist/README.md, dist/LICENSE -DestinationPath ${{ matrix.archive_name }}
 
       - name: Package archive (Linux)
         if: runner.os == 'Linux'
         run: |
+          cp README.md LICENSE dist/
           tar -czf ${{ matrix.archive_name }} -C dist hw_gui README.md LICENSE
 
       - name: Upload Release Asset
