@@ -58,17 +58,23 @@ if (-not $hasFilterRepo) {
     exit 1
 }
 
-# 5. Tạo branch backup an toàn
+# 5. Tạo standalone bundle backup bên ngoài thư mục repo
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$backupBranch = "backup-pre-purge-$timestamp"
-Write-Host "Đang tạo nhánh sao lưu dự phòng: $backupBranch..." -ForegroundColor Cyan
-git branch $backupBranch
+$backupBundle = "../viet-pre-purge-$timestamp.bundle"
+Write-Host "Đang tạo git bundle sao lưu an toàn bên ngoài repo: $backupBundle..." -ForegroundColor Cyan
+git bundle create $backupBundle --all
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Tạo git bundle sao lưu thất bại! Huỷ thao tác để bảo vệ lịch sử."
+    exit 1
+}
+Write-Host "✅ Đã tạo bundle sao lưu thành công tại: $backupBundle" -ForegroundColor Green
 
 # 6. Thực thi git filter-repo
 Write-Host "Bắt đầu viết lại lịch sử commit để loại bỏ hoàn toàn các file..." -ForegroundColor Cyan
 git filter-repo --invert-paths --path "chu_cua_ban.json.gz" --path "tests/data/kho_mau_chup_lai.json.gz" --force
 
 Write-Host "`n✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch sử Git!" -ForegroundColor Green
-Write-Host "Nhánh sao lưu trước khi xóa: $backupBranch" -ForegroundColor Gray
+Write-Host "Tệp sao lưu độc lập trước khi xóa: $backupBundle" -ForegroundColor Gray
+Write-Host "Để khôi phục nếu cần: git clone $backupBundle restored-repo" -ForegroundColor Gray
 Write-Host "LƯU Ý: Lịch sử commit đã thay đổi hash. Khi sẵn sàng cập nhật remote repo, chạy:" -ForegroundColor Yellow
 Write-Host "git push --force --all origin" -ForegroundColor Yellow

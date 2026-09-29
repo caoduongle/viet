@@ -24,6 +24,7 @@ import logging
 import os
 import sys
 import tempfile
+import time
 from typing import Any
 
 from chuviettay.config import NANG, TONES
@@ -65,31 +66,68 @@ __all__ = [
 ]
 
 
-def _stroke_signature(inst: dict) -> tuple:
-    """Tạo chữ ký toạ độ nét vẽ (làm tròn 2 chữ số) để so sánh trùng lặp mẫu."""
-    strokes = inst.get("s", [])
-    return tuple(tuple(round(float(c), 2) for c in s) for s in strokes)
+def _sample_signature(inst: dict) -> tuple:
+    """Tạo chữ ký định danh mẫu gồm toạ độ nét vẽ (làm tròn 2 chữ số) và siêu dữ liệu (w, T, vi, ti)
+    để so sánh và khử trùng lặp chính xác."""
+    strokes = tuple(tuple(round(float(c), 2) for c in s) for s in inst.get("s", []))
+    w = round(float(inst.get("w", 0.0)), 2)
+    T = str(inst.get("T", ""))
+    vi = int(inst.get("vi", -1))
+    ti = int(inst.get("ti", -1))
+    return (strokes, w, T, vi, ti)
 
 
-def merge_bank_dicts(base: dict[str, Any], disk: dict[str, Any], deleted_words: set[str] | None = None) -> dict[str, Any]:
+# Giữ alias tương thích ngược nếu có module khác gọi _stroke_signature
+_stroke_signature = _sample_signature
+
+
+def merge_bank_dicts(
+    base: dict[str, Any],
+    disk: dict[str, Any],
+    deleted_words: set[str] | None = None,
+    readded_words: set[str] | None = None,
+) -> dict[str, Any]:
     """Hợp nhất dữ liệu kho mẫu trên đĩa (disk) vào kho mẫu trong bộ nhớ (base).
-    Tránh lost-update khi nhiều tiến trình cùng ghi."""
+    Tránh lost-update khi nhiều tiến trình cùng ghi, đồng thời bảo vệ deletion tombstones."""
+    # 1. Hợp nhất deletion tombstones
+    disk_tombstones = dict(disk.get("tombstones", {}))
+    base_tombstones = dict(base.setdefault("tombstones", {}))
+
+    # Nếu base có từ chủ động dạy lại trong phiên hiện tại -> xoá tombstone của từ đó
+    if readded_words:
+        for w in readded_words:
+            disk_tombstones.pop(w, None)
+            base_tombstones.pop(w, None)
+
+    # Nếu có deleted_words vừa xoá trong phiên hiện tại -> cập nhật tombstone
+    now_ts = time.time()
     if deleted_words:
         for w in deleted_words:
-            base.get("words", {}).pop(w, None)
+            base_tombstones[w] = now_ts
 
+    merged_tombstones = {**disk_tombstones, **base_tombstones}
+    if readded_words:
+        for w in readded_words:
+            merged_tombstones.pop(w, None)
+    base["tombstones"] = merged_tombstones
+
+    # Áp dụng tombstone để loại bỏ từ đã bị xoá
+    for w in merged_tombstones:
+        base.get("words", {}).pop(w, None)
+
+    # 2. Hợp nhất words, digits, punct
     for c_name in ("words", "digits", "punct"):
         disk_c = disk.get(c_name, {})
         base_c = base.setdefault(c_name, {})
         for label, disk_samples in disk_c.items():
-            if c_name == "words" and deleted_words and label in deleted_words:
+            if c_name == "words" and label in merged_tombstones:
                 continue
             if label not in base_c:
                 base_c[label] = list(disk_samples)
             else:
-                existing_sigs = {_stroke_signature(s) for s in base_c[label]}
+                existing_sigs = {_sample_signature(s) for s in base_c[label]}
                 for s in disk_samples:
-                    sig = _stroke_signature(s)
+                    sig = _sample_signature(s)
                     if sig not in existing_sigs:
                         base_c[label].append(s)
                         existing_sigs.add(sig)
@@ -112,8 +150,19 @@ class Bank:
         self.xh: float = float(self.d["xh"])
         self.pen: dict = self.d["pen"]
         self.tl: dict[str, list[tuple[str, dict]]] = {}
-        self.marks: dict[str, list[dict]] = {}
+        self._raw_marks: dict[str, list[dict]] = {t: [] for t in TONES}
+        self.marks: dict[str, list[dict]] = {t: [] for t in TONES}
+        self._tombstones: dict[str, float] = self.d.setdefault("tombstones", {})
         self._deleted_words: set[str] = set()
+        self._readded_words: set[str] = set()
+        self._last_synced_mtime_ns: int | None = None
+        self._last_synced_size: int | None = None
+        try:
+            st = os.stat(path)
+            self._last_synced_mtime_ns = st.st_mtime_ns
+            self._last_synced_size = st.st_size
+        except OSError:
+            pass
         self.rebuild()
         _log.debug("Đã mở kho mẫu %s (%d từ)", path, len(self.words))
 
@@ -128,6 +177,7 @@ class Bank:
             "words": {}, "digits": {}, "punct": {}, "v": 1,
             "pen": {"tool": "pen", "color": "#000000ff", "width": "1.2", "capStyle": "round"},
             "x0": 78.0, "width": 500.0, "ratio": 6.6,
+            "tombstones": {},
         }
 
     @classmethod
@@ -142,8 +192,13 @@ class Bank:
         bank.xh = float(bank.d["xh"])
         bank.pen = bank.d["pen"]
         bank.tl = {}
-        bank.marks = {}
+        bank._raw_marks = {t: [] for t in TONES}
+        bank.marks = {t: [] for t in TONES}
+        bank._tombstones = bank.d.setdefault("tombstones", {})
         bank._deleted_words = set()
+        bank._readded_words = set()
+        bank._last_synced_mtime_ns = None
+        bank._last_synced_size = None
         bank.rebuild()
         bank.save()
         _log.info("Đã tạo kho mẫu trống mới: %s", path)
@@ -174,59 +229,90 @@ class Bank:
             for inst in insts:
                 if inst.get("T", "") == "" or inst.get("ti", -1) >= 0:
                     self.tl.setdefault(tk, []).append((k, inst))
-        self.marks = {t: [] for t in TONES}
+        self._raw_marks = {t: [] for t in TONES}
         for k, insts in self.words.items():
             for inst in insts:
                 self._harvest(k, inst)
-        for t, lst in self.marks.items():          # bỏ các dấu nằm quá xa (nhận nhầm hoặc viết lệch hẳn)
-            if len(lst) >= 10:
-                lo_dy, hi_dy = sorted(m["dy"] for m in lst)[len(lst) // 10], sorted(m["dy"] for m in lst)[-len(lst) // 10 - 1]
-                lo_dx, hi_dx = sorted(m["dx"] for m in lst)[len(lst) // 10], sorted(m["dx"] for m in lst)[-len(lst) // 10 - 1]
-                self.marks[t] = [m for m in lst if lo_dy <= m["dy"] <= hi_dy and lo_dx <= m["dx"] <= hi_dx]
+        self.marks = {t: [] for t in TONES}
+        for t in TONES:
+            self._refresh_tone_marks(t)
 
-    def _harvest(self, key: str, inst: dict) -> None:
+    def _harvest(self, key: str, inst: dict) -> dict | None:
         """Tách riêng nét dấu thanh ra khỏi một mẫu đã học (nếu mẫu đó có xác định
         được đâu là nét dấu thanh -- inst["ti"] >= 0), quy về gốc toạ độ (0,0), lưu vào
-        self.marks để dùng ghép cho từ khác cùng dấu thanh về sau."""
+        self._raw_marks để dùng ghép cho từ khác cùng dấu thanh về sau."""
         T, vi, ti = inst.get("T", ""), inst.get("vi", -1), inst.get("ti", -1)
-        if not T or ti < 0 or vi < 0:
-            return
+        if not T or ti < 0 or vi < 0 or T not in self._raw_marks:
+            return None
+        if ti >= len(inst["s"]):
+            return None
         s = inst["s"][ti]
         xs, ys = s[0::2], s[1::2]
+        if not xs or not ys:
+            return None
         cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
         body = [st for k, st in enumerate(inst["s"]) if k != ti]
         if not body:
-            return
+            return None
         xv = vowel_x(tone_info(key)[3], vi, inst["w"])
         dy = cy - (max(0.0, near_extreme(body, cx, max)) if T == NANG else near_extreme(body, cx, min))
-        self.marks[T].append({"s": [shift(s, -cx, -cy)], "dx": cx - xv, "dy": dy})
+        mark = {"s": [shift(s, -cx, -cy)], "dx": cx - xv, "dy": dy}
+        self._raw_marks[T].append(mark)
+        return mark
+
+    def _refresh_tone_marks(self, T: str) -> None:
+        """Cập nhật self.marks[T] từ self._raw_marks[T] bằng cách lọc phân vị 10-90% khi có >= 10 mẫu.
+        Bảo toàn toàn bộ dấu trong self._raw_marks để không bị mất khi phân vị dịch chuyển."""
+        lst = self._raw_marks.get(T, [])
+        if len(lst) >= 10:
+            lo_dy = sorted(m["dy"] for m in lst)[len(lst) // 10]
+            hi_dy = sorted(m["dy"] for m in lst)[-len(lst) // 10 - 1]
+            lo_dx = sorted(m["dx"] for m in lst)[len(lst) // 10]
+            hi_dx = sorted(m["dx"] for m in lst)[-len(lst) // 10 - 1]
+            self.marks[T] = [m for m in lst if lo_dy <= m["dy"] <= hi_dy and lo_dx <= m["dx"] <= hi_dx]
+        else:
+            self.marks[T] = list(lst)
 
     # -------------------------------------------------------------- đọc/ghi
     def save(self) -> None:
         """Ghi kho mẫu xuống đĩa AN TOÀN:
         1. Khóa file liên tiến trình qua {path}.lock (tránh xung đột khi chạy đồng thời GUI/CLI).
-        2. Đọc và hợp nhất thay đổi trên đĩa (nếu có) để tránh lost-update.
+        2. Đọc và hợp nhất thay đổi trên đĩa (nếu có thay đổi ngoài) để tránh lost-update.
         3. Ghi ra file tạm ngẫu nhiên duy nhất qua tempfile.mkstemp trong cùng thư mục.
         4. flush + fsync dữ liệu xuống đĩa vật lý, đóng sạch handle trước khi replace.
         5. os.replace nguyên tử đè lên file thật.
         6. fsync thư mục cha trên POSIX."""
         lock_path = self.path + ".lock"
         with FileLock(lock_path, timeout=10.0):
-            # Nếu file đã tồn tại trên đĩa, đọc và hợp nhất các thay đổi từ đĩa
+            # Nếu file đã tồn tại trên đĩa, kiểm tra xem có bị tiến trình khác sửa đổi không
+            needs_merge = True
             if os.path.exists(self.path) and os.path.getsize(self.path) > 0:
                 try:
-                    disk_d = load_and_validate(self.path)
-                    merge_bank_dicts(self.d, disk_d, self._deleted_words)
-                    self.rebuild()
-                except (BankError, OSError, ValueError, KeyError) as e:
-                    _log.warning("Không thể đọc/hợp nhất file trên đĩa (%s): %s", self.path, e)
+                    st = os.stat(self.path)
+                    if (
+                        self._last_synced_mtime_ns is not None
+                        and self._last_synced_size is not None
+                        and st.st_mtime_ns == self._last_synced_mtime_ns
+                        and st.st_size == self._last_synced_size
+                    ):
+                        needs_merge = False
+                except OSError:
+                    needs_merge = True
+
+                if needs_merge:
+                    try:
+                        disk_d = load_and_validate(self.path)
+                        merge_bank_dicts(self.d, disk_d, self._deleted_words, self._readded_words)
+                        self.rebuild()
+                    except (BankError, OSError, ValueError, KeyError) as e:
+                        _log.warning("Không thể đọc/hợp nhất file trên đĩa (%s): %s", self.path, e)
 
             self.d["schema_version"] = CURRENT_VERSION
             parent_dir = os.path.dirname(self.path) or "."
             fd, tmp = tempfile.mkstemp(dir=parent_dir, prefix=".bank_", suffix=".tmp")
             try:
                 with os.fdopen(fd, "wb") as raw_f:
-                    with gzip.open(raw_f, "wt", encoding="utf-8", compresslevel=9) as gz_f:
+                    with gzip.open(raw_f, "wt", encoding="utf-8", compresslevel=6) as gz_f:
                         json.dump(self.d, gz_f, ensure_ascii=False, separators=(",", ":"))
                     raw_f.flush()
                     os.fsync(raw_f.fileno())
@@ -242,7 +328,16 @@ class Bank:
                             os.close(dirfd)
                     except OSError:
                         pass
+
+                try:
+                    st = os.stat(self.path)
+                    self._last_synced_mtime_ns = st.st_mtime_ns
+                    self._last_synced_size = st.st_size
+                except OSError:
+                    self._last_synced_mtime_ns = None
+                    self._last_synced_size = None
                 self._deleted_words.clear()
+                self._readded_words.clear()
             except BaseException:
                 try:
                     os.remove(tmp)
@@ -276,11 +371,13 @@ class Bank:
         inst = {"w": round(width, 2), "s": rel_strokes, "T": T, "vi": vi, "ti": ti}
         self.words.setdefault(label, []).append(inst)
         self._deleted_words.discard(label)
+        self._tombstones.pop(label, None)
+        self._readded_words.add(label)
         return inst
 
     def add_sample_incremental(self, label: str, rel_strokes: list[Stroke], width: float) -> dict:
-        """Thêm MỘT mẫu mới và cập nhật chỉ mục tra cứu (tl, marks) theo cách tăng dần (incremental)
-        với độ phức tạp O(1), không duyệt lại toàn bộ kho mẫu."""
+        """Thêm MỘT mẫu mới và cập nhật chỉ mục tra cứu (tl, marks) theo cách tăng dần (incremental),
+        bảo toàn toàn bộ dấu thanh thô và đảm bảo marks luôn khớp chính xác với rebuild()."""
         inst = self.add_sample(label, rel_strokes, width)
 
         tk = strip_tone(label)
@@ -288,13 +385,10 @@ class Bank:
             self.tl.setdefault(tk, []).append((label, inst))
 
         T = inst.get("T", "")
-        if T and T in self.marks:
-            self._harvest(label, inst)
-            lst = self.marks[T]
-            if len(lst) >= 10:
-                lo_dy, hi_dy = sorted(m["dy"] for m in lst)[len(lst) // 10], sorted(m["dy"] for m in lst)[-len(lst) // 10 - 1]
-                lo_dx, hi_dx = sorted(m["dx"] for m in lst)[len(lst) // 10], sorted(m["dx"] for m in lst)[-len(lst) // 10 - 1]
-                self.marks[T] = [m for m in lst if lo_dy <= m["dy"] <= hi_dy and lo_dx <= m["dx"] <= hi_dx]
+        if T and T in self._raw_marks:
+            mark = self._harvest(label, inst)
+            if mark is not None:
+                self._refresh_tone_marks(T)
 
         return inst
 
@@ -302,4 +396,6 @@ class Bank:
         """Xoá hết mẫu của `word` khỏi kho, trả về số mẫu đã xoá (0 nếu chưa có từ đó).
         KHÔNG tự rebuild()/save()."""
         self._deleted_words.add(word)
+        self._tombstones[word] = time.time()
+        self._readded_words.discard(word)
         return len(self.words.pop(word, []))

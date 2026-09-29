@@ -56,8 +56,7 @@ mẫu mới..."** (chọn file đã có thì app chỉ mở nó ra, **không bao
   cỡ tay" của lệnh `learn`). Bấm "Bỏ qua" hoặc "Xoá hàng đợi" khi đang ở từ mốc là huỷ việc
   hiệu chỉnh.
 - Mỗi từ lưu xuống kho mẫu ngay lập tức (không cần bấm "Save" riêng ở đâu khác).
-- Đang mở cửa sổ mà cần chạy `hw_note.py learn/drop` ở dòng lệnh: làm xong thì **đóng và mở lại cửa sổ** trước
-  khi dạy tiếp (app giữ kho trong bộ nhớ và ghi đè cả file mỗi lần lưu). Tab Viết chữ thì luôn dùng kho mới nhất trên đĩa.
+- Kho mẫu hỗ trợ an toàn liên tiến trình hoàn toàn (cross-process file lock, tự động hợp nhất mẫu và bảo vệ deletion tombstones), cho phép GUI và CLI chạy đồng thời mà không bị mất dữ liệu hay hồi sinh từ đã xoá. Tab Viết chữ luôn tự động tải bản kho mới nhất.
 
 ## Tương đương lệnh dòng lệnh
 

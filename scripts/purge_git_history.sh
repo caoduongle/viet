@@ -56,11 +56,12 @@ if ! command -v git-filter-repo > /dev/null 2>&1; then
     exit 1
 fi
 
-# 5. Tạo branch backup an toàn
+# 5. Tạo standalone bundle backup bên ngoài thư mục repo
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
-BACKUP_BRANCH="backup-pre-purge-${TIMESTAMP}"
-echo "Đang tạo nhánh sao lưu dự phòng: ${BACKUP_BRANCH}..."
-git branch "${BACKUP_BRANCH}"
+BACKUP_BUNDLE="../viet-pre-purge-${TIMESTAMP}.bundle"
+echo "Đang tạo git bundle sao lưu an toàn bên ngoài repo: ${BACKUP_BUNDLE}..."
+git bundle create "${BACKUP_BUNDLE}" --all
+echo "✅ Đã tạo bundle sao lưu thành công tại: ${BACKUP_BUNDLE}"
 
 # 6. Thực thi git filter-repo
 echo "Bắt đầu viết lại lịch sử commit để loại bỏ hoàn toàn các file..."
@@ -68,6 +69,7 @@ git filter-repo --invert-paths --path "chu_cua_ban.json.gz" --path "tests/data/k
 
 echo ""
 echo "✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch sử Git!"
-echo "Nhánh sao lưu trước khi xóa: ${BACKUP_BRANCH}"
+echo "Tệp sao lưu độc lập trước khi xóa: ${BACKUP_BUNDLE}"
+echo "Để khôi phục nếu cần: git clone ${BACKUP_BUNDLE} restored-repo"
 echo "LƯU Ý: Lịch sử commit đã thay đổi hash. Khi sẵn sàng cập nhật remote repo, chạy:"
 echo "git push --force --all origin"

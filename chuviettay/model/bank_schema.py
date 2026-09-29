@@ -10,9 +10,12 @@ import gzip
 import json
 import math
 import os
+import re
 import zlib
 from collections.abc import Callable
 from typing import Any
+
+from chuviettay.config import TONES
 
 CURRENT_VERSION = 2
 
@@ -95,18 +98,66 @@ def validate_stroke(stroke: Any, path: str = "stroke") -> None:
             raise BankValidationError(f"{path}[{i}]: toạ độ phải là số hữu hạn, nhận được: {c!r}")
 
 
-def validate_sample(item: Any, path: str = "sample") -> None:
-    """Kiểm tra tính hợp lệ của một mẫu chữ (gồm nét vẽ 's' và độ rộng 'w')."""
+def validate_sample(
+    item: Any,
+    path: str = "sample",
+    is_punct: bool = False,
+    label: str = "",
+) -> None:
+    """Kiểm tra tính hợp lệ của một mẫu chữ (gồm nét vẽ 's', độ rộng 'w' và siêu dữ liệu dấu thanh)."""
     if not isinstance(item, dict):
         raise BankValidationError(f"{path}: mẫu phải là dict, nhận được: {type(item).__name__}")
     if "s" not in item:
         raise BankValidationError(f"{path}: mẫu thiếu nét vẽ 's'")
-    if "w" not in item or not isinstance(item["w"], (int, float)) or not math.isfinite(item["w"]) or item["w"] <= 0:
-        raise BankValidationError(f"{path}: độ rộng 'w' phải là số dương hữu hạn, nhận được: {item.get('w')!r}")
     if not isinstance(item["s"], list) or len(item["s"]) == 0:
         raise BankValidationError(f"{path}: 's' phải là danh sách nét vẽ không rỗng")
     for s_idx, stroke in enumerate(item["s"]):
         validate_stroke(stroke, path=f"{path}['s'][{s_idx}]")
+
+    # Độ rộng 'w' là bắt buộc với words và digits, nhưng là tuỳ chọn với punct
+    if not is_punct and "w" not in item:
+        raise BankValidationError(f"{path}: thiếu độ rộng 'w'")
+    if "w" in item:
+        w_val = item["w"]
+        if (
+            not isinstance(w_val, (int, float))
+            or isinstance(w_val, bool)
+            or not math.isfinite(w_val)
+            or w_val <= 0
+        ):
+            raise BankValidationError(f"{path}: độ rộng 'w' phải là số dương hữu hạn, nhận được: {w_val!r}")
+
+    # Kiểm tra bất biến siêu dữ liệu dấu thanh (T, ti, vi)
+    T = item.get("T")
+    ti = item.get("ti")
+    vi = item.get("vi")
+
+    if T is not None:
+        if not isinstance(T, str):
+            raise BankValidationError(f"{path}['T']: dấu thanh phải là chuỗi (str), nhận được: {type(T).__name__}")
+        if T != "" and T not in TONES:
+            raise BankValidationError(f"{path}['T']: dấu thanh không hợp lệ: {T!r}")
+
+    if ti is not None:
+        if not isinstance(ti, int) or isinstance(ti, bool):
+            raise BankValidationError(f"{path}['ti']: chỉ số nét dấu thanh phải là số nguyên (int), nhận được: {type(ti).__name__}")
+        if ti < -1 or ti >= len(item["s"]):
+            raise BankValidationError(f"{path}['ti']: chỉ số nét dấu thanh ti={ti} ngoài phạm vi [-1, {len(item['s']) - 1}]")
+
+    if vi is not None:
+        if not isinstance(vi, int) or isinstance(vi, bool):
+            raise BankValidationError(f"{path}['vi']: chỉ số nguyên âm mang dấu phải là số nguyên (int), nhận được: {type(vi).__name__}")
+        if vi < -1:
+            raise BankValidationError(f"{path}['vi']: chỉ số nguyên âm vi={vi} không được nhỏ hơn -1")
+        if label and vi >= len(label):
+            raise BankValidationError(f"{path}['vi']: chỉ số nguyên âm vi={vi} vượt quá độ dài nhãn '{label}' ({len(label)})")
+
+    # Tính nhất quán khi có nét dấu thanh
+    if ti is not None and ti >= 0:
+        if not T or T not in TONES:
+            raise BankValidationError(f"{path}: mẫu có ti={ti} >= 0 nhưng T={T!r} không phải dấu thanh hợp lệ")
+        if vi is None or vi < 0:
+            raise BankValidationError(f"{path}: mẫu có ti={ti} >= 0 nhưng vi={vi!r} < 0")
 
 
 # ------------------------------------------------------------------ Kiểm tra cấu trúc
@@ -177,16 +228,48 @@ def validate_bank_dict(d: Any, context: str = "", allow_legacy: bool = False) ->
         if pk not in pen:
             raise BankValidationError(f"Thông số bút 'pen' thiếu thuộc tính bắt buộc: '{pk}'{ctx}")
 
+    tool_val = pen["tool"]
+    if not isinstance(tool_val, str) or not tool_val.strip():
+        raise BankValidationError(f"Thông số bút 'pen.tool' phải là chuỗi không rỗng, nhận được: {tool_val!r}{ctx}")
+
+    color_val = pen["color"]
+    if not isinstance(color_val, str) or not re.match(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", color_val):
+        raise BankValidationError(f"Màu bút 'pen.color' phải là mã hex dạng #RRGGBB hoặc #RRGGBBAA, nhận được: {color_val!r}{ctx}")
+
+    pen_w = pen["width"]
+    pen_w_num = None
+    if isinstance(pen_w, (int, float)) and not isinstance(pen_w, bool):
+        pen_w_num = float(pen_w)
+    elif isinstance(pen_w, str):
+        try:
+            pen_w_num = float(pen_w)
+        except ValueError:
+            pass
+    if pen_w_num is None or not math.isfinite(pen_w_num) or pen_w_num <= 0:
+        raise BankValidationError(f"Độ rộng nét bút 'pen.width' phải là số dương hữu hạn, nhận được: {pen_w!r}{ctx}")
+
+    # Kiểm tra tombstones nếu có
+    if "tombstones" in d:
+        tombstones = d["tombstones"]
+        if not isinstance(tombstones, dict):
+            raise BankValidationError(f"Trường 'tombstones' phải là dict, nhận được: {type(tombstones).__name__}{ctx}")
+        for t_k, t_v in tombstones.items():
+            if not isinstance(t_k, str):
+                raise BankValidationError(f"Khoá của 'tombstones' phải là chuỗi, nhận được: {t_k!r}{ctx}")
+            if not isinstance(t_v, (int, float)) or isinstance(t_v, bool) or not math.isfinite(t_v):
+                raise BankValidationError(f"Giá trị tombstone['{t_k}'] phải là timestamp số hữu hạn, nhận được: {t_v!r}{ctx}")
+
     # 5. Kiểm tra sâu cấu trúc danh sách mẫu trong words/digits/punct
     for c_name in ("words", "digits", "punct"):
         container = d[c_name]
+        is_punct = (c_name == "punct")
         for label, samples in container.items():
             if not isinstance(samples, list):
                 raise BankValidationError(
                     f"Mục '{c_name}[{label!r}]' phải là danh sách mẫu (list), nhận được: {type(samples).__name__}{ctx}"
                 )
             for idx, item in enumerate(samples):
-                validate_sample(item, path=f"{c_name}[{label!r}][{idx}]{ctx}")
+                validate_sample(item, path=f"{c_name}[{label!r}][{idx}]{ctx}", is_punct=is_punct, label=label)
 
     return version
 
