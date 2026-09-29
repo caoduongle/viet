@@ -36,6 +36,41 @@ def test_cli_write_markdown_file(tmp_path, tiny_bank_path, capsys):
     assert "Đã tạo" in captured.out or "dòng" in captured.out
 
 
+def test_cli_write_markdown_split_list(tmp_path, tiny_bank_path, capsys):
+    """Kiểm thử CLI chuyển đổi file Markdown chứa danh sách bị ngắt bởi bảng ra file .xopp."""
+    import gzip
+    pytest.importorskip("markdown_it", reason="Cần cài đặt markdown-it-py để chạy kiểm thử định dạng Markdown")
+    md_file = tmp_path / "split_list.md"
+    md_file.write_text("""1. Mục một
+2. Mục hai
+3. Mục ba
+
+| Cột A | Cột B |
+|---|---|
+| A | B |
+
+4. Mục bốn
+5. Mục năm
+""", encoding="utf-8")
+    out_xopp = tmp_path / "split_list.xopp"
+
+    ret = main([
+        "--bank", str(tiny_bank_path),
+        "write",
+        "-f", str(md_file),
+        "-o", str(out_xopp),
+        "--format", "auto",
+        "--seed", "42",
+    ])
+    assert ret == 0
+    assert out_xopp.exists()
+
+    with gzip.open(out_xopp, "rt", encoding="utf-8") as gz:
+        content = gz.read()
+        assert "<xournal" in content
+        assert "<stroke" in content
+
+
 def test_cli_write_docx_file(tmp_path, tiny_bank_path, capsys):
     pytest.importorskip("docx", reason="Cần cài đặt python-docx để chạy kiểm thử định dạng Word")
     import docx

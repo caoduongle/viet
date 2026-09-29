@@ -118,8 +118,15 @@ lấy hàm/lớp bên trong sẽ không còn dùng được. Đổi sang:
   - Bảo vệ an toàn pha import Tkinter trong `tests/test_gui_document.py` khi chạy trên môi trường headless không có display/Tkinter.
   - Kiểm thử đầu cuối (E2E) chuyển đổi bộ tệp mẫu thực tế `sample.txt`, `sample.md`, `sample.docx` ra `.xopp`.
 
+### Bảo Toàn Số Bắt Đầu Danh Sách Có Thứ Tự Trong Markdown Importer (Feature 010)
+- **Bảo toàn số thứ tự (`start`) khi danh sách bị ngắt quãng**: Bổ sung phương thức `_extract_list_start()` trong `MarkdownImporter` (`chuviettay/importer/markdown_importer.py`), trích xuất an toàn thuộc tính `start` từ token `ordered_list_open` và truyền vào `ListBlock(ordered=True, items=items, start=start)`.
+- **Khắc phục lỗi reset số thứ tự sau bảng biểu**: Khi một danh sách có thứ tự bị ngắt quãng bởi khối không thụt lề (bảng biểu GFM, đoạn văn) hoặc khi người dùng bắt đầu từ một số khác 1 (ví dụ `4. ... 5. ...`), hệ thống giữ nguyên đúng số đánh dấu gốc thay vì reset về `1. ... 2. ...`.
+- **Phân giải thuộc tính bền bỉ (Resilient Parsing)**: Hỗ trợ linh hoạt cả `tok.attrGet("start")`, dict `tok.attrs`, list `tok.attrs`, và tự động fallback về `1` an toàn nếu thuộc tính bị khuyết hoặc mang giá trị phi số.
+- **Kiểm thử tích hợp & đầu cuối**: Bổ sung unit tests cho danh sách ngắt quãng bởi bảng trong `tests/test_importer_markdown.py`, kiểm thử pipeline render trong `tests/test_document_pipeline.py` và kiểm thử CLI chuyển đổi ra `.xopp` trong `tests/test_cli_format.py`.
+
 ### Mới
 - Bộ kiểm thử hơn 370 ca (`pytest`), gồm test giao diện thật chạy dưới màn hình ảo, golden-master so với bản
   gốc, test bộ nạp tài liệu và test kiến trúc. Xem README → "Kiểm thử".
 - Tham số `--bank` cho `hw_gui.py`; cờ `-v` cho cả hai.
+
 

@@ -69,6 +69,24 @@ class MarkdownImporter(BaseImporter):
 
         return inlines
 
+    def _extract_list_start(self, tok: Any) -> int:
+        """Trích xuất số bắt đầu cho ordered list từ thuộc tính token, mặc định 1."""
+        raw_start = tok.attrGet("start") if hasattr(tok, "attrGet") else None
+        if raw_start is None and getattr(tok, "attrs", None):
+            if isinstance(tok.attrs, dict):
+                raw_start = tok.attrs.get("start")
+            elif isinstance(tok.attrs, (list, tuple)):
+                for item in tok.attrs:
+                    if isinstance(item, (list, tuple)) and len(item) == 2 and item[0] == "start":
+                        raw_start = item[1]
+                        break
+        if raw_start is not None:
+            try:
+                return int(raw_start)
+            except (ValueError, TypeError):
+                return 1
+        return 1
+
     def import_text(self, text: str) -> ImportResult:
         """Phân tích chuỗi Markdown thành Document IR."""
         from markdown_it import MarkdownIt
@@ -113,6 +131,7 @@ class MarkdownImporter(BaseImporter):
             # 4. List Block
             elif tok.type in ("bullet_list_open", "ordered_list_open"):
                 is_ordered = (tok.type == "ordered_list_open")
+                start = self._extract_list_start(tok) if is_ordered else 1
                 items: list[list[Block]] = []
                 i += 1
                 while i < n and tokens[i].type not in ("bullet_list_close", "ordered_list_close"):
@@ -128,7 +147,7 @@ class MarkdownImporter(BaseImporter):
                         items.append(item_blocks)
                     else:
                         i += 1
-                blocks.append(ListBlock(ordered=is_ordered, items=items))
+                blocks.append(ListBlock(ordered=is_ordered, items=items, start=start))
 
             # 5. Table Block
             elif tok.type == "table_open":

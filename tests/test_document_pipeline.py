@@ -1,5 +1,6 @@
 """Kiểm thử tích hợp luồng Document IR: Importer -> Layout Engine -> .xopp."""
 import gzip
+import os
 import xml.etree.ElementTree as ET
 import pytest
 
@@ -191,4 +192,35 @@ def test_write_document_table_pagination(tiny_bank_path, tmp_path):
         assert layer is not None
         strokes = layer.findall("stroke")
         assert len(strokes) > 0, "Mỗi trang phải có nét viền và nội dung ô"
+
+
+def test_write_document_split_ordered_list_numbering(tiny_bank_path, tmp_path):
+    """Kiểm thử tích hợp: danh sách có thứ tự bị ngắt bởi bảng giữ nguyên số thứ tự 1..5 trong pipeline Document."""
+    pytest.importorskip("markdown_it", reason="Cần cài đặt markdown-it-py để chạy kiểm thử định dạng Markdown")
+    from chuviettay.importer.markdown_importer import MarkdownImporter
+    importer = MarkdownImporter()
+    md = """1. Mục một
+2. Mục hai
+3. Mục ba
+
+| Cột A | Cột B |
+|---|---|
+| A | B |
+
+4. Mục bốn
+5. Mục năm"""
+    res_import = importer.import_text(md)
+    doc = res_import.document
+    assert len(doc.blocks) == 3
+    assert doc.blocks[0].start == 1
+    assert doc.blocks[2].start == 4
+
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+    out = str(tmp_path / "split_list.xopp")
+    res = ctl.write_document(doc, WriteOptions(seed=12), out)
+    assert res.n_lines >= 5
+    assert res.n_strokes > 0
+    assert os.path.exists(out)
+
 
