@@ -20,11 +20,12 @@ from chuviettay.document.ir import (
     Paragraph,
     Symbol,
     Table,
+    TableCell,
     Text,
 )
 from chuviettay.layout.math_layout import MathLayoutEngine
 from chuviettay.layout.stream import PageBuffer
-from chuviettay.layout.table_layout import LaidOutCell, TableLayoutData, TableLayoutEngine
+from chuviettay.layout.table_layout import TableLayoutEngine
 from chuviettay.math.parser import parse_latex_math
 from chuviettay.model import xopp
 from chuviettay.model.text_utils import Stroke, normalize_text, place

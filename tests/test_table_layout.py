@@ -2,7 +2,7 @@
 import pytest
 
 from chuviettay.document.ir import Paragraph, Table, TableBorder, TableCell, TableRow, Text
-from chuviettay.layout.table_layout import TableLayoutEngine
+from chuviettay.layout.table_layout import LaidOutCell, TableLayoutEngine
 
 
 def test_table_column_widths_proportional():
