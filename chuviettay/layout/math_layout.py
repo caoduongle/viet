@@ -331,24 +331,49 @@ class MathLayoutEngine:
         # 8. Root: Căn thức
         elif isinstance(node, Root):
             rad_item = self.measure(node.radicand, eff_scale, depth + 1)
-            sign_w = 8.0 * eff_scale
+
+            # Bậc căn thức (degree, ví dụ: \sqrt[3]{x})
+            deg_item = None
+            deg_w = 0.0
+            if getattr(node, "degree", None) is not None:
+                deg_scale = eff_scale * 0.65
+                deg_item = self.measure(node.degree, deg_scale, depth + 1)
+                deg_w = deg_item.size.width
+
+            sign_w = max(8.0 * eff_scale, deg_w + 3.0 * eff_scale)
             total_w = sign_w + rad_item.size.width + 3.0 * eff_scale
             top_y = -rad_item.size.ascent - 3.0 * eff_scale
             bot_y = rad_item.size.descent
 
-            strokes = list(rad_item.strokes)
-            glyphs = list(rad_item.glyphs)
+            if deg_item:
+                deg_top = -deg_item.size.ascent - 0.3 * self.xh * eff_scale
+                top_y = min(top_y, deg_top)
 
-            # Nét dấu căn vươn lên và thanh ngang phủ qua radicand
+            # Bắt đầu danh sách rỗng để KHÔNG bị lặp lại strokes/glyphs của radicand
+            strokes: list[PositionedStroke] = []
+            glyphs: list[PositionedGlyph] = []
+
+            # 1. Đặt ký tự bậc căn (nếu có)
+            if deg_item:
+                deg_x = 0.0
+                deg_y = -0.3 * self.xh * eff_scale
+                for g in deg_item.glyphs:
+                    glyphs.append(PositionedGlyph(strokes=g.strokes, x=g.x + deg_x, y=g.y + deg_y, scale=g.scale))
+                for s in deg_item.strokes:
+                    strokes.append(PositionedStroke(points=[(pt[0] + deg_x, pt[1] + deg_y) for pt in s.points], width=s.width, color=s.color))
+
+            # 2. Nét dấu căn vươn lên và thanh ngang phủ qua radicand
+            hook_start_x = deg_w
+            hook_w = sign_w - hook_start_x
             radical_pts = [
-                (0.0, -0.2 * self.xh * eff_scale),
-                (sign_w * 0.4, bot_y),
-                (sign_w * 0.8, top_y),
+                (hook_start_x, -0.2 * self.xh * eff_scale),
+                (hook_start_x + hook_w * 0.4, bot_y),
+                (hook_start_x + hook_w * 0.8, top_y),
                 (total_w, top_y),
             ]
             strokes.append(PositionedStroke(points=radical_pts, width=1.41 * eff_scale))
 
-            # Dời radicand sang phải dấu căn
+            # 3. Chỉ thêm duy nhất bản radicand đã được dịch sang phải dấu căn
             for g in rad_item.glyphs:
                 glyphs.append(PositionedGlyph(strokes=g.strokes, x=g.x + sign_w, y=g.y, scale=g.scale))
             for s in rad_item.strokes:

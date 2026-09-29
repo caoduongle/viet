@@ -105,6 +105,19 @@ lấy hàm/lớp bên trong sẽ không còn dùng được. Đổi sang:
 - **Mock tự động hộp thoại Tkinter trong kiểm thử không đầu**: Thêm fixture autouse `_safe_gui_dialogs` trong `tests/conftest.py` và hoàn thiện mocking trong `tests/test_gui_document.py`, ngăn chặn vĩnh viễn tình trạng mở popup modal chờ người dùng bấm trên môi trường Linux `xvfb`.
 - **Hiển thị tiến trình trực tiếp (Streaming Logs)**: Đổi cờ pytest trên CI từ `-q` sang `-vv -s` để theo dõi tiến trình chạy và log từng ca kiểm thử theo thời gian thực.
 
+### Khắc phục Lỗi Nhân đôi Nét Căn thức, Lưới Chiếm dụng Ô Bảng Gộp & Hợp nhất Pipeline (Feature 009)
+- **Khắc phục triệt để lỗi nhân đôi nét/glyph căn thức (P0)**: Trong `chuviettay/layout/math_layout.py`, hàm bố trí `Root` đã được tái cấu trúc: khởi tạo danh sách glyph và stroke trống (`glyphs = []`, `strokes = []`), tính toán độ dời `sign_w` của dấu căn bậc n / căn bậc 2 và chỉ thêm các nét/glyph của radicand một lần duy nhất với tọa độ dịch chuyển chính xác. Hỗ trợ hiển thị số mũ căn bậc `degree` (ví dụ $\sqrt[3]{x}$) đặt phía trên móc căn.
+- **Bố trí ô gộp nhiều hàng bằng Lưới chiếm dụng 2 chiều (Table Rowspan Occupancy Grid - P0)**: Bổ sung thuật toán `_resolve_occupancy()` trong `chuviettay/layout/table_layout.py` sử dụng ma trận chiếm dụng 2 chiều `grid[row][col]`. Khi một ô có `rowspan > 1` hoặc `colspan > 1`, toàn bộ các ô con trong vùng chữ nhật $[r, r + rs) \times [c, c + cs)$ được đánh dấu đã chiếm dụng. Các ô tiếp theo trên cùng hàng hoặc các hàng bên dưới tự động tìm ô trống đầu tiên mà không bị va chạm tọa độ hoặc đè lên nhau.
+- **Tính toán bề rộng cột và đệm hàng rỗng chính xác**: Cập nhật `compute_column_widths()` và `pad_jagged_rows()` dựa trên kết quả giải quyết lưới chiếm dụng, ngăn ngừa việc chèn ô rỗng giả vào các vị trí đã được ô `rowspan` chiếm dụng từ hàng trước.
+- **Thống nhất luồng bố trí bảng một nguồn sự thật duy nhất (Single Source of Truth - P1)**: Loại bỏ toàn bộ logic tính toán lại tọa độ, ngắt dòng văn bản và kẻ đường viền bảng phân tán trong `DocumentLayoutEngine.render()`. Giờ đây `DocumentLayoutEngine` ủy quyền toàn bộ cho `TableLayoutEngine.layout_table()` và nhận về `TableLayoutData` hoàn chỉnh.
+- **Cắt trang bảng gắn kết nhóm hàng (Table Pagination Group Cohesion - P1)**: Bổ sung phương thức `TableLayoutData.slice_page()` với cơ chế gắn kết nhóm hàng đang chịu ảnh hưởng của ô gộp nhiều hàng (`rowspan`), bảo đảm các hàng liên kết không bị xé vụn qua ranh giới ngắt trang trừ phi kích thước khối ô vượt quá sức chứa một trang.
+- **Triệt tiêu đường kẻ nội bộ trong vùng ô gộp**: Phương thức `generate_border_strokes()` trong `TableLayoutEngine` kiểm tra tọa độ hình học thực tế của các ô gộp, loại bỏ hoàn toàn các nét kẻ ngang/dọc bên trong vùng merged cell.
+- **Kiểm thử hồi quy nghiêm ngặt (Strict Regression Testing)**:
+  - Bổ sung kiểm thử khẳng định các ký hiệu và chữ số toán học ($x^2+1, \sqrt{x}, \sqrt{x^2+1}, \frac{x+1}{2}, x_i^2$) sinh ra nét viết tay vector thật (`total_glyph_strokes > 0`).
+  - Bổ sung kiểm thử ma trận chiếm dụng ô gộp `colspan=2`, `rowspan=2` và ô gộp phức hợp $2 \times 2$.
+  - Bảo vệ an toàn pha import Tkinter trong `tests/test_gui_document.py` khi chạy trên môi trường headless không có display/Tkinter.
+  - Kiểm thử đầu cuối (E2E) chuyển đổi bộ tệp mẫu thực tế `sample.txt`, `sample.md`, `sample.docx` ra `.xopp`.
+
 ### Mới
 - Bộ kiểm thử hơn 370 ca (`pytest`), gồm test giao diện thật chạy dưới màn hình ảo, golden-master so với bản
   gốc, test bộ nạp tài liệu và test kiến trúc. Xem README → "Kiểm thử".

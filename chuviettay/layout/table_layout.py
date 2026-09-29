@@ -35,6 +35,89 @@ class TableLayoutData:
     row_heights: list[float]
     cells: list[list[LaidOutCell]]
 
+    def slice_page(self, start_row_idx: int, max_height: float, new_y: float) -> tuple[TableLayoutData, int]:
+        """Tạo một lát cắt bảng (sub-table) cho một trang từ hàng start_row_idx vừa trong max_height."""
+        num_rows = len(self.row_heights)
+        if start_row_idx >= num_rows:
+            return (
+                TableLayoutData(x=self.x, y=new_y, width=self.width, height=0.0, col_widths=self.col_widths, row_heights=[], cells=[]),
+                num_rows,
+            )
+
+        # Ghi nhận các liên kết hàng do rowspan tạo ra để giữ tính gắn kết trang (cohesion)
+        row_group_end: list[int] = list(range(num_rows))
+        for r_cells in self.cells:
+            for c in r_cells:
+                if c.rowspan > 1:
+                    end_r = min(num_rows - 1, c.row + c.rowspan - 1)
+                    for r_k in range(c.row, end_r + 1):
+                        row_group_end[r_k] = max(row_group_end[r_k], end_r)
+
+        curr_h = 0.0
+        end_idx = start_row_idx
+
+        while end_idx < num_rows:
+            target_end = row_group_end[end_idx]
+            needed_h = sum(self.row_heights[end_idx : target_end + 1])
+
+            # Nếu thêm cả nhóm mà vượt quá max_height và trang đã có ít nhất 1 hàng: dừng lại để sang trang mới
+            if curr_h > 0 and curr_h + needed_h > max_height:
+                break
+
+            # Nếu trang chưa có hàng nào (start_row_idx == end_idx) mà needed_h > max_height:
+            # Nhận ít nhất 1 hàng để bảo đảm tiến trình không bị lặp vô hạn
+            if curr_h == 0 and needed_h > max_height:
+                end_idx += 1
+                curr_h += self.row_heights[start_row_idx]
+                break
+
+            curr_h += needed_h
+            end_idx = target_end + 1
+
+        if end_idx == start_row_idx:
+            end_idx = start_row_idx + 1
+            curr_h = self.row_heights[start_row_idx]
+
+        sliced_row_heights = self.row_heights[start_row_idx:end_idx]
+        sliced_cells: list[list[LaidOutCell]] = []
+
+        cur_row_y = new_y
+        for r_offset, r in enumerate(range(start_row_idx, end_idx)):
+            row_cells = []
+            for cell in self.cells[r]:
+                eff_rs = min(cell.rowspan, end_idx - r)
+                cell_h = sum(self.row_heights[r : r + eff_rs])
+                row_cells.append(
+                    LaidOutCell(
+                        x=cell.x,
+                        y=cur_row_y,
+                        width=cell.width,
+                        height=cell_h,
+                        text_lines=cell.text_lines,
+                        cell=cell.cell,
+                        col=cell.col,
+                        row=r_offset,
+                        colspan=cell.colspan,
+                        rowspan=eff_rs,
+                        rendered_lines=cell.rendered_lines,
+                    )
+                )
+            sliced_cells.append(row_cells)
+            cur_row_y += self.row_heights[r]
+
+        return (
+            TableLayoutData(
+                x=self.x,
+                y=new_y,
+                width=self.width,
+                height=curr_h,
+                col_widths=self.col_widths,
+                row_heights=sliced_row_heights,
+                cells=sliced_cells,
+            ),
+            end_idx,
+        )
+
 
 class TableLayoutEngine:
     """Tính toán kích thước cột/hàng, ngắt dòng nội dung ô và sinh nét vẽ viền bảng."""
@@ -45,18 +128,50 @@ class TableLayoutEngine:
         self.cell_padding = cell_padding
         self.char_w = self.line_height * 0.45  # ước lượng tương đối độ rộng ký tự
 
+    def _resolve_occupancy(self, table: Table) -> tuple[list[tuple[int, int, int, int, TableCell]], int]:
+        """Phân giải ma trận chiếm chỗ 2D cho toàn bộ bảng. Trả về (placements, num_cols)."""
+        if not table.rows:
+            return [], 0
+
+        occupied: set[tuple[int, int]] = set()
+        placements: list[tuple[int, int, int, int, TableCell]] = []
+        max_c = 0
+
+        for r_idx, row in enumerate(table.rows):
+            c_cursor = 0
+            for cell in row.cells:
+                while (r_idx, c_cursor) in occupied:
+                    c_cursor += 1
+                cs = max(1, getattr(cell, "colspan", 1))
+                rs = max(1, getattr(cell, "rowspan", 1))
+                placements.append((r_idx, c_cursor, rs, cs, cell))
+                for dr in range(rs):
+                    for dc in range(cs):
+                        occupied.add((r_idx + dr, c_cursor + dc))
+                c_cursor += cs
+                max_c = max(max_c, c_cursor)
+
+        num_cols = max(max_c, 1)
+        return placements, num_cols
+
     def pad_jagged_rows(self, table: Table) -> list[TableRow]:
-        """Tự động đệm thêm ô rỗng cho các hàng ngắn hơn hàng dài nhất."""
+        """Tự động đệm thêm ô rỗng cho các hàng ngắn hơn hàng dài nhất, tính đến cả rowspan."""
         if not table.rows:
             return []
-        max_cols = max((sum(max(1, getattr(c, "colspan", 1)) for c in r.cells) for r in table.rows), default=1)
+        placements, num_cols = self._resolve_occupancy(table)
+        occupied_by_row: list[set[int]] = [set() for _ in range(len(table.rows))]
+        for r, c, rs, cs, _cell in placements:
+            for dr in range(rs):
+                if r + dr < len(table.rows):
+                    for dc in range(cs):
+                        occupied_by_row[r + dr].add(c + dc)
+
         padded_rows = []
-        for r in table.rows:
-            curr_cells = list(r.cells)
-            curr_cols = sum(max(1, getattr(c, "colspan", 1)) for c in curr_cells)
-            while curr_cols < max_cols:
+        for r_idx, row in enumerate(table.rows):
+            curr_cells = list(row.cells)
+            vacant_count = sum(1 for c in range(num_cols) if c not in occupied_by_row[r_idx])
+            for _ in range(vacant_count):
                 curr_cells.append(TableCell(blocks=[]))
-                curr_cols += 1
             padded_rows.append(TableRow(cells=curr_cells))
         return padded_rows
 
@@ -77,32 +192,29 @@ class TableLayoutEngine:
         return " ".join(parts).strip()
 
     def compute_column_widths(self, table: Table) -> list[float]:
-        """Tính toán phân bổ bề rộng cho từng cột xét cả colspan."""
-        padded_rows = self.pad_jagged_rows(table)
-        if not padded_rows:
+        """Tính toán phân bổ bề rộng cho từng cột xét cả colspan và vị trí thực theo occupancy grid."""
+        if not table.rows:
             return []
-        num_cols = max((sum(max(1, getattr(c, "colspan", 1)) for c in r.cells) for r in padded_rows), default=1)
+        placements, num_cols = self._resolve_occupancy(table)
 
         natural_widths = [0.0] * num_cols
         min_widths = [0.0] * num_cols
 
-        for row in padded_rows:
-            c_idx = 0
-            for cell in row.cells:
-                cs = max(1, getattr(cell, "colspan", 1))
-                txt = self._extract_cell_text(cell)
-                words = txt.split()
-                longest_w = max((len(w) for w in words), default=0) * self.char_w + 2 * self.cell_padding
-                full_w = len(txt) * self.char_w + 2 * self.cell_padding
+        for r, c, rs, cs, cell in placements:
+            eff_cs = min(cs, num_cols - c)
+            if eff_cs <= 0:
+                continue
+            txt = self._extract_cell_text(cell)
+            words = txt.split()
+            longest_w = max((len(w) for w in words), default=0) * self.char_w + 2 * self.cell_padding
+            full_w = len(txt) * self.char_w + 2 * self.cell_padding
 
-                # Phân bổ đều cho các cột spanned
-                per_col_min = max(30.0, longest_w / cs)
-                per_col_nat = max(40.0, full_w / cs)
-                for k in range(cs):
-                    if c_idx + k < num_cols:
-                        min_widths[c_idx + k] = max(min_widths[c_idx + k], per_col_min)
-                        natural_widths[c_idx + k] = max(natural_widths[c_idx + k], per_col_nat)
-                c_idx += cs
+            per_col_min = max(30.0, longest_w / eff_cs)
+            per_col_nat = max(40.0, full_w / eff_cs)
+            for k in range(eff_cs):
+                col_idx = c + k
+                min_widths[col_idx] = max(min_widths[col_idx], per_col_min)
+                natural_widths[col_idx] = max(natural_widths[col_idx], per_col_nat)
 
         total_natural = sum(natural_widths)
         if total_natural <= self.available_width:
@@ -148,72 +260,103 @@ class TableLayoutEngine:
             lines.append(" ".join(cur_line))
         return lines
 
-    def layout_table(self, table: Table, x0: float, y0: float) -> TableLayoutData:
-        """Đo đạc toàn bộ bảng và bố trí vị trí các ô xét cả colspan và rowspan."""
-        padded_rows = self.pad_jagged_rows(table)
-        if not padded_rows:
+    def layout_table(
+        self,
+        table: Table,
+        x0: float,
+        y0: float,
+        cell_inlines_formatter: Any = None,
+    ) -> TableLayoutData:
+        """Đo đạc toàn bộ bảng và bố trí vị trí các ô xét cả colspan và rowspan dựa trên ma trận chiếm chỗ."""
+        if not table.rows:
             return TableLayoutData(x=x0, y=y0, width=0.0, height=0.0, col_widths=[], row_heights=[], cells=[])
 
+        placements, num_cols = self._resolve_occupancy(table)
         col_widths = self.compute_column_widths(table)
-        num_cols = len(col_widths)
         total_w = sum(col_widths)
+        num_rows = len(table.rows)
 
-        # 1. Tính toán chiều cao ước tính sơ bộ của các hàng
-        row_heights: list[float] = []
-        row_cell_lines_all: list[list[list[str]]] = []
+        # 1. Tính toán nội dung ô và chiều cao từng hàng
+        row_heights = [max(10.0, self.line_height + 2 * self.cell_padding)] * num_rows
+        prepared_cells: list[dict[str, Any]] = []
 
-        for row in padded_rows:
-            row_cell_lines = []
-            c_idx = 0
-            for cell in row.cells:
-                cs = max(1, getattr(cell, "colspan", 1))
-                spanned_w = sum(col_widths[c_idx : c_idx + cs]) if c_idx + cs <= num_cols else col_widths[c_idx]
+        for r, c, rs, cs, cell in placements:
+            eff_cs = min(cs, num_cols - c)
+            spanned_w = sum(col_widths[c : c + eff_cs]) if eff_cs > 0 else col_widths[min(c, num_cols - 1)]
+            usable_w = max(10.0, spanned_w - 2 * self.cell_padding)
+
+            rendered_lines = []
+            text_lines = []
+            if cell_inlines_formatter is not None:
+                rendered_lines = cell_inlines_formatter(cell, usable_w)
+                num_lines = max(len(rendered_lines), 1)
+            else:
                 txt = self._extract_cell_text(cell)
-                lines = self.wrap_cell_text(txt, spanned_w)
-                row_cell_lines.append(lines)
-                c_idx += cs
+                text_lines = self.wrap_cell_text(txt, spanned_w)
+                num_lines = max(len(text_lines), 1)
 
-            max_lines = max((len(ls) for ls in row_cell_lines), default=1)
-            row_h = max(self.line_height + 2 * self.cell_padding, max_lines * self.line_height + 2 * self.cell_padding)
-            row_heights.append(row_h)
-            row_cell_lines_all.append(row_cell_lines)
+            needed_h = num_lines * self.line_height + 2 * self.cell_padding
 
-        # 2. Định vị toạ độ cho từng ô trong bảng
-        laid_out_cells: list[list[LaidOutCell]] = []
-        cur_y = y0
+            if rs == 1:
+                row_heights[r] = max(row_heights[r], needed_h)
 
-        for r_idx, row in enumerate(padded_rows):
-            row_cells: list[LaidOutCell] = []
-            c_idx = 0
-            for cell_idx, cell in enumerate(row.cells):
-                cs = max(1, getattr(cell, "colspan", 1))
-                rs = max(1, getattr(cell, "rowspan", 1))
-                cell_x = x0 + sum(col_widths[:c_idx])
-                cell_y = cur_y
-                cell_w = sum(col_widths[c_idx : c_idx + cs])
-                cell_h = sum(row_heights[r_idx : r_idx + rs])
+            prepared_cells.append({
+                "r": r,
+                "c": c,
+                "rs": rs,
+                "cs": eff_cs,
+                "cell": cell,
+                "text_lines": text_lines,
+                "rendered_lines": rendered_lines,
+                "needed_h": needed_h,
+            })
 
-                c_lines = row_cell_lines_all[r_idx][cell_idx] if cell_idx < len(row_cell_lines_all[r_idx]) else []
-                row_cells.append(
-                    LaidOutCell(
-                        x=cell_x,
-                        y=cell_y,
-                        width=cell_w,
-                        height=cell_h,
-                        text_lines=c_lines,
-                        cell=cell,
-                        col=c_idx,
-                        row=r_idx,
-                        colspan=cs,
-                        rowspan=rs,
-                    )
+        # Đối với các ô rowspan > 1, đảm bảo sum(row_heights[r : r+rs]) >= needed_h
+        for item in prepared_cells:
+            r = item["r"]
+            rs = min(item["rs"], num_rows - r)
+            needed_h = item["needed_h"]
+            span_curr_h = sum(row_heights[r : r + rs])
+            if span_curr_h < needed_h:
+                diff = needed_h - span_curr_h
+                per_row_add = diff / rs
+                for k in range(rs):
+                    row_heights[r + k] += per_row_add
+
+        # 2. Định vị toạ độ tuyệt đối cho từng ô
+        laid_out_cells: list[list[LaidOutCell]] = [[] for _ in range(num_rows)]
+
+        row_y_offsets = [y0]
+        for h in row_heights:
+            row_y_offsets.append(row_y_offsets[-1] + h)
+
+        for item in prepared_cells:
+            r = item["r"]
+            c = item["c"]
+            rs = min(item["rs"], num_rows - r)
+            cs = item["cs"]
+            cell_x = x0 + sum(col_widths[:c])
+            cell_y = row_y_offsets[r]
+            cell_w = sum(col_widths[c : c + cs])
+            cell_h = sum(row_heights[r : r + rs])
+
+            laid_out_cells[r].append(
+                LaidOutCell(
+                    x=cell_x,
+                    y=cell_y,
+                    width=cell_w,
+                    height=cell_h,
+                    text_lines=item["text_lines"],
+                    cell=item["cell"],
+                    col=c,
+                    row=r,
+                    colspan=cs,
+                    rowspan=rs,
+                    rendered_lines=item["rendered_lines"],
                 )
-                c_idx += cs
+            )
 
-            laid_out_cells.append(row_cells)
-            cur_y += row_heights[r_idx]
-
-        total_h = cur_y - y0
+        total_h = sum(row_heights)
         return TableLayoutData(
             x=x0,
             y=y0,

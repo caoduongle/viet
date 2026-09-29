@@ -1,18 +1,18 @@
 """Kiểm thử tính năng mở tài liệu đa định dạng và hiển thị thông số trên GUI."""
 import os
 import pytest
-from tkinter import filedialog, messagebox
 
 from tests import conftest
-from tests.test_gui import Dialogs
 
 if not conftest.is_tk_usable():
-    pytest.skip(f"Tk/Tcl không khả dụng ({conftest._tk_unusable_reason})", allow_module_level=True)
+    pytest.skip(f"Môi trường Tk/Tcl không khả dụng ({conftest._tk_unusable_reason}). Trên Linux hãy chạy: xvfb-run -a pytest", allow_module_level=True)
 
 pytestmark = [pytest.mark.gui]
 
-from chuviettay.controller.app_controller import AppController
-from chuviettay.view.app_window import MainWindow
+from tkinter import filedialog, messagebox  # noqa: E402
+from tests.test_gui import Dialogs  # noqa: E402
+from chuviettay.controller.app_controller import AppController  # noqa: E402
+from chuviettay.view.app_window import MainWindow  # noqa: E402
 
 
 @pytest.fixture
