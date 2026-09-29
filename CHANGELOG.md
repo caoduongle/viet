@@ -85,9 +85,12 @@ lấy hàm/lớp bên trong sẽ không còn dùng được. Đổi sang:
 | `BANK_PATH` | `chuviettay.paths.default_bank_path()` |
 
 ### An toàn đa tiến trình & Đồng bộ đồng thời (Đã giải quyết)
-- Hệ thống hỗ trợ hoàn toàn an toàn đa tiến trình (cross-process concurrency) giữa GUI và CLI thông qua `FileLock` (khóa cấp OS), kiểm tra cache `mtime_ns`/`size` và thuật toán hợp nhất `merge_bank_dicts()` nguyên tử.
-- Xung đột xóa và dạy từ được giải quyết thông qua cơ chế Deletion Tombstones có ghi nhận thế hệ (generation) và timestamp, ngăn ngừa tuyệt đối tình trạng snapshot cũ hồi sinh từ đã xoá.
-- `Bank.save()` tự động huỷ bỏ và bảo vệ file gốc nguyên vẹn nếu phát hiện file trên đĩa bị hỏng, chống mất dữ liệu ngoài ý muốn.
+- Hệ thống hỗ trợ hoàn toàn an toàn đa tiến trình (cross-process concurrency) giữa GUI và CLI thông qua `FileLock` (khóa file cấp hệ điều hành), kiểm tra cache `mtime_ns`/`size` và thuật toán hợp nhất `merge_bank_dicts()` nguyên tử.
+- Xung đột xóa và dạy từ được giải quyết thông qua cơ chế Deletion Tombstones có ghi nhận nhãn thời gian (`deleted_at`, `readded_at`), ngăn ngừa tuyệt đối tình trạng snapshot cũ hồi sinh từ đã xoá trong khi vẫn hỗ trợ người dùng chủ động dạy lại từ sau khi xoá.
+- Bộ đếm thế hệ tăng đơn điệu (`_generation`) phục vụ kiểm toán (audit log) và truy vết chuỗi đột biến nội bộ phiên làm việc.
+- Thao tác `Bank.drop(word)` được tinh chỉnh: nếu từ không tồn tại trong kho, phương thức an toàn trả về 0 ngay lập tức mà không tăng `_generation` và không sinh tombstone rác trong siêu dữ liệu.
+- `Bank.save()` tự động huỷ bỏ và bảo vệ file gốc nguyên vẹn nếu phát hiện file trên đĩa bị hỏng trong quá trình hợp nhất, chống mất dữ liệu ngoài ý muốn.
+- Thắt chặt kiểm tra lược đồ `pen.color` bằng `re.fullmatch()`, từ chối các chuỗi mã màu chứa ký tự rác ở đuôi.
 
 ### Mới
 - Bộ kiểm thử hơn 160 ca (`pytest`), gồm test giao diện thật chạy dưới màn hình ảo, golden-master so với bản

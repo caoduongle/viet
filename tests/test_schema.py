@@ -159,7 +159,10 @@ def test_pen_tool_must_be_non_empty(minimal_valid_bank_dict):
         validate_bank_dict(d)
 
 
-@pytest.mark.parametrize("invalid_color", ["red", "#123", "#12345", "#GGGGGG", "#000000fff", "123456"])
+@pytest.mark.parametrize(
+    "invalid_color",
+    ["red", "#123", "#12345", "#GGGGGG", "#000000fff", "123456", "#000000\nextra", "#000000 extra", "#000000ff1"],
+)
 def test_pen_color_invalid_format_fails(minimal_valid_bank_dict, invalid_color):
     d = copy.deepcopy(minimal_valid_bank_dict)
     d["pen"]["color"] = invalid_color

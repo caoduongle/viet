@@ -28,6 +28,34 @@ def test_is_tk_usable_handles_tcl_error_gracefully(monkeypatch):
     monkeypatch.setattr(conftest, "_tk_usable_cached", None)
 
 
+def test_is_tk_usable_handles_missing_listbox_script(monkeypatch):
+    """Khi thiếu listbox.tcl, is_tk_usable phải trả về False kèm nguyên nhân rõ ràng."""
+    pytest.importorskip("tkinter")
+    import tkinter as tk
+
+    monkeypatch.setattr(conftest, "_tk_usable_cached", None)
+
+    class MockTk:
+        def __init__(self, *args, **kwargs):
+            self.tk = self
+
+        def withdraw(self):
+            pass
+
+        def destroy(self):
+            pass
+
+        def eval(self, cmd):
+            if "listbox.tcl" in cmd or "set tk_library" in cmd:
+                raise tk.TclError("can't find listbox.tcl")
+            return ""
+
+    monkeypatch.setattr(tk, "Tk", MockTk)
+    assert conftest.is_tk_usable() is False
+    assert "listbox.tcl" in conftest._tk_unusable_reason
+    monkeypatch.setattr(conftest, "_tk_usable_cached", None)
+
+
 def test_tk_root_skips_when_tk_unusable(monkeypatch):
     """Fixture tk_root phải gọi pytest.skip thay vì để văng TclError ra ngoài làm hỏng test runner."""
     monkeypatch.setattr(conftest, "is_tk_usable", lambda: False)

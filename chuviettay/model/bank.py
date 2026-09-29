@@ -460,6 +460,9 @@ class Bank:
         """Xoá hết mẫu của `word` khỏi kho, trả về số mẫu đã xoá (0 nếu chưa có từ đó).
         Tự động dọn dẹp các chỉ mục tra cứu trong bộ nhớ (tl, _raw_marks, marks) để đảm bảo
         can(word) và Writer phản ánh đúng trạng thái xoá ngay lập tức. KHÔNG tự save()."""
+        if word not in self.words:
+            return 0
+
         self._generation += 1
         self.d["generation"] = self._generation
         self._deleted_words.add(word)
@@ -468,8 +471,6 @@ class Bank:
 
         removed_samples = self.words.pop(word, [])
         count = len(removed_samples)
-        if count == 0:
-            return 0
 
         # 1. Dọn dẹp chỉ mục thay thế thân chữ self.tl
         tk = strip_tone(word)

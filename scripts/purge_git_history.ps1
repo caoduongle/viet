@@ -41,26 +41,26 @@ if ($CheckOnly) {
     exit 0
 }
 
-# 4. Kiểm tra git-filter-repo
-$hasFilterRepo = $false
+# 4. Kiểm tra git-filter-repo hoặc fallback git filter-branch
+$useFilterRepo = $false
 try {
     $null = git filter-repo --version
-    $hasFilterRepo = $true
+    $useFilterRepo = $true
 } catch {
     try {
         $null = py -3 -m git_filter_repo --version
-        $hasFilterRepo = $true
-    } catch {}
-}
-
-if (-not $hasFilterRepo) {
-    Write-Error "Chưa cài đặt 'git-filter-repo'. Vui lòng cài bằng lệnh: pip install git-filter-repo"
-    exit 1
+        $useFilterRepo = $true
+    } catch {
+        try {
+            $null = python -m git_filter_repo --version
+            $useFilterRepo = $true
+        } catch {}
+    }
 }
 
 # 5. Tạo standalone bundle backup bên ngoài thư mục repo
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$backupBundle = "../viet-pre-purge-$timestamp.bundle"
+$backupBundle = "../repo-backup-before-purge-$timestamp.bundle"
 Write-Host "Đang tạo git bundle sao lưu an toàn bên ngoài repo: $backupBundle..." -ForegroundColor Cyan
 git bundle create $backupBundle --all
 if ($LASTEXITCODE -ne 0) {
@@ -69,9 +69,22 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host "✅ Đã tạo bundle sao lưu thành công tại: $backupBundle" -ForegroundColor Green
 
-# 6. Thực thi git filter-repo
-Write-Host "Bắt đầu viết lại lịch sử commit để loại bỏ hoàn toàn các file..." -ForegroundColor Cyan
-git filter-repo --invert-paths --path "chu_cua_ban.json.gz" --path "tests/data/kho_mau_chup_lai.json.gz" --force
+# 6. Thực thi purge
+if ($useFilterRepo) {
+    Write-Host "Bắt đầu viết lại lịch sử commit bằng git-filter-repo..." -ForegroundColor Cyan
+    git filter-repo --invert-paths --path "chu_cua_ban.json.gz" --path "tests/data/kho_mau_chup_lai.json.gz" --force
+} else {
+    Write-Host "Không tìm thấy git-filter-repo, chuyển sang fallback: git filter-branch..." -ForegroundColor Yellow
+    $env:FILTER_BRANCH_SQUELCH_WARNING = "1"
+    git filter-branch --force --index-filter 'git rm --cached --ignore-unmatch chu_cua_ban.json.gz tests/data/kho_mau_chup_lai.json.gz' --prune-empty --tag-name-filter cat -- --all
+    # Dọn dẹp refs/original/ tạo bởi filter-branch
+    $origRefs = git for-each-ref --format="%(refname)" refs/original/
+    if ($origRefs) {
+        $origRefs | ForEach-Object { git update-ref -d $_ }
+    }
+    git reflog expire --expire=now --all
+    git gc --prune=now
+}
 
 Write-Host "`n✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch sử Git!" -ForegroundColor Green
 Write-Host "Tệp sao lưu độc lập trước khi xóa: $backupBundle" -ForegroundColor Gray

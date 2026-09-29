@@ -233,7 +233,7 @@ def validate_bank_dict(d: Any, context: str = "", allow_legacy: bool = False) ->
         raise BankValidationError(f"Thông số bút 'pen.tool' phải là chuỗi không rỗng, nhận được: {tool_val!r}{ctx}")
 
     color_val = pen["color"]
-    if not isinstance(color_val, str) or not re.match(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$", color_val):
+    if not isinstance(color_val, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?", color_val):
         raise BankValidationError(f"Màu bút 'pen.color' phải là mã hex dạng #RRGGBB hoặc #RRGGBBAA, nhận được: {color_val!r}{ctx}")
 
     pen_w = pen["width"]

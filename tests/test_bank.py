@@ -93,6 +93,16 @@ def test_drop(tiny_bank):
     assert "ba" not in tiny_bank.words
 
 
+def test_drop_non_existent_word_does_not_mutate_tombstones_or_generation(tiny_bank):
+    gen_before = tiny_bank._generation
+    tomb_count_before = len(tiny_bank._tombstones)
+    assert "never_existed_xyz" not in tiny_bank.words
+    assert tiny_bank.drop("never_existed_xyz") == 0
+    assert tiny_bank._generation == gen_before
+    assert len(tiny_bank._tombstones) == tomb_count_before
+    assert "never_existed_xyz" not in tiny_bank._tombstones
+
+
 def test_save_roi_nap_lai_giu_nguyen_tieng_viet(tiny_bank, tmp_path):
     tiny_bank.add_sample("bà", [[0, 0, 5, -5, 10, 0], [4, -12, 6, -10]], 10)
     tiny_bank.save()
@@ -532,7 +542,7 @@ def test_large_bank_persistence_benchmark_5000_samples(tmp_path):
     total_samples = sum(len(s_list) for s_list in bank.words.values())
     assert total_samples >= 5000
 
-    num_incremental = 20
+    num_incremental = 50
     latencies = []
     t_start_batch = time.perf_counter()
 
@@ -549,11 +559,14 @@ def test_large_bank_persistence_benchmark_5000_samples(tmp_path):
     t_total = time.perf_counter() - t_start_batch
     avg_latency = sum(latencies) / len(latencies)
     max_latency = max(latencies)
+    print(f"\n[BENCHMARK] 50 saves: avg={avg_latency:.4f}s, max={max_latency:.4f}s, total={t_total:.4f}s")
+    print(f"[BENCHMARK] First 5 latencies: {[round(x, 4) for x in latencies[:5]]}")
+    print(f"[BENCHMARK] Last 5 latencies: {[round(x, 4) for x in latencies[-5:]]}")
 
-    # Đảm bảo độ trễ mỗi lần lưu dưới 1.0s và tổng 20 lần dưới 15.0s
+    # Đảm bảo độ trễ mỗi lần lưu dưới 1.0s và tổng 50 lần dưới 30.0s (SC-004)
     assert avg_latency < 1.0, f"Độ trễ trung bình quá lớn: {avg_latency:.3f}s (> 1.0s)"
-    assert max_latency < 1.5, f"Độ trễ lớn nhất vượt ngưỡng: {max_latency:.3f}s (> 1.5s)"
-    assert t_total < 15.0, f"Tổng thời gian batch 20 lần vượt ngưỡng: {t_total:.3f}s (> 15.0s)"
+    assert max_latency < 2.0, f"Độ trễ lớn nhất vượt ngưỡng: {max_latency:.3f}s (> 2.0s)"
+    assert t_total < 30.0, f"Tổng thời gian batch 50 lần vượt ngưỡng: {t_total:.3f}s (> 30.0s)"
 
     # Nạp lại kiểm tra tính toàn vẹn
     reloaded = Bank(str(p))

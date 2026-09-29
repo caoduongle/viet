@@ -50,22 +50,36 @@ if [ "$CHECK_ONLY" = true ]; then
     exit 0
 fi
 
-# 4. Kiểm tra git-filter-repo
-if ! command -v git-filter-repo > /dev/null 2>&1; then
-    echo "Lỗi: Chưa cài đặt 'git-filter-repo'. Vui lòng cài bằng lệnh: pip install git-filter-repo" >&2
-    exit 1
+# 4. Kiểm tra git-filter-repo hoặc fallback git filter-branch
+USE_FILTER_REPO=false
+if command -v git-filter-repo > /dev/null 2>&1; then
+    USE_FILTER_REPO=true
+elif python3 -m git_filter_repo --version > /dev/null 2>&1; then
+    USE_FILTER_REPO=true
 fi
 
 # 5. Tạo standalone bundle backup bên ngoài thư mục repo
 TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
-BACKUP_BUNDLE="../viet-pre-purge-${TIMESTAMP}.bundle"
+BACKUP_BUNDLE="../repo-backup-before-purge-${TIMESTAMP}.bundle"
 echo "Đang tạo git bundle sao lưu an toàn bên ngoài repo: ${BACKUP_BUNDLE}..."
 git bundle create "${BACKUP_BUNDLE}" --all
 echo "✅ Đã tạo bundle sao lưu thành công tại: ${BACKUP_BUNDLE}"
 
-# 6. Thực thi git filter-repo
-echo "Bắt đầu viết lại lịch sử commit để loại bỏ hoàn toàn các file..."
-git filter-repo --invert-paths --path "chu_cua_ban.json.gz" --path "tests/data/kho_mau_chup_lai.json.gz" --force
+# 6. Thực thi purge
+if [ "$USE_FILTER_REPO" = true ]; then
+    echo "Bắt đầu viết lại lịch sử commit bằng git-filter-repo..."
+    git filter-repo --invert-paths --path "chu_cua_ban.json.gz" --path "tests/data/kho_mau_chup_lai.json.gz" --force
+else
+    echo "Không tìm thấy git-filter-repo, chuyển sang fallback: git filter-branch..."
+    export FILTER_BRANCH_SQUELCH_WARNING=1
+    git filter-branch --force --index-filter 'git rm --cached --ignore-unmatch chu_cua_ban.json.gz tests/data/kho_mau_chup_lai.json.gz' --prune-empty --tag-name-filter cat -- --all
+    # Dọn dẹp refs/original/ tạo bởi filter-branch
+    git for-each-ref --format="%(refname)" refs/original/ | while read -r ref; do
+        git update-ref -d "$ref"
+    done
+    git reflog expire --expire=now --all
+    git gc --prune=now
+fi
 
 echo ""
 echo "✅ Đã xóa hoàn toàn blob dữ liệu cá nhân khỏi lịch sử Git!"

@@ -138,25 +138,56 @@ _tk_unusable_reason: str = ""
 
 
 def is_tk_usable() -> bool:
-    """Kiểm tra xem Tkinter và runtime Tcl/Tk có hoạt động đầy đủ hay không."""
+    """Kiểm tra xem Tkinter và runtime Tcl/Tk có hoạt động đầy đủ hay không.
+    Thẩm tra toàn diện:
+    1. Import tkinter và ttk.
+    2. Khởi tạo root = tk.Tk().
+    3. Thẩm tra và nạp trực tiếp script Tcl cốt lõi ($tk_library/listbox.tcl, tk.tcl).
+    4. Thử nghiệm khởi tạo các widget phức hợp mà MainWindow sử dụng (Notebook, Listbox, Button, Canvas).
+    5. Thực thi chu kỳ sự kiện (update_idletasks, update) để bắt mọi TclError tiềm ẩn.
+    """
     global _tk_usable_cached, _tk_unusable_reason
     if _tk_usable_cached is not None:
         return _tk_usable_cached
+    root = None
     try:
         import tkinter as tk
         from tkinter import ttk
 
         root = tk.Tk()
         root.withdraw()
-        # Thử khởi tạo widget cơ bản và ttk để nạp file script Tcl (init.tcl, listbox.tcl)
+
+        # 1. Thẩm tra tệp script Tk/Tcl cốt lõi (ngăn chặn lỗi thiếu listbox.tcl trên Windows)
+        try:
+            tk_lib = root.tk.eval("set tk_library")
+            for req_script in ("tk.tcl", "listbox.tcl", "button.tcl", "entry.tcl"):
+                script_path = os.path.join(tk_lib, req_script)
+                if not os.path.exists(script_path):
+                    # Thử xem Tcl có nạp được từ VFS/zip không qua lệnh source
+                    root.tk.eval(f"source [file join $tk_library {req_script}]")
+        except Exception as script_err:  # noqa: BLE001
+            raise RuntimeError(f"Thiếu hoặc không thể nạp tệp thư viện Tk ({script_err})") from script_err
+
+        # 2. Khởi tạo các widget và kích hoạt chu trình cập nhật giao diện
+        ttk.Notebook(root)
         ttk.Button(root)
-        tk.Listbox(root)
-        root.destroy()
+        lb = tk.Listbox(root)
+        lb.insert(0, "test")
+        tk.Canvas(root)
+        root.update_idletasks()
+        root.update()
+
         _tk_usable_cached = True
         _tk_unusable_reason = ""
     except Exception as e:  # noqa: BLE001
         _tk_usable_cached = False
         _tk_unusable_reason = str(e)
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:  # noqa: BLE001, S110
+                pass
     return _tk_usable_cached
 
 

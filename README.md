@@ -56,7 +56,7 @@ mẫu mới..."** (chọn file đã có thì app chỉ mở nó ra, **không bao
   cỡ tay" của lệnh `learn`). Bấm "Bỏ qua" hoặc "Xoá hàng đợi" khi đang ở từ mốc là huỷ việc
   hiệu chỉnh.
 - Mỗi từ lưu xuống kho mẫu ngay lập tức (không cần bấm "Save" riêng ở đâu khác).
-- Kho mẫu hỗ trợ an toàn liên tiến trình hoàn toàn (cross-process file lock, tự động hợp nhất mẫu và bảo vệ deletion tombstones), cho phép GUI và CLI chạy đồng thời mà không bị mất dữ liệu hay hồi sinh từ đã xoá. Tab Viết chữ luôn tự động tải bản kho mới nhất.
+- Kho mẫu hỗ trợ an toàn liên tiến trình hoàn toàn (khóa file nguyên tử cross-process, tự động hợp nhất mẫu và bảo vệ deletion tombstones với nhãn thời gian), cho phép GUI và CLI chạy đồng thời mà không bị mất dữ liệu hay hồi sinh từ đã xoá. Tab Viết chữ luôn tự động tải bản kho mới nhất.
 
 ## Tương đương lệnh dòng lệnh
 
@@ -133,6 +133,14 @@ chuviettay/
 > ⚠️ **Đừng đổi `config.py` và các ngưỡng trong `text_utils.find_tone` nếu không cố ý.** Kho mẫu
 > hiện có được sinh ra dựa trên đúng các con số đó (kích thước ô lưới, cách nhận nét dấu thanh...).
 > Đổi chúng là làm lệch cách đọc mọi mẫu chữ đã học.
+
+## Cơ chế đồng thời và an toàn dữ liệu (Concurrency & Data Integrity)
+
+Kho mẫu (`Bank`) sử dụng kiến trúc lai kết hợp các cơ chế sau để bảo đảm tính toàn vẹn dữ liệu:
+1. **Khóa file nguyên tử cấp hệ điều hành (`FileLock`)**: Sử dụng file khóa `.lock` để tuần tự hoá các thao tác ghi và nạp lại kho mẫu giữa các tiến trình GUI và CLI chạy song song, ngăn chặn tuyệt đối tình trạng race condition và can thiệp đồng thời vào tệp đĩa.
+2. **Dọn dẹp và chống hồi sinh từ bằng Deletion Tombstones có nhãn thời gian**: Khi xoá từ bằng `Bank.drop()`, hệ thống ghi nhận tombstone mang nhãn thời gian `deleted_at`. Thuật toán `merge_bank_dicts()` đối chiếu timestamp này với `readded_at` và thời điểm nạp snapshot của tiến trình khác để loại bỏ các mẫu cũ từ snapshot trước thời điểm xoá, ngăn ngừa tình trạng snapshot cũ hồi sinh từ đã xoá mà vẫn bảo đảm người dùng có thể chủ động dạy lại từ sau khi xoá. Thao tác gọi `drop()` trên từ không tồn tại sẽ an toàn trả về 0 mà không tạo tombstone dư thừa.
+3. **Bộ đếm thế hệ tăng đơn điệu (`_generation`)**: Đóng vai trò chuỗi định danh đột biến nội bộ phiên làm việc phục vụ ghi log kiểm toán (audit log) và xác thực tính tuần tự của các lần ghi nhớ.
+4. **Ghi đĩa nguyên tử và bảo vệ file hỏng**: Ghi dữ liệu ra tệp tạm `.tmp` rồi đổi tên đè (`os.replace`) dưới khóa file. Nếu tệp trên đĩa bị hỏng hoặc không giải mã được trong quá trình hợp nhất, thao tác `save()` sẽ lập tức huỷ bỏ và ném lỗi thay vì vô tình ghi đè phá huỷ dữ liệu đĩa.
 
 ## Tìm lỗi (debug)
 
