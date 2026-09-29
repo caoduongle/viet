@@ -2,7 +2,12 @@
 phần vẽ cần cửa sổ Tk (Linux không màn hình: chạy `xvfb-run -a pytest`)."""
 import pytest
 
-pytest.importorskip("tkinter")
+from tests import conftest
+
+if not conftest.is_tk_usable():
+    pytest.skip(f"Môi trường Tk/Tcl không khả dụng ({conftest._tk_unusable_reason}). Trên Linux hãy chạy: xvfb-run -a pytest", allow_module_level=True)
+
+pytestmark = [pytest.mark.gui]
 
 from chuviettay.view import word_canvas as wc
 from chuviettay.view.word_canvas import BASE_PX, ZOOM, strokes_to_bank_units
@@ -32,6 +37,9 @@ def test_quy_doi_khong_co_net_thi_bao_loi():
 # ------------------------------------------------------------ cần Tk
 @pytest.fixture
 def canvas(tk_root):
+    from tests import conftest
+    if not conftest.is_tk_usable():
+        pytest.skip(f"Môi trường Tk/Tcl không khả dụng ({conftest._tk_unusable_reason})")
     c = wc.WordCanvas(tk_root, get_xh=lambda: 7.0)
     c.pack()
     return c

@@ -81,14 +81,56 @@ def tiny_bank(tiny_bank_path):
     return Bank(tiny_bank_path)
 
 
+_tk_usable_cached: bool | None = None
+_tk_unusable_reason: str = ""
+
+
+def is_tk_usable() -> bool:
+    """Kiểm tra xem Tkinter và runtime Tcl/Tk có hoạt động đầy đủ hay không."""
+    global _tk_usable_cached, _tk_unusable_reason
+    if _tk_usable_cached is not None:
+        return _tk_usable_cached
+    try:
+        import tkinter as tk
+        from tkinter import ttk
+
+        root = tk.Tk()
+        root.withdraw()
+        # Thử khởi tạo widget cơ bản và ttk để nạp file script Tcl (init.tcl, listbox.tcl)
+        ttk.Button(root)
+        tk.Listbox(root)
+        root.destroy()
+        _tk_usable_cached = True
+        _tk_unusable_reason = ""
+    except Exception as e:  # noqa: BLE001
+        _tk_usable_cached = False
+        _tk_unusable_reason = str(e)
+    return _tk_usable_cached
+
+
+def pytest_collection_modifyitems(config, items):
+    """Tự động đánh dấu skip các test GUI nếu môi trường Tk/Tcl bị lỗi hoặc thiếu."""
+    if not is_tk_usable():
+        reason = f"Tk/Tcl không khả dụng hoặc runtime bị lỗi ({_tk_unusable_reason}). Trên Linux hãy chạy: xvfb-run -a pytest"
+        skip_tk = pytest.mark.skip(reason=reason)
+        for item in items:
+            if "gui" in item.keywords:
+                item.add_marker(skip_tk)
+
+
 @pytest.fixture
 def tk_root():
-    """Cửa sổ Tk ẩn. Không có màn hình thì bỏ qua test (Linux: chạy `xvfb-run -a pytest`)."""
+    """Cửa sổ Tk ẩn. Không có màn hình hoặc lỗi Tk thì bỏ qua test (Linux: chạy `xvfb-run -a pytest`)."""
+    if not is_tk_usable():
+        pytest.skip(f"Môi trường Tk/Tcl không khả dụng ({_tk_unusable_reason}). Trên Linux hãy chạy: xvfb-run -a pytest")
     import tkinter as tk
     try:
         root = tk.Tk()
-    except tk.TclError as e:
-        pytest.skip("Không tạo được cửa sổ Tk (%s). Trên Linux hãy chạy: xvfb-run -a pytest" % e)
+    except Exception as e:  # noqa: BLE001
+        pytest.skip(f"Không tạo được cửa sổ Tk ({e}). Trên Linux hãy chạy: xvfb-run -a pytest")
     root.withdraw()
     yield root
-    root.destroy()
+    try:
+        root.destroy()
+    except Exception:  # noqa: BLE001, S110
+        pass

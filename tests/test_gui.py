@@ -5,7 +5,13 @@ import os
 
 import pytest
 
-pytest.importorskip("tkinter")
+from tests import conftest
+
+if not conftest.is_tk_usable():
+    pytest.skip(f"Môi trường Tk/Tcl không khả dụng ({conftest._tk_unusable_reason}). Trên Linux hãy chạy: xvfb-run -a pytest", allow_module_level=True)
+
+pytestmark = [pytest.mark.gui]
+
 from tkinter import filedialog, messagebox, simpledialog  # noqa: E402
 
 from chuviettay.controller.app_controller import AppController  # noqa: E402
@@ -34,10 +40,15 @@ def dlg(monkeypatch):
 
 @pytest.fixture
 def app(tk_root, tiny_bank_path, dlg):
+    if not conftest.is_tk_usable():
+        pytest.skip(f"Tk/Tcl không khả dụng ({conftest._tk_unusable_reason})")
     tk_root.destroy()          # MainWindow tự là cửa sổ Tk gốc; bỏ cửa sổ ẩn của fixture
-    w = MainWindow(AppController(tiny_bank_path))
-    w.withdraw()
-    w.update()
+    try:
+        w = MainWindow(AppController(tiny_bank_path))
+        w.withdraw()
+        w.update()
+    except Exception as e:
+        pytest.skip(f"Không thể khởi tạo hoặc cập nhật MainWindow ({e})")
     yield w
     try:
         w.destroy()

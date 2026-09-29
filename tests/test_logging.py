@@ -4,6 +4,8 @@ from __future__ import annotations
 import logging.handlers
 import os
 
+import pytest
+
 from chuviettay import logging_setup, paths
 
 
@@ -56,6 +58,9 @@ def test_logging_total_failure_returns_none(monkeypatch):
 
 
 def test_report_error_with_no_log_path(monkeypatch):
+    from tests import conftest
+    if not conftest.is_tk_usable():
+        pytest.skip(f"Môi trường Tk/Tcl không khả dụng ({conftest._tk_unusable_reason})")
     from chuviettay.view.dialogs import report_error
 
     monkeypatch.setattr("chuviettay.view.dialogs.log_path", lambda: None)

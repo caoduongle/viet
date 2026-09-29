@@ -383,3 +383,80 @@ def test_incremental_teach_performance_and_correctness(tmp_path):
     for i in range(50):
         assert b.can(f"word_{i}")
         assert f"word_{i}" in b.tl
+
+
+def test_sequential_teach_benchmark_with_tones(tmp_path):
+    """Kiểm tra hiệu năng lưu tuần tự khi dạy 20 từ liên tiếp có dấu thanh.
+    Nhờ fast-path cache validation (bỏ qua đọc lại đĩa và rebuild) và compresslevel=6,
+    tổng thời gian 20 lần dạy liên tiếp phải < 1.0s (trung bình < 50ms/từ)."""
+    import time
+
+    p = str(tmp_path / "bench_bank.json.gz")
+    b = Bank.create_empty(p)
+
+    # 1. Khởi tạo kho có sẵn 100 từ
+    for i in range(100):
+        b.add_sample(f"word_{i}", [[0.0, 0.0, 5.0, 0.0]], 5.0)
+    b.rebuild()
+    b.save()
+
+    # 2. Dạy 20 từ tuần tự có dấu thanh (mỗi từ add_sample_incremental + save)
+    words_to_teach = [
+        ("bà", [[0.0, 0.0, 5.0, -5.0, 10.0, 0.0], [4.0, -12.0, 6.0, -10.0]], 10.0),
+        ("bá", [[0.0, 0.0, 5.0, -5.0, 10.0, 0.0], [6.0, -12.0, 4.0, -10.0]], 10.0),
+        ("bả", [[0.0, 0.0, 5.0, -5.0, 10.0, 0.0], [4.0, -12.0, 5.0, -14.0, 6.0, -12.0]], 10.0),
+        ("bã", [[0.0, 0.0, 5.0, -5.0, 10.0, 0.0], [4.0, -12.0, 5.0, -10.0, 6.0, -12.0]], 10.0),
+        ("bạ", [[0.0, 0.0, 5.0, -5.0, 10.0, 0.0], [5.0, 3.0, 5.0, 3.5]], 10.0),
+    ] * 4  # 20 words
+
+    start = time.perf_counter()
+    for w, strokes, width in words_to_teach:
+        b.add_sample_incremental(w, strokes, width)
+        b.save()
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 1.0, f"Dạy 20 từ tuần tự mất {elapsed:.3f}s (quá ngưỡng 1.0s, trung bình {elapsed/20*1000:.1f}ms/từ)"
+    assert len(b.words) >= 105
+    for w, _, _ in words_to_teach:
+        assert b.can(w)
+
+
+def test_merge_bank_dicts_preserves_samples_with_same_strokes_different_metadata():
+    """Kiểm tra merge_bank_dicts phân biệt mẫu dựa trên cả toạ độ nét và siêu dữ liệu (w, T, vi, ti).
+    Hai mẫu có nét trùng nhau nhưng độ rộng hoặc dấu khác nhau phải được giữ lại cả hai."""
+    from chuviettay.model.bank import merge_bank_dicts
+
+    base = {
+        "words": {
+            "test": [
+                {"w": 10.0, "s": [[0.0, 0.0, 5.0, 0.0]], "T": "", "vi": -1, "ti": -1},
+            ]
+        },
+        "digits": {},
+        "punct": {},
+    }
+
+    disk = {
+        "words": {
+            "test": [
+                # Mẫu trùng toạ độ nét nhưng độ rộng khác (w=12.0 thay vì 10.0)
+                {"w": 12.0, "s": [[0.0, 0.0, 5.0, 0.0]], "T": "", "vi": -1, "ti": -1},
+                # Mẫu trùng hoàn toàn cả nét và w=10.0
+                {"w": 10.0, "s": [[0.0, 0.0, 5.0, 0.0]], "T": "", "vi": -1, "ti": -1},
+                # Mẫu trùng toạ độ nét nhưng có dấu thanh (T, vi, ti)
+                {"w": 10.0, "s": [[0.0, 0.0, 5.0, 0.0]], "T": "\u0300", "vi": 1, "ti": 0},
+            ]
+        },
+        "digits": {},
+        "punct": {},
+    }
+
+    merged = merge_bank_dicts(base, disk)
+    samples = merged["words"]["test"]
+    # Phải có đúng 3 mẫu phân biệt: (w=10, T=""), (w=12, T=""), (w=10, T=huyền)
+    # Mẫu trùng hoàn toàn (w=10, T="") bị khử trùng.
+    assert len(samples) == 3
+    widths = [s["w"] for s in samples]
+    assert widths.count(10.0) == 2
+    assert widths.count(12.0) == 1
+
