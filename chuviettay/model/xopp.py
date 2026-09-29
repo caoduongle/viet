@@ -15,7 +15,7 @@ import gzip
 import statistics
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 from xml.sax.saxutils import escape
 
 from chuviettay.config import BASE, CH, COLS, CW, GUIDE, MXT, MYT, PAGE_H, PAGE_W, ROWS, TAG_CALIB, TAG_PLAIN
@@ -31,6 +31,16 @@ HEAD = ('<?xml version="1.0" standalone="no"?>\n'
 PAGE_OPEN = ('<page width="%s" height="%s">\n'
              '<background type="solid" color="#ffffffff" style="plain"/>\n<layer>')
 PAGE_CLOSE = '</layer>\n</page>'
+
+
+def page_open_xml(page_w: float, page_h: float, background: Any = None) -> str:
+    """Sinh chuỗi XML mở trang <page ...> kèm thẻ <background ...> và mở <layer>."""
+    if background is not None and hasattr(background, "to_xml"):
+        bg_xml = background.to_xml()
+    else:
+        bg_xml = '<background type="solid" color="#ffffffff" style="plain"/>'
+    return f'<page width="{fmt(page_w)}" height="{fmt(page_h)}">\n{bg_xml}\n<layer>'
+
 
 
 def pts_xml(pts: list[tuple[float, float]]) -> str:

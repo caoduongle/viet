@@ -92,3 +92,50 @@ def test_gui_error_handling_does_not_block_headless_dialog(app, tmp_path, monkey
     # Hộp thoại showerror phải được ghi nhận mà không mở modal loop treo máy
     assert "showerror" in dlg.kinds()
     assert app.write_tab.current_doc is None
+
+
+def test_gui_write_tab_paper_and_background_options(app, tmp_path, monkeypatch, dlg):
+    """Kiểm tra thay đổi khổ giấy, chiều giấy và nền trên GUI được áp dụng vào file xuất ra."""
+    out_xopp = tmp_path / "gui_out.xopp"
+    monkeypatch.setattr(filedialog, "asksaveasfilename", lambda **kw: str(out_xopp))
+
+    app.write_tab.text.delete("1.0", "end")
+    app.write_tab.text.insert("1.0", "Thử nghiệm từ giao diện GUI")
+
+    app.write_tab.v_paper.set("A3 (297×420 mm)")
+    app.write_tab.v_orientation.set("Ngang (Landscape)")
+    app.write_tab.v_background.set("Ô li (Graph)")
+    app.write_tab.v_spacing.set("5.0")
+
+    opts = app.write_tab.read_options()
+    assert opts.paper == "a3"
+    assert opts.orientation == "landscape"
+    assert opts.background == "graph"
+    assert opts.background_spacing == 14.17
+
+    app.write_tab.do_write()
+    assert out_xopp.exists()
+
+    import gzip
+    raw = gzip.decompress(open(out_xopp, "rb").read()).decode("utf-8")
+    assert '<page width="1190.55" height="841.89">' in raw
+    assert 'style="graph"' in raw
+    assert 'config="r1=14.17"' in raw
+
+
+def test_gui_custom_paper_dialog(app, monkeypatch):
+    """Kiểm tra hộp thoại khổ giấy tùy chỉnh tính toán và lưu kích thước PostScript points chuẩn xác."""
+    from chuviettay.view.write_tab import CustomPaperDialog
+
+    # Khởi tạo CustomPaperDialog
+    dlg = CustomPaperDialog(app, initial_w=150.0, initial_h=200.0)
+    dlg.v_w.set("150")
+    dlg.v_h.set("200")
+    dlg.v_unit.set("mm")
+    dlg._on_ok()
+
+    assert dlg.result is not None
+    # 150mm ~ 425.20 pt, 200mm ~ 566.93 pt
+    assert dlg.result[0] == 425.20
+    assert dlg.result[1] == 566.93
+

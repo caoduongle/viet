@@ -16,12 +16,17 @@ import os
 import random
 import re
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from chuviettay.config import MAXH
 from chuviettay.model import xopp
 from chuviettay.model.bank import Bank
 from chuviettay.model.text_utils import Stroke, fmt, normalize_text, place
 from chuviettay.model.writer import Writer
+
+if TYPE_CHECKING:
+    from chuviettay.document.page_format import PageFormat
+
 
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
 
@@ -50,8 +55,24 @@ class WriteOptions:
     seed: int | None = None       # cố định số ngẫu nhiên (để tái tạo lại đúng kết quả)
     strict_case: bool = False     # không tự hạ chữ hoa đầu từ khi tìm mẫu thay thế
 
+    # Cấu hình khổ giấy, lề và nền trang (áp dụng cho DocumentLayoutEngine)
+    paper: str = "a4"             # a5, a4, a3, letter, legal, 16:9, 4:3, custom
+    orientation: str = "portrait" # portrait (dọc) hoặc landscape (ngang)
+    paper_width: float | None = None   # kích thước tùy chỉnh (pt), chỉ dùng khi paper="custom"
+    paper_height: float | None = None  # kích thước tùy chỉnh (pt), chỉ dùng khi paper="custom"
+    margin_left: float = 36.0     # lề trái (pt)
+    margin_right: float = 36.0    # lề phải (pt)
+    margin_top: float = 40.0      # lề trên (pt)
+    margin_bottom: float = 40.0   # lề dưới (pt)
+    background: str = "plain"     # plain, lined, ruled, graph, dotted, iso_graph, iso_dotted, music
+    background_spacing: float | None = None  # khoảng cách dòng/ô kẻ (pt), ví dụ 14.17 pt = 5mm
+    background_margin: float | None = None   # lề dọc cho ruled (pt)
+    background_color: str = "#ffffffff"      # màu nền hex RGBA
+
     def validate(self) -> None:
         """Kiểm tra tính hợp lệ nghiệp vụ của các tùy chọn viết. Ném ValueError nếu sai."""
+        from chuviettay.document.page_format import PAPER_SIZES, VALID_BACKGROUND_STYLES
+
         if not math.isfinite(self.scale) or self.scale <= 0:
             raise ValueError(f"scale phải là số dương hữu hạn, nhận được: {self.scale}")
         if self.line is not None and (not math.isfinite(self.line) or self.line <= 0):
@@ -66,6 +87,72 @@ class WriteOptions:
             raise ValueError(f"wscale phải là số dương hữu hạn, nhận được: {self.wscale}")
         if self.color is not None:
             self.color = parse_color(self.color)
+
+        # Kiểm tra khổ giấy & hướng giấy
+        p = self.paper.lower().strip()
+        if p != "custom" and p not in PAPER_SIZES:
+            raise ValueError(f"Khổ giấy không hợp lệ: {self.paper!r}. Chỉ chấp nhận: {', '.join(PAPER_SIZES.keys())}, custom")
+        if p == "custom":
+            if self.paper_width is None or not math.isfinite(self.paper_width) or self.paper_width <= 0:
+                raise ValueError(f"paper_width cho khổ giấy custom phải là số dương hữu hạn, nhận được: {self.paper_width}")
+            if self.paper_height is None or not math.isfinite(self.paper_height) or self.paper_height <= 0:
+                raise ValueError(f"paper_height cho khổ giấy custom phải là số dương hữu hạn, nhận được: {self.paper_height}")
+
+        ori = self.orientation.lower().strip()
+        if ori not in ("portrait", "landscape"):
+            raise ValueError(f"Hướng giấy không hợp lệ: {self.orientation!r}. Chỉ chấp nhận: portrait, landscape")
+
+        # Kiểm tra lề trang
+        for m_name, m_val in (("margin_left", self.margin_left), ("margin_right", self.margin_right),
+                              ("margin_top", self.margin_top), ("margin_bottom", self.margin_bottom)):
+            if not math.isfinite(m_val) or m_val < 0:
+                raise ValueError(f"{m_name} phải là số không âm hữu hạn, nhận được: {m_val}")
+
+        # Kiểm tra nền trang
+        bg_style = self.background.lower().strip()
+        if bg_style not in VALID_BACKGROUND_STYLES:
+            raise ValueError(f"Kiểu nền không hợp lệ: {self.background!r}. Chỉ chấp nhận: {', '.join(sorted(VALID_BACKGROUND_STYLES))}")
+        if self.background_spacing is not None and (not math.isfinite(self.background_spacing) or self.background_spacing <= 0):
+            raise ValueError(f"background_spacing phải là số dương hữu hạn, nhận được: {self.background_spacing}")
+        if self.background_margin is not None and (not math.isfinite(self.background_margin) or self.background_margin < 0):
+            raise ValueError(f"background_margin phải là số không âm hữu hạn, nhận được: {self.background_margin}")
+        if self.background_color is not None:
+            self.background_color = parse_color(self.background_color)
+
+    def resolve_page_format(self) -> PageFormat:
+        """Phân giải cấu hình WriteOptions thành đối tượng PageFormat hoàn chỉnh."""
+        from chuviettay.document.page_format import (
+            PAPER_SIZES,
+            PageBackground,
+            PageFormat,
+            PaperSize,
+        )
+
+        p = self.paper.lower().strip()
+        if p == "custom":
+            w = self.paper_width if self.paper_width is not None else 595.28
+            h = self.paper_height if self.paper_height is not None else 841.89
+            paper_size = PaperSize("Custom", w, h)
+        else:
+            paper_size = PAPER_SIZES.get(p, PAPER_SIZES["a4"])
+
+        bg = PageBackground(
+            style=self.background.lower().strip(),
+            spacing=self.background_spacing,
+            margin=self.background_margin,
+            color=self.background_color,
+        )
+
+        return PageFormat(
+            paper=paper_size,
+            orientation=self.orientation.lower().strip(),
+            margin_left=self.margin_left,
+            margin_right=self.margin_right,
+            margin_top=self.margin_top,
+            margin_bottom=self.margin_bottom,
+            background=bg,
+        )
+
 
 
 @dataclass

@@ -224,3 +224,88 @@ def test_write_document_split_ordered_list_numbering(tiny_bank_path, tmp_path):
     assert os.path.exists(out)
 
 
+def test_write_document_paper_sizes_and_orientations(tiny_bank_path, tmp_path):
+    """Kiểm thử tích hợp: kích thước và chiều giấy (A4, A3, A5, Custom, Portrait, Landscape) ghi chuẩn xác vào XML .xopp."""
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+
+    doc = Document(blocks=[
+        Paragraph(inlines=[Text(text="Văn bản kiểm tra khổ giấy và chiều giấy.")]),
+    ])
+
+    # 1. A4 Portrait
+    out_a4_p = str(tmp_path / "a4_portrait.xopp")
+    ctl.write_document(doc, WriteOptions(paper="a4", orientation="portrait"), out_a4_p)
+    raw = gzip.decompress(open(out_a4_p, "rb").read()).decode("utf-8")
+    assert '<page width="595.28" height="841.89">' in raw
+
+    # 2. A4 Landscape
+    out_a4_l = str(tmp_path / "a4_landscape.xopp")
+    ctl.write_document(doc, WriteOptions(paper="a4", orientation="landscape"), out_a4_l)
+    raw = gzip.decompress(open(out_a4_l, "rb").read()).decode("utf-8")
+    assert '<page width="841.89" height="595.28">' in raw
+
+    # 3. A3 Portrait
+    out_a3_p = str(tmp_path / "a3_portrait.xopp")
+    ctl.write_document(doc, WriteOptions(paper="a3", orientation="portrait"), out_a3_p)
+    raw = gzip.decompress(open(out_a3_p, "rb").read()).decode("utf-8")
+    assert '<page width="841.89" height="1190.55">' in raw
+
+    # 4. A5 Portrait
+    out_a5_p = str(tmp_path / "a5_portrait.xopp")
+    ctl.write_document(doc, WriteOptions(paper="a5", orientation="portrait"), out_a5_p)
+    raw = gzip.decompress(open(out_a5_p, "rb").read()).decode("utf-8")
+    assert '<page width="419.53" height="595.28">' in raw
+
+    # 5. Custom paper
+    out_custom = str(tmp_path / "custom.xopp")
+    ctl.write_document(
+        doc,
+        WriteOptions(paper="custom", paper_width=500.0, paper_height=700.0, orientation="portrait"),
+        out_custom,
+    )
+    raw = gzip.decompress(open(out_custom, "rb").read()).decode("utf-8")
+    assert '<page width="500" height="700">' in raw or '<page width="500.0" height="700.0">' in raw
+
+
+def test_write_document_native_background_xml(tiny_bank_path, tmp_path):
+    """Kiểm thử tích hợp: thẻ <background> sinh tự nhiên và không vẽ thêm bất kỳ nét giả lập nền nào."""
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+
+    doc = Document(blocks=[
+        Paragraph(inlines=[Text(text="Dòng chữ trên nền ô li 5mm.")]),
+    ])
+
+    # 1. Graph / Ô Li 5mm (14.17 pt)
+    out_graph = str(tmp_path / "graph_5mm.xopp")
+    res_graph = ctl.write_document(
+        doc,
+        WriteOptions(paper="a4", background="graph", background_spacing=14.17),
+        out_graph,
+    )
+    raw = gzip.decompress(open(out_graph, "rb").read()).decode("utf-8")
+    assert 'style="graph"' in raw
+    assert 'config="r1=14.17"' in raw
+    assert 'color="#ffffffff"' in raw
+
+    # Không sinh nét vẽ thừa nào cho nền (chỉ có nét viết tay của chữ)
+    root = ET.fromstring(raw.encode("utf-8"))
+    layer = root.find(".//layer")
+    assert layer is not None
+    assert len(layer.findall("stroke")) == res_graph.n_strokes
+
+    # 2. Ruled with margin
+    out_ruled = str(tmp_path / "ruled_margin.xopp")
+    ctl.write_document(
+        doc,
+        WriteOptions(paper="a4", background="ruled", background_spacing=24.0, background_margin=72.0),
+        out_ruled,
+    )
+    raw_ruled = gzip.decompress(open(out_ruled, "rb").read()).decode("utf-8")
+    assert 'style="ruled"' in raw_ruled
+    assert 'r1=24' in raw_ruled
+    assert 'm1=72' in raw_ruled
+
+
+

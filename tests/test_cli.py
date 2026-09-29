@@ -56,6 +56,18 @@ def test_write_khong_co_nguon_van_ban_va_stdin_la_terminal(monkeypatch, tiny_ban
     assert "Cần -f" in str(ei.value)
 
 
+def test_write_doc_tu_positional_file_khi_stdin_la_terminal(capsys, monkeypatch, tiny_bank_path, tmp_path):
+    class Tty(io.StringIO):
+        def isatty(self):
+            return True
+    monkeypatch.setattr("sys.stdin", Tty())
+    src = tmp_path / "vb_pos.txt"
+    src.write_text("xin ba", encoding="utf-8")
+    out = tmp_path / "o_pos.xopp"
+    rc, cap = run(capsys, tiny_bank_path, "write", str(src), "-o", str(out))
+    assert rc == 0 and "đủ mẫu cho 2/2 từ" in cap.out
+
+
 def test_drop(capsys, tiny_bank_path):
     rc, cap = run(capsys, tiny_bank_path, "drop", "ba", "khong_co")
     assert cap.out.splitlines() == ["Đã xóa 2 mẫu của 'ba'", "Không có 'khong_co' trong kho"]

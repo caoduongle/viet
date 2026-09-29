@@ -60,9 +60,25 @@ def _read_text(a: argparse.Namespace) -> str:
 
 
 def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
+    from chuviettay.document.page_format import parse_length
+
+    paper_width = parse_length(a.paper_width) if getattr(a, "paper_width", None) else None
+    paper_height = parse_length(a.paper_height) if getattr(a, "paper_height", None) else None
+    bg_spacing = parse_length(a.background_spacing) if getattr(a, "background_spacing", None) else None
+    bg_margin = parse_length(a.background_margin) if getattr(a, "background_margin", None) else None
+
     opts = WriteOptions(
         scale=a.scale, line=a.line, width=a.width, space=a.space, jitter=a.jitter,
-        wscale=a.wscale, color=a.color, seed=a.seed, strict_case=a.strict_case)
+        wscale=a.wscale, color=a.color, seed=a.seed, strict_case=a.strict_case,
+        paper=getattr(a, "paper", "a4"),
+        orientation=getattr(a, "orientation", "portrait"),
+        paper_width=paper_width,
+        paper_height=paper_height,
+        background=getattr(a, "background", "plain"),
+        background_spacing=bg_spacing,
+        background_margin=bg_margin,
+        background_color=getattr(a, "background_color", "#ffffffff"),
+    )
 
     target_file = getattr(a, "file", None) or getattr(a, "file_pos", None)
     fmt = getattr(a, "format", "auto")
@@ -82,10 +98,13 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
         result = ctl.write_document(import_res.document, opts, a.out)
     else:
         text = _read_text(a)
-        result = ctl.write_text(text, opts, a.out)
+        from chuviettay.importer.txt_importer import TxtImporter
+        doc = TxtImporter().import_text(text).document
+        result = ctl.write_document(doc, opts, a.out)
 
     for line in write_report_lines(result):
         print(line)
+
 
 
 def _cmd_learn(ctl: AppController, a: argparse.Namespace) -> None:
@@ -146,7 +165,21 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--color", help="đổi màu, ví dụ #1a237e")
     w.add_argument("--seed", type=int)
     w.add_argument("--strict-case", action="store_true", help="không dùng chữ thường thay cho chữ hoa đầu từ")
+    w.add_argument("--paper", default="a4",
+                   choices=["a5", "a4", "a3", "letter", "legal", "16:9", "4:3", "custom"],
+                   help="khổ giấy (a4, a3, a5, letter, legal, 16:9, 4:3, custom; mặc định: a4)")
+    w.add_argument("--orientation", default="portrait", choices=["portrait", "landscape"],
+                   help="chiều giấy: portrait (dọc) hoặc landscape (ngang; mặc định: portrait)")
+    w.add_argument("--paper-width", help="bề ngang khổ giấy custom (ví dụ: 210mm, 595.28pt)")
+    w.add_argument("--paper-height", help="bề dọc khổ giấy custom (ví dụ: 297mm, 841.89pt)")
+    w.add_argument("--background", default="plain",
+                   choices=["plain", "lined", "ruled", "graph", "dotted", "iso_graph", "iso_dotted", "music"],
+                   help="kiểu nền giấy XOPP (plain, lined, ruled, graph, dotted, iso_graph, iso_dotted, music; mặc định: plain)")
+    w.add_argument("--background-spacing", help="khoảng cách dòng/lưới ô kẻ (ví dụ: 5mm, 14.17pt, 24pt)")
+    w.add_argument("--background-margin", help="lề dọc cho ruled (ví dụ: 72pt, 2.5cm)")
+    w.add_argument("--background-color", default="#ffffffff", help="màu nền hex RGBA (mặc định: #ffffffff)")
     w.set_defaults(fn=_cmd_write)
+
 
     l = sub.add_parser("learn", help="học từ trong file mẫu đã viết")
     l.add_argument("files", nargs="+")
@@ -175,7 +208,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     a = build_parser().parse_args(argv)
     log_file = configure_logging(verbose=a.verbose)
-    if a.cmd == "write" and not (a.file or a.text) and sys.stdin.isatty():
+    if a.cmd == "write" and not (a.file or a.text or getattr(a, "file_pos", None)) and sys.stdin.isatty():
         sys.exit("Cần -f van_ban.txt (hoặc -t \"văn bản\").")
 
     ctl = AppController(a.bank)

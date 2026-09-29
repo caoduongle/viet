@@ -6,8 +6,8 @@ import os
 import random
 from typing import TYPE_CHECKING
 
-from chuviettay.config import MAXH
 from chuviettay.controller.results import WriteOptions, WriteResult
+
 from chuviettay.document.ir import (
     Document,
     Heading,
@@ -42,14 +42,19 @@ class DocumentLayoutEngine:
         self.bank = bank
         self.opts = opts
         self.opts.validate()
+        self.page_format = opts.resolve_page_format()
         self.rnd = random.Random(opts.seed)
         self.J = opts.jitter
         self.S = opts.scale
         self.line_h = opts.line or bank.d["line"]
-        self.width = opts.width or bank.d["width"]
-        self.x0 = bank.d["x0"]
+        self.x0 = self.page_format.margin_left
+        if opts.width is not None:
+            self.width = min(opts.width, self.page_format.usable_width)
+        else:
+            self.width = self.page_format.usable_width
         self.gaps = [g for g in bank.d["wgaps"] if 6.0 <= g <= 20.0] or [11.0]
         self.wr = Writer(bank, self.rnd, self.J, not opts.strict_case, opts.space)
+
 
     def _render_text_line(
         self,
@@ -154,24 +159,28 @@ class DocumentLayoutEngine:
 
     def render(self, document: Document, out_path: str) -> WriteResult:
         """Thực hiện bố cục toàn bộ Document IR và ghi file .xopp."""
+        pf = self.page_format
         cur_page: list[str] = []
-        cur_y = 20.0
-        max_page_y = MAXH - 40.0
+        cur_y = pf.content_top
+        max_page_y = pf.max_page_y
         total_lines = 0
         total_strokes = 0
         ntok = nmiss = 0
         total_tables = 0
         total_math_blocks = 0
         missing_symbols: dict[str, int] = {}
-        page_w = self.x0 + self.width + 20
+        page_w = pf.width
+        page_h = pf.height
+        bg = pf.background
 
-        pb = PageBuffer(out_path, page_w, default_page_h=MAXH)
+        pb = PageBuffer(out_path, page_w, default_page_h=page_h, default_background=bg)
 
         def new_page():
             nonlocal cur_page, cur_y
-            pb.append_page(cur_page, page_h=MAXH)
+            pb.append_page(cur_page, page_h=page_h, page_w=page_w, background=bg)
             cur_page = []
-            cur_y = 20.0
+            cur_y = pf.content_top
+
 
         def render_paragraph_inlines(inlines: list[Inline], scale_mult: float = 1.0, prefix: str = ""):
             nonlocal cur_y, total_lines, total_strokes, ntok, nmiss
@@ -307,9 +316,10 @@ class DocumentLayoutEngine:
 
                     while curr_row_idx < num_rows:
                         avail_h = max_page_y - cur_y
-                        if avail_h < self.line_h + 2 * table_engine.cell_padding and cur_y > 30.0:
+                        if avail_h < self.line_h + 2 * table_engine.cell_padding and cur_y > pf.content_top:
                             new_page()
                             avail_h = max_page_y - cur_y
+
 
                         slice_data, next_row = full_table_data.slice_page(
                             curr_row_idx,
@@ -386,7 +396,7 @@ class DocumentLayoutEngine:
                         nmiss += count
                     ntok += 1
 
-                    if cur_y + item.size.height > max_page_y and cur_y > 30.0:
+                    if cur_y + item.size.height > max_page_y and cur_y > pf.content_top:
                         new_page()
 
                     math_x = self.x0 + max(0.0, (self.width - item.size.width) / 2.0)
@@ -413,14 +423,11 @@ class DocumentLayoutEngine:
                     total_lines += 1
                     total_math_blocks += 1
 
-            if pb.n_pages == 0:
-                final_page_h = max(200.0, cur_y + 40.0)
-                pb.append_page(cur_page, page_h=final_page_h)
-            else:
-                if cur_page:
-                    pb.append_page(cur_page, page_h=MAXH)
+            if cur_page or pb.n_pages == 0:
+                pb.append_page(cur_page, page_h=page_h, page_w=page_w, background=bg)
             cur_page = []
             pb.close()
+
         except Exception:
             if not pb._f.closed:
                 pb._f.close()

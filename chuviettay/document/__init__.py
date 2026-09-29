@@ -18,6 +18,15 @@ from chuviettay.document.ir import (
     Text,
 )
 
+from chuviettay.document.page_format import (
+    PAPER_SIZES,
+    VALID_BACKGROUND_STYLES,
+    PageBackground,
+    PageFormat,
+    PaperSize,
+    parse_length,
+)
+
 __all__ = [
     "Block",
     "Document",
@@ -35,4 +44,11 @@ __all__ = [
     "TableCell",
     "TableRow",
     "Text",
+    "PaperSize",
+    "PageBackground",
+    "PageFormat",
+    "PAPER_SIZES",
+    "VALID_BACKGROUND_STYLES",
+    "parse_length",
 ]
+

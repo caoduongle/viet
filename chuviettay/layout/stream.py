@@ -4,20 +4,29 @@ from __future__ import annotations
 import gzip
 import os
 import tempfile
-from typing import IO
+from typing import IO, TYPE_CHECKING
 
 from chuviettay.config import MAXH
 from chuviettay.model import xopp
-from chuviettay.model.text_utils import fmt
+
+if TYPE_CHECKING:
+    from chuviettay.document.page_format import PageBackground
 
 
 class PageBuffer:
     """Bộ đệm ghi trang theo luồng (streaming) cho các tài liệu lớn nhiều trang."""
 
-    def __init__(self, out_path: str, page_w: float, default_page_h: float = MAXH):
+    def __init__(
+        self,
+        out_path: str,
+        page_w: float,
+        default_page_h: float = MAXH,
+        default_background: PageBackground | None = None,
+    ):
         self.out_path = out_path
         self.page_w = page_w
         self.default_page_h = default_page_h
+        self.default_background = default_background
         self.n_pages = 0
         self._temp_path: str = ""
         # Tạo file tạm thời
@@ -28,14 +37,23 @@ class PageBuffer:
         self._f: IO[str] = gzip.open(self._temp_path, "wt", encoding="utf-8", newline="")
         self._f.write(xopp.HEAD + "\n")
 
-    def append_page(self, page_strokes: list[str], page_h: float | None = None) -> None:
+    def append_page(
+        self,
+        page_strokes: list[str],
+        page_h: float | None = None,
+        page_w: float | None = None,
+        background: PageBackground | None = None,
+    ) -> None:
         """Ghi một trang hoàn chỉnh vào luồng và giải phóng ngay bộ nhớ các nét của trang đó."""
-        h = page_h or self.default_page_h
-        self._f.write((xopp.PAGE_OPEN % (fmt(self.page_w), fmt(h))) + "\n")
+        w = page_w if page_w is not None else self.page_w
+        h = page_h if page_h is not None else self.default_page_h
+        bg = background if background is not None else self.default_background
+        self._f.write(xopp.page_open_xml(w, h, bg) + "\n")
         for stroke in page_strokes:
             self._f.write(stroke + "\n")
         self._f.write(xopp.PAGE_CLOSE + "\n")
         self.n_pages += 1
+
 
     def close(self) -> str:
         """Đóng luồng, hoàn tất tài liệu và di chuyển nguyên tử về đường dẫn đích."""
