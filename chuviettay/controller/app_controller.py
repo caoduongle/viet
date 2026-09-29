@@ -160,8 +160,7 @@ class AppController:
                 self.session_scale = new_scale
                 recalibrated = True
 
-        instance = bank.add_sample(label, rel_strokes, width)
-        bank.rebuild()
+        instance = bank.add_sample_incremental(label, rel_strokes, width)
         bank.save()
         _log.info("Dạy từ %r (%s), hệ số cỡ tay phiên hiện tại: %.2fx",
                   label, "hiệu chỉnh cỡ tay" if recalibrated else "bình thường", self.session_scale)

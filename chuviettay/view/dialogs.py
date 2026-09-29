@@ -18,4 +18,9 @@ _log = logging.getLogger("chuviettay.view")
 def report_error(title: str, exc: BaseException, logger: logging.Logger | None = None) -> None:
     """Ghi traceback đầy đủ vào log rồi hiện hộp thoại lỗi."""
     (logger or _log).error("%s: %s", title, exc, exc_info=(type(exc), exc, exc.__traceback__))
-    messagebox.showerror(title, "%s\n\nChi tiết kỹ thuật đã được ghi vào:\n%s" % (exc, log_path()))
+    active_path = log_path()
+    if active_path:
+        msg = f"{exc}\n\nChi tiết kỹ thuật đã được ghi vào:\n{active_path}"
+    else:
+        msg = f"{exc}\n\n(Chế độ ghi log ra file hiện không hoạt động do hạn chế quyền thư mục)"
+    messagebox.showerror(title, msg)

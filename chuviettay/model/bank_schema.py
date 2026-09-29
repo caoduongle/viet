@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import math
 import os
 import zlib
 from collections.abc import Callable
@@ -16,7 +17,34 @@ from typing import Any
 CURRENT_VERSION = 2
 
 # Các trường bắt buộc ở cấp cao nhất và kiểu dữ liệu tương ứng
-_REQUIRED_FIELDS: dict[str, type | tuple[type, ...]] = {
+REQUIRED_METADATA_KEYS: dict[str, type | tuple[type, ...]] = {
+    "words": dict,
+    "digits": dict,
+    "punct": dict,
+    "xh": (int, float),
+    "pen": dict,
+    "line": (int, float),
+    "width": (int, float),
+    "x0": (int, float),
+    "wgaps": list,
+    "dgaps": list,
+    "ratio": (int, float),
+    "v": (int, float),
+}
+
+DEFAULT_METRICS: dict[str, Any] = {
+    "line": 24.0,
+    "width": 500.0,
+    "x0": 78.0,
+    "wgaps": [11.0],
+    "dgaps": [3.5],
+    "ratio": 6.6,
+    "v": 1,
+}
+
+_REQUIRED_FIELDS = REQUIRED_METADATA_KEYS
+
+_V1_REQUIRED_FIELDS: dict[str, type | tuple[type, ...]] = {
     "words": dict,
     "digits": dict,
     "punct": dict,
@@ -54,8 +82,35 @@ class BankMigrationError(BankSchemaError):
     """Xảy ra lỗi trong quá trình di trú dữ liệu giữa các phiên bản."""
 
 
+def validate_stroke(stroke: Any, path: str = "stroke") -> None:
+    """Kiểm tra tính hợp lệ của một nét vẽ (danh sách toạ độ)."""
+    if not isinstance(stroke, list):
+        raise BankValidationError(f"{path}: nét vẽ phải là danh sách toạ độ (list), nhận được: {type(stroke).__name__}")
+    if len(stroke) < 2:
+        raise BankValidationError(f"{path}: nét vẽ phải có ít nhất 1 điểm (2 toạ độ x, y), nhận được: {len(stroke)}")
+    if len(stroke) % 2 != 0:
+        raise BankValidationError(f"{path}: số lượng toạ độ phải là số chẵn, nhận được: {len(stroke)}")
+    for i, c in enumerate(stroke):
+        if not isinstance(c, (int, float)) or not math.isfinite(c):
+            raise BankValidationError(f"{path}[{i}]: toạ độ phải là số hữu hạn, nhận được: {c!r}")
+
+
+def validate_sample(item: Any, path: str = "sample") -> None:
+    """Kiểm tra tính hợp lệ của một mẫu chữ (gồm nét vẽ 's' và độ rộng 'w')."""
+    if not isinstance(item, dict):
+        raise BankValidationError(f"{path}: mẫu phải là dict, nhận được: {type(item).__name__}")
+    if "s" not in item:
+        raise BankValidationError(f"{path}: mẫu thiếu nét vẽ 's'")
+    if "w" not in item or not isinstance(item["w"], (int, float)) or not math.isfinite(item["w"]) or item["w"] <= 0:
+        raise BankValidationError(f"{path}: độ rộng 'w' phải là số dương hữu hạn, nhận được: {item.get('w')!r}")
+    if not isinstance(item["s"], list) or len(item["s"]) == 0:
+        raise BankValidationError(f"{path}: 's' phải là danh sách nét vẽ không rỗng")
+    for s_idx, stroke in enumerate(item["s"]):
+        validate_stroke(stroke, path=f"{path}['s'][{s_idx}]")
+
+
 # ------------------------------------------------------------------ Kiểm tra cấu trúc
-def validate_bank_dict(d: Any, context: str = "") -> int:
+def validate_bank_dict(d: Any, context: str = "", allow_legacy: bool = False) -> int:
     """Kiểm tra tính hợp lệ về cấu trúc của dictionary kho mẫu.
 
     Trả về schema_version (1 nếu là bản cũ chưa có trường này).
@@ -67,8 +122,21 @@ def validate_bank_dict(d: Any, context: str = "") -> int:
     if not isinstance(d, dict):
         raise BankValidationError(f"Dữ liệu kho mẫu phải là một JSON object (dict), nhận được: {type(d).__name__}{ctx}")
 
-    # 1. Kiểm tra các trường bắt buộc
-    for key, expected_types in _REQUIRED_FIELDS.items():
+    # 1. Kiểm tra schema_version
+    version = d.get("schema_version", 1)
+    if not isinstance(version, int) or version < 1:
+        raise BankValidationError(f"Trường 'schema_version' phải là số nguyên dương, nhận được: {version!r}{ctx}")
+
+    if version > CURRENT_VERSION:
+        raise UnsupportedSchemaVersionError(
+            f"Kho mẫu có schema_version={version}, nhưng phiên bản hiện tại chỉ hỗ trợ đến v{CURRENT_VERSION}. "
+            f"Vui lòng nâng cấp phần mềm.{ctx}"
+        )
+
+    # 2. Kiểm tra các trường bắt buộc
+    is_legacy_v1 = allow_legacy and version == 1
+    fields_to_check = _V1_REQUIRED_FIELDS if is_legacy_v1 else _REQUIRED_FIELDS
+    for key, expected_types in fields_to_check.items():
         if key not in d:
             raise BankValidationError(f"Kho mẫu thiếu trường bắt buộc: '{key}'{ctx}")
         if not isinstance(d[key], expected_types):
@@ -81,17 +149,35 @@ def validate_bank_dict(d: Any, context: str = "") -> int:
                 f"Trường '{key}' phải có kiểu {type_names}, nhận được: {type(d[key]).__name__}{ctx}"
             )
 
-    # 2. Kiểm tra giá trị xh
-    if d["xh"] <= 0:
-        raise BankValidationError(f"Chiều cao chữ 'xh' phải là số dương, nhận được: {d['xh']}{ctx}")
+    # 3. Kiểm tra giá trị các trường số học và metadata
+    if not math.isfinite(d["xh"]) or d["xh"] <= 0:
+        raise BankValidationError(f"Chiều cao chữ 'xh' phải là số dương hữu hạn, nhận được: {d['xh']}{ctx}")
 
-    # 3. Kiểm tra thông số bút vẽ
+    if not is_legacy_v1:
+        for num_key in ("line", "width", "ratio"):
+            val = d[num_key]
+            if not math.isfinite(val) or val <= 0:
+                raise BankValidationError(f"Trường '{num_key}' phải là số dương hữu hạn, nhận được: {val}{ctx}")
+        if not math.isfinite(d["x0"]) or d["x0"] < 0:
+            raise BankValidationError(f"Trường 'x0' phải là số không âm hữu hạn, nhận được: {d['x0']}{ctx}")
+        if not math.isfinite(d["v"]):
+            raise BankValidationError(f"Trường 'v' phải là số hữu hạn, nhận được: {d['v']}{ctx}")
+
+        for list_key in ("wgaps", "dgaps"):
+            val = d[list_key]
+            if len(val) == 0:
+                raise BankValidationError(f"Trường '{list_key}' không được là danh sách rỗng{ctx}")
+            for idx, g in enumerate(val):
+                if not isinstance(g, (int, float)) or not math.isfinite(g) or g <= 0:
+                    raise BankValidationError(f"Khoảng cách '{list_key}[{idx}]' phải là số dương hữu hạn, nhận được: {g!r}{ctx}")
+
+    # 4. Kiểm tra thông số bút vẽ
     pen = d["pen"]
     for pk in ("tool", "color", "width"):
         if pk not in pen:
             raise BankValidationError(f"Thông số bút 'pen' thiếu thuộc tính bắt buộc: '{pk}'{ctx}")
 
-    # 4. Kiểm tra cấu trúc danh sách mẫu trong words/digits/punct
+    # 5. Kiểm tra sâu cấu trúc danh sách mẫu trong words/digits/punct
     for c_name in ("words", "digits", "punct"):
         container = d[c_name]
         for label, samples in container.items():
@@ -100,29 +186,7 @@ def validate_bank_dict(d: Any, context: str = "") -> int:
                     f"Mục '{c_name}[{label!r}]' phải là danh sách mẫu (list), nhận được: {type(samples).__name__}{ctx}"
                 )
             for idx, item in enumerate(samples):
-                if not isinstance(item, dict):
-                    raise BankValidationError(
-                        f"Mẫu thứ {idx} của '{c_name}[{label!r}]' phải là dict{ctx}"
-                    )
-                if "s" not in item:
-                    raise BankValidationError(
-                        f"Mẫu thứ {idx} của '{c_name}[{label!r}]' thiếu nét vẽ 's'{ctx}"
-                    )
-                if "w" not in item or not isinstance(item["w"], (int, float)):
-                    raise BankValidationError(
-                        f"Mẫu thứ {idx} của '{c_name}[{label!r}]' thiếu hoặc sai kiểu độ rộng 'w'{ctx}"
-                    )
-
-    # 5. Kiểm tra schema_version
-    version = d.get("schema_version", 1)
-    if not isinstance(version, int) or version < 1:
-        raise BankValidationError(f"Trường 'schema_version' phải là số nguyên dương, nhận được: {version!r}{ctx}")
-
-    if version > CURRENT_VERSION:
-        raise UnsupportedSchemaVersionError(
-            f"Kho mẫu có schema_version={version}, nhưng phiên bản hiện tại chỉ hỗ trợ đến v{CURRENT_VERSION}. "
-            f"Vui lòng nâng cấp phần mềm.{ctx}"
-        )
+                validate_sample(item, path=f"{c_name}[{label!r}][{idx}]{ctx}")
 
     return version
 
@@ -131,8 +195,9 @@ def validate_bank_dict(d: Any, context: str = "") -> int:
 def _migrate_v1_to_v2(d: dict[str, Any]) -> dict[str, Any]:
     """Nâng cấp từ v1 (legacy) lên v2: thêm schema_version và chuẩn hóa các trường mặc định."""
     d["schema_version"] = 2
-    d.setdefault("wgaps", [11.0])
-    d.setdefault("dgaps", [3.5])
+    for k, default_val in DEFAULT_METRICS.items():
+        if k not in d:
+            d[k] = list(default_val) if isinstance(default_val, list) else default_val
     return d
 
 
@@ -190,9 +255,9 @@ def load_and_validate(path: str) -> dict[str, Any]:
     except json.JSONDecodeError as e:
         raise BankCorruptedError(f"Nội dung JSON bị lỗi cú pháp tại dòng {e.lineno}, cột {e.colno}: {path}") from e
 
-    version = validate_bank_dict(d, context=path)
+    version = validate_bank_dict(d, context=path, allow_legacy=True)
     if version < CURRENT_VERSION:
         d = migrate_bank_dict(d, version, context=path)
-        validate_bank_dict(d, context=path)
+        validate_bank_dict(d, context=path, allow_legacy=False)
 
     return d

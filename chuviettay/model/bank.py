@@ -24,9 +24,9 @@ import logging
 import os
 import sys
 import tempfile
+from typing import Any
 
 from chuviettay.config import NANG, TONES
-from chuviettay.model.file_lock import FileLock
 from chuviettay.model.bank_schema import (
     CURRENT_VERSION,
     BankCorruptedError,
@@ -38,21 +38,63 @@ from chuviettay.model.bank_schema import (
     UnsupportedSchemaVersionError,
     load_and_validate,
 )
-from chuviettay.model.text_utils import Stroke, find_tone, near_extreme, shift, strip_tone, tone_info, vowel_x
+from chuviettay.model.file_lock import FileLock
+from chuviettay.model.text_utils import (
+    Stroke,
+    find_tone,
+    near_extreme,
+    shift,
+    strip_tone,
+    tone_info,
+    vowel_x,
+)
 
 _log = logging.getLogger(__name__)
 
 __all__ = [
-    "Bank",
     "CURRENT_VERSION",
-    "BankError",
-    "BankNotFoundError",
+    "Bank",
     "BankCorruptedError",
-    "BankValidationError",
-    "BankSchemaError",
-    "UnsupportedSchemaVersionError",
+    "BankError",
     "BankMigrationError",
+    "BankNotFoundError",
+    "BankSchemaError",
+    "BankValidationError",
+    "UnsupportedSchemaVersionError",
+    "merge_bank_dicts",
 ]
+
+
+def _stroke_signature(inst: dict) -> tuple:
+    """Tạo chữ ký toạ độ nét vẽ (làm tròn 2 chữ số) để so sánh trùng lặp mẫu."""
+    strokes = inst.get("s", [])
+    return tuple(tuple(round(float(c), 2) for c in s) for s in strokes)
+
+
+def merge_bank_dicts(base: dict[str, Any], disk: dict[str, Any], deleted_words: set[str] | None = None) -> dict[str, Any]:
+    """Hợp nhất dữ liệu kho mẫu trên đĩa (disk) vào kho mẫu trong bộ nhớ (base).
+    Tránh lost-update khi nhiều tiến trình cùng ghi."""
+    if deleted_words:
+        for w in deleted_words:
+            base.get("words", {}).pop(w, None)
+
+    for c_name in ("words", "digits", "punct"):
+        disk_c = disk.get(c_name, {})
+        base_c = base.setdefault(c_name, {})
+        for label, disk_samples in disk_c.items():
+            if c_name == "words" and deleted_words and label in deleted_words:
+                continue
+            if label not in base_c:
+                base_c[label] = list(disk_samples)
+            else:
+                existing_sigs = {_stroke_signature(s) for s in base_c[label]}
+                for s in disk_samples:
+                    sig = _stroke_signature(s)
+                    if sig not in existing_sigs:
+                        base_c[label].append(s)
+                        existing_sigs.add(sig)
+
+    return base
 
 
 class Bank:
@@ -71,6 +113,7 @@ class Bank:
         self.pen: dict = self.d["pen"]
         self.tl: dict[str, list[tuple[str, dict]]] = {}
         self.marks: dict[str, list[dict]] = {}
+        self._deleted_words: set[str] = set()
         self.rebuild()
         _log.debug("Đã mở kho mẫu %s (%d từ)", path, len(self.words))
 
@@ -88,15 +131,26 @@ class Bank:
         }
 
     @classmethod
-    def create_empty(cls, path: str) -> "Bank":
-        """Tạo một file kho mẫu TRỐNG tại `path` rồi mở lên."""
-        with gzip.open(path, "wt", encoding="utf-8") as f:
-            json.dump(cls.empty_dict(), f, ensure_ascii=False)
+    def create_empty(cls, path: str) -> Bank:
+        """Tạo một file kho mẫu TRỐNG tại `path` an toàn qua pipeline save() rồi mở lên."""
+        bank = cls.__new__(cls)
+        bank.path = os.path.abspath(path)
+        bank.d = cls.empty_dict()
+        bank.words = bank.d["words"]
+        bank.digits = bank.d["digits"]
+        bank.punct = bank.d["punct"]
+        bank.xh = float(bank.d["xh"])
+        bank.pen = bank.d["pen"]
+        bank.tl = {}
+        bank.marks = {}
+        bank._deleted_words = set()
+        bank.rebuild()
+        bank.save()
         _log.info("Đã tạo kho mẫu trống mới: %s", path)
-        return cls(path)
+        return bank
 
     @classmethod
-    def load_or_create(cls, path: str) -> "Bank":
+    def load_or_create(cls, path: str) -> Bank:
         """Mở kho mẫu tại `path`; nếu chưa tồn tại thì tự tạo kho trống mới trước khi
         mở. Dùng cho GUI (người dùng có thể trỏ tới một đường dẫn hoàn toàn mới để bắt
         đầu dạy chữ từ đầu) -- CLI vẫn dùng thẳng Bank(path) và báo lỗi nếu thiếu, như
@@ -151,12 +205,22 @@ class Bank:
     def save(self) -> None:
         """Ghi kho mẫu xuống đĩa AN TOÀN:
         1. Khóa file liên tiến trình qua {path}.lock (tránh xung đột khi chạy đồng thời GUI/CLI).
-        2. Ghi ra file tạm ngẫu nhiên duy nhất qua tempfile.mkstemp trong cùng thư mục.
-        3. flush + fsync dữ liệu xuống đĩa vật lý, đóng sạch handle trước khi replace.
-        4. os.replace nguyên tử đè lên file thật.
-        5. fsync thư mục cha trên POSIX."""
+        2. Đọc và hợp nhất thay đổi trên đĩa (nếu có) để tránh lost-update.
+        3. Ghi ra file tạm ngẫu nhiên duy nhất qua tempfile.mkstemp trong cùng thư mục.
+        4. flush + fsync dữ liệu xuống đĩa vật lý, đóng sạch handle trước khi replace.
+        5. os.replace nguyên tử đè lên file thật.
+        6. fsync thư mục cha trên POSIX."""
         lock_path = self.path + ".lock"
         with FileLock(lock_path, timeout=10.0):
+            # Nếu file đã tồn tại trên đĩa, đọc và hợp nhất các thay đổi từ đĩa
+            if os.path.exists(self.path) and os.path.getsize(self.path) > 0:
+                try:
+                    disk_d = load_and_validate(self.path)
+                    merge_bank_dicts(self.d, disk_d, self._deleted_words)
+                    self.rebuild()
+                except (BankError, OSError, ValueError, KeyError) as e:
+                    _log.warning("Không thể đọc/hợp nhất file trên đĩa (%s): %s", self.path, e)
+
             self.d["schema_version"] = CURRENT_VERSION
             parent_dir = os.path.dirname(self.path) or "."
             fd, tmp = tempfile.mkstemp(dir=parent_dir, prefix=".bank_", suffix=".tmp")
@@ -178,6 +242,7 @@ class Bank:
                             os.close(dirfd)
                     except OSError:
                         pass
+                self._deleted_words.clear()
             except BaseException:
                 try:
                     os.remove(tmp)
@@ -210,9 +275,31 @@ class Bank:
         ti = find_tone(rel_strokes, label, self.xh) if (T and " " not in label) else -1
         inst = {"w": round(width, 2), "s": rel_strokes, "T": T, "vi": vi, "ti": ti}
         self.words.setdefault(label, []).append(inst)
+        self._deleted_words.discard(label)
+        return inst
+
+    def add_sample_incremental(self, label: str, rel_strokes: list[Stroke], width: float) -> dict:
+        """Thêm MỘT mẫu mới và cập nhật chỉ mục tra cứu (tl, marks) theo cách tăng dần (incremental)
+        với độ phức tạp O(1), không duyệt lại toàn bộ kho mẫu."""
+        inst = self.add_sample(label, rel_strokes, width)
+
+        tk = strip_tone(label)
+        if inst.get("T", "") == "" or inst.get("ti", -1) >= 0:
+            self.tl.setdefault(tk, []).append((label, inst))
+
+        T = inst.get("T", "")
+        if T and T in self.marks:
+            self._harvest(label, inst)
+            lst = self.marks[T]
+            if len(lst) >= 10:
+                lo_dy, hi_dy = sorted(m["dy"] for m in lst)[len(lst) // 10], sorted(m["dy"] for m in lst)[-len(lst) // 10 - 1]
+                lo_dx, hi_dx = sorted(m["dx"] for m in lst)[len(lst) // 10], sorted(m["dx"] for m in lst)[-len(lst) // 10 - 1]
+                self.marks[T] = [m for m in lst if lo_dy <= m["dy"] <= hi_dy and lo_dx <= m["dx"] <= hi_dx]
+
         return inst
 
     def drop(self, word: str) -> int:
         """Xoá hết mẫu của `word` khỏi kho, trả về số mẫu đã xoá (0 nếu chưa có từ đó).
         KHÔNG tự rebuild()/save()."""
+        self._deleted_words.add(word)
         return len(self.words.pop(word, []))

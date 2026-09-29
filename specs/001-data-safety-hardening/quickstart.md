@@ -5,7 +5,7 @@
 ## Prerequisites
 
 - Python 3.10+ installed
-- `pip install pytest filelock` (or `pip install -r requirements-dev.txt`)
+- `pip install pytest` (or `pip install -r requirements-dev.txt`)
 - Repository cloned at `d:\viet\app` (or equivalent)
 
 ---

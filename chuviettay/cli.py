@@ -165,8 +165,9 @@ def main(argv: list[str] | None = None) -> int:
         _log.exception("Lỗi khi chạy lệnh %r", a.cmd)
         if a.verbose:
             raise
-        sys.exit("Lỗi: %s\n(chi tiết đầy đủ đã ghi vào %s -- chạy lại với -v để xem ngay trên màn hình)"
-                 % (e, log_file))
+        if log_file:
+            sys.exit(f"Lỗi: {e}\n(chi tiết đầy đủ đã ghi vào {log_file} -- chạy lại với -v để xem ngay trên màn hình)")
+        sys.exit(f"Lỗi: {e}\n(chạy lại với -v để xem ngay trên màn hình)")
     return 0
 
 
