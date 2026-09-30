@@ -184,3 +184,42 @@ class TestWriteOptionsPageFormatResolution:
         assert pf.height == 450.0
         assert pf.background.style == "graph"
         assert pf.background.spacing == 14.17
+
+    def test_margin_left_plus_right_exceeds_width_raises_value_error(self):
+        opts = WriteOptions(paper="a4", margin_left=350.0, margin_right=300.0)
+        with pytest.raises(ValueError, match="nhỏ hơn bề ngang trang"):
+            opts.validate()
+
+    def test_margin_top_plus_bottom_exceeds_height_raises_value_error(self):
+        opts = WriteOptions(paper="a4", margin_top=500.0, margin_bottom=400.0)
+        with pytest.raises(ValueError, match="nhỏ hơn bề dọc trang"):
+            opts.validate()
+
+    def test_margin_sum_equal_to_page_dimension_raises_value_error(self):
+        opts = WriteOptions(paper="a4", margin_left=297.64, margin_right=297.64)
+        with pytest.raises(ValueError, match="nhỏ hơn bề ngang trang"):
+            opts.validate()
+
+    def test_landscape_orientation_swapped_margin_validation(self):
+        # A4 landscape: width is 841.89, height is 595.28
+        opts = WriteOptions(
+            paper="a4",
+            orientation="landscape",
+            margin_left=400.0,
+            margin_right=300.0,
+            margin_top=350.0,
+            margin_bottom=300.0,
+        )
+        with pytest.raises(ValueError, match="nhỏ hơn bề dọc trang"):
+            opts.validate()
+
+    def test_custom_paper_margin_validation(self):
+        opts = WriteOptions(
+            paper="custom",
+            paper_width=200.0,
+            paper_height=200.0,
+            margin_left=120.0,
+            margin_right=100.0,
+        )
+        with pytest.raises(ValueError, match="nhỏ hơn bề ngang trang"):
+            opts.validate()

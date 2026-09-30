@@ -119,6 +119,18 @@ class WriteOptions:
         if self.background_color is not None:
             self.background_color = parse_color(self.background_color)
 
+        pf = self.resolve_page_format()
+        if self.margin_left + self.margin_right >= pf.width:
+            raise ValueError(
+                f"Tổng lề trái ({self.margin_left} pt) và lề phải ({self.margin_right} pt) "
+                f"phải nhỏ hơn bề ngang trang ({pf.width} pt)."
+            )
+        if self.margin_top + self.margin_bottom >= pf.height:
+            raise ValueError(
+                f"Tổng lề trên ({self.margin_top} pt) và lề dưới ({self.margin_bottom} pt) "
+                f"phải nhỏ hơn bề dọc trang ({pf.height} pt)."
+            )
+
     def resolve_page_format(self) -> PageFormat:
         """Phân giải cấu hình WriteOptions thành đối tượng PageFormat hoàn chỉnh."""
         from chuviettay.document.page_format import (
@@ -186,10 +198,10 @@ def _missing_grid_path(out_path: str) -> str:
 
 
 def compose_document(bank: Bank, text: str, opts: WriteOptions) -> tuple[list[str], WriteResult]:
-    """Thuật toán chính: chuẩn hoá văn bản, ghép từng token thành nét (Writer), dàn
-    thành các dòng vừa bề rộng, chia trang, thêm "run tay" (jitter) rồi đặt nét lên
-    từng trang. -> (các đoạn XML sẵn sàng ghi bằng xopp.save_xopp, WriteResult chưa có
-    out_path/missing_grid_path -- 2 trường đó điền ở write_document())."""
+    """[DEPRECATED] Thuật toán kết xuất đơn trang cũ (giữ cho kiểm định tương thích ngược).
+
+    Toàn bộ luồng kết xuất hiện đại sử dụng DocumentLayoutEngine (chuviettay/layout/engine.py).
+    """
     rnd = random.Random(opts.seed)
     J = opts.jitter
     text = normalize_text(text)
@@ -261,9 +273,11 @@ def compose_document(bank: Bank, text: str, opts: WriteOptions) -> tuple[list[st
 
 def write_document(bank: Bank, text: str, opts: WriteOptions, out_path: str,
                     make_missing_grid: bool = True) -> WriteResult:
-    """compose_document() rồi lưu ra `out_path`; nếu còn token thiếu mẫu, TỰ ĐỘNG tạo
-    thêm file lưới ô cùng tên (hậu tố _thieu.xopp) để người dùng viết mẫu các từ đó
-    vào -- giữ đúng hành vi bản gốc (lệnh `learn` sau đó nạp lại đúng file này)."""
+    """[DEPRECATED] Ghi file theo thuật toán cũ compose_document().
+
+    Dùng riêng cho kiểm định đối sánh (golden master). Mọi caller mới sử dụng AppController.write_text()
+    hoặc AppController.write_document().
+    """
     parts, result = compose_document(bank, text, opts)
     xopp.save_xopp(out_path, parts)
     result.out_path = out_path

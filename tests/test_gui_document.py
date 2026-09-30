@@ -113,6 +113,7 @@ def test_gui_write_tab_paper_and_background_options(app, tmp_path, monkeypatch, 
     assert opts.background == "graph"
     assert opts.background_spacing == 14.17
 
+    assert app.write_tab.current_doc is None
     app.write_tab.do_write()
     assert out_xopp.exists()
 
@@ -121,6 +122,36 @@ def test_gui_write_tab_paper_and_background_options(app, tmp_path, monkeypatch, 
     assert '<page width="1190.55" height="841.89">' in raw
     assert 'style="graph"' in raw
     assert 'config="r1=14.17"' in raw
+
+
+def test_gui_write_tab_custom_paper_direct_text(app, tmp_path, monkeypatch, dlg):
+    """Kiểm tra nhập văn bản trực tiếp trên GUI với khổ giấy tùy chỉnh được áp dụng chuẩn xác vào file xuất ra."""
+    out_xopp = tmp_path / "gui_custom_out.xopp"
+    monkeypatch.setattr(filedialog, "asksaveasfilename", lambda **kw: str(out_xopp))
+
+    app.write_tab.text.delete("1.0", "end")
+    app.write_tab.text.insert("1.0", "Văn bản trực tiếp khổ giấy tùy chỉnh")
+
+    # Giả lập thiết lập khổ giấy tùy chỉnh 150mm x 200mm (~ 425.20 x 566.93 pt)
+    app.write_tab.v_paper.set("Tùy chỉnh...")
+    app.write_tab.custom_paper_width = 425.20
+    app.write_tab.custom_paper_height = 566.93
+    app.write_tab.v_background.set("Chấm (Dotted)")
+
+    opts = app.write_tab.read_options()
+    assert opts.paper == "custom"
+    assert opts.paper_width == 425.20
+    assert opts.paper_height == 566.93
+    assert opts.background == "dotted"
+
+    assert app.write_tab.current_doc is None
+    app.write_tab.do_write()
+    assert out_xopp.exists()
+
+    import gzip
+    raw = gzip.decompress(open(out_xopp, "rb").read()).decode("utf-8")
+    assert '<page width="425.2" height="566.93">' in raw or '<page width="425.20" height="566.93">' in raw
+    assert 'style="dotted"' in raw
 
 
 def test_gui_custom_paper_dialog(app, monkeypatch):

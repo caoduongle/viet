@@ -98,9 +98,7 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
         result = ctl.write_document(import_res.document, opts, a.out)
     else:
         text = _read_text(a)
-        from chuviettay.importer.txt_importer import TxtImporter
-        doc = TxtImporter().import_text(text).document
-        result = ctl.write_document(doc, opts, a.out)
+        result = ctl.write_text(text, opts, a.out)
 
     for line in write_report_lines(result):
         print(line)

@@ -308,4 +308,28 @@ def test_write_document_native_background_xml(tiny_bank_path, tmp_path):
     assert 'm1=72' in raw_ruled
 
 
+def test_write_text_unifies_into_document_pipeline_with_paper_and_background(tiny_bank_path, tmp_path):
+    """Kiểm thử tích hợp: ctl.write_text() đi qua Document IR pipeline và áp dụng đúng khổ giấy, hướng giấy, nền XML."""
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+
+    out_path = str(tmp_path / "write_text_a3_graph.xopp")
+    text = "Dòng 1 văn bản trực tiếp\n\nDòng 2 đoạn văn mới"
+    opts = WriteOptions(
+        paper="a3",
+        orientation="landscape",
+        background="graph",
+        background_spacing=14.17,
+        seed=42,
+    )
+    res = ctl.write_text(text, opts, out_path)
+    assert res.n_lines >= 2
+    assert os.path.exists(out_path)
+
+    raw = gzip.decompress(open(out_path, "rb").read()).decode("utf-8")
+    assert '<page width="1190.55" height="841.89">' in raw
+    assert 'style="graph"' in raw
+    assert 'config="r1=14.17"' in raw
+
+
 

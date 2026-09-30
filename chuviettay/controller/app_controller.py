@@ -32,7 +32,7 @@ from chuviettay.controller.results import (
 from chuviettay.document.ir import Document
 from chuviettay.importer.base import ImportResult
 from chuviettay.layout.engine import DocumentLayoutEngine
-from chuviettay.model import composer, learning, xopp
+from chuviettay.model import learning, xopp
 from chuviettay.model.bank import (  # noqa: F401  (re-export cho cli.py/view)
     Bank, BankCorruptedError, BankError, BankNotFoundError, BankValidationError, UnsupportedSchemaVersionError,
 )
@@ -103,16 +103,11 @@ class AppController:
 
     # ------------------------------------------------------------------ viết chữ
     def write_text(self, text: str, opts: WriteOptions, out_path: str) -> WriteResult:
-        """Đổi văn bản thành file .xopp nét viết tay. Kết quả có sẵn `missing` (các
-        token chưa có mẫu, tính từ CHÍNH lần viết này theo đúng tuỳ chọn người dùng đã
-        đặt) nên nơi gọi không cần tính lại lần nữa."""
-        opts.validate()
-        bank = self._require_bank()
-        result = composer.write_document(bank, text, opts, out_path)
-        _log.info("Viết %s: %d dòng, %d nét, thiếu mẫu %d/%d token",
-                  out_path, result.n_lines, result.n_strokes,
-                  result.n_missing_tokens, result.n_tokens)
-        return result
+        """Đổi văn bản thuần thành file .xopp nét viết tay qua Document IR và DocumentLayoutEngine."""
+        from chuviettay.importer.txt_importer import TxtImporter
+
+        doc = TxtImporter().import_text(text).document
+        return self.write_document(doc, opts, out_path)
 
     def write_document(self, document: Document, opts: WriteOptions, out_path: str) -> WriteResult:
         """Đổi Document IR thành file .xopp nét viết tay qua DocumentLayoutEngine."""

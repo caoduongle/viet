@@ -18,6 +18,7 @@ import pytest
 
 from chuviettay.controller.app_controller import AppController
 from chuviettay.controller.results import WriteOptions
+from chuviettay.model import composer
 
 GOLDEN = {
     "co_ban": {
@@ -51,7 +52,7 @@ def test_dau_ra_giong_het_ban_goc(name, tiny_bank_path, tmp_path):
     ctl.load_bank()
     text, opts = CASES[name]
     out = str(tmp_path / (name + ".xopp"))
-    result = ctl.write_text(text, opts, out)
+    result = composer.write_document(ctl.bank, text, opts, out)
 
     assert sha(out) == GOLDEN[name]["xopp"], (
         "%s: file .xopp khác bản gốc. Mã băm mới: %s" % (name, sha(out)))

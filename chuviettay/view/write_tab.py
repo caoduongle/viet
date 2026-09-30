@@ -451,10 +451,7 @@ class WriteTab(ttk.Frame):
             if self.current_doc is not None:
                 result = self.ctl.write_document(self.current_doc, opts, out)
             else:
-                from chuviettay.importer.txt_importer import TxtImporter
-
-                doc = TxtImporter().import_text(text).document
-                result = self.ctl.write_document(doc, opts, out)
+                result = self.ctl.write_text(text, opts, out)
 
         except Exception as e:  # noqa: BLE001
             report_error("Lỗi khi viết văn bản", e, _log)
