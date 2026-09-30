@@ -227,6 +227,33 @@ def test_whiteout_background_generator(tmp_path):
             assert r.font.color.rgb == white_rgb
 
 
+def test_whiteout_preserves_non_text_parts_checksum(tmp_path):
+    """Surgical whiteout giữ nguyên 100% từng byte các tệp không phải text XML (media, thumbnail, customXml)."""
+    import hashlib
+    import zipfile
+    from chuviettay.fidelity.background import WhiteoutBackgroundGenerator
+
+    src_docx = "tests/fixtures/sample.docx"
+    out_white = str(tmp_path / "whiteout_surgical.docx")
+
+    res_path = WhiteoutBackgroundGenerator.create_whiteout_docx(src_docx, out_white)
+    assert os.path.exists(res_path)
+
+    # Đọc hash các tệp không sửa đổi từ tệp gốc và tệp trắng
+    with zipfile.ZipFile(src_docx, "r") as z_src, zipfile.ZipFile(res_path, "r") as z_out:
+        src_names = set(z_src.namelist())
+        out_names = set(z_out.namelist())
+        assert src_names == out_names, "Tất cả các part trong DOCX gốc phải được bảo tồn"
+
+        for name in src_names:
+            # Kiểm tra các part phi-text XML (như docProps/thumbnail.jpeg, word/theme/theme1.xml...)
+            if name.endswith((".jpeg", ".jpg", ".png", ".rels")) or name.startswith("customXml/"):
+                src_hash = hashlib.sha256(z_src.read(name)).hexdigest()
+                out_hash = hashlib.sha256(z_out.read(name)).hexdigest()
+                assert src_hash == out_hash, f"Part {name} phải giữ nguyên vẹn 100% từng byte"
+
+
+
 def test_xopp_pdf_background_tag_generation():
     """Hàm pdf_background_xml sinh thẻ background type=pdf chuẩn cho Xournal++."""
     from chuviettay.model import xopp
@@ -268,5 +295,7 @@ def test_libreoffice_convert_to_pdf_moves_output_file(tmp_path, monkeypatch):
     res = FidelityConverter.convert_to_pdf(src_docx, target_pdf)
     assert res == os.path.abspath(target_pdf)
     assert os.path.exists(target_pdf)
+
+
 
 

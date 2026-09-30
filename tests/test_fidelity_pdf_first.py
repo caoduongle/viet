@@ -136,3 +136,43 @@ def test_r6_converter_availability_caching():
     # Reset cache hoạt động đúng
     FidelityConverter.reset_cache()
     assert FidelityConverter._word_available_cache is None
+
+
+def test_r6_converter_non_windows_caching(monkeypatch):
+    """R6: Trên Linux/macOS, is_word_available() phải lưu cache False và không gọi lại."""
+    import sys
+    monkeypatch.setattr(sys, "platform", "linux")
+    FidelityConverter.reset_cache()
+    assert FidelityConverter._word_available_cache is None
+
+    # Lần 1: Gọi trên Linux
+    avail1 = FidelityConverter.is_word_available()
+    assert avail1 is False
+    assert FidelityConverter._word_available_cache is False
+
+    # Lần 2: Trả về cache False
+    avail2 = FidelityConverter.is_word_available()
+    assert avail2 is False
+
+    # Reset cache
+    FidelityConverter.reset_cache()
+    assert FidelityConverter._word_available_cache is None
+
+
+def test_run_powershell_script_hygiene(monkeypatch):
+    """Kiểm tra _run_powershell_script thực thi với shell=False và phân giải executable hợp lệ."""
+    import subprocess
+    recorded_kwargs = {}
+
+    def mock_run(cmd, **kwargs):
+        recorded_kwargs.update(kwargs)
+        recorded_kwargs["cmd"] = cmd
+        return subprocess.CompletedProcess(cmd, 0, stdout="mock_ok", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    res = FidelityConverter._run_powershell_script("Write-Host 'test'")
+    assert res.stdout == "mock_ok"
+    assert recorded_kwargs.get("shell") is False
+    assert "powershell" in recorded_kwargs.get("cmd")[0].lower()
+
+

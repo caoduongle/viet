@@ -161,7 +161,8 @@ class WriteTab(ttk.Frame):
         )
         self.cb_paper.pack(side="left")
         self.cb_paper.bind("<<ComboboxSelected>>", self._on_paper_changed)
-        ttk.Button(row_p, text="Cỡ...", width=4, command=self.open_custom_paper_dialog).pack(side="left", padx=4)
+        self.btn_paper_custom = ttk.Button(row_p, text="Cỡ...", width=4, command=self.open_custom_paper_dialog)
+        self.btn_paper_custom.pack(side="left", padx=4)
 
         row_o = ttk.Frame(pnl_paper)
         row_o.pack(fill="x", pady=2)
@@ -201,7 +202,8 @@ class WriteTab(ttk.Frame):
         row_sp = ttk.Frame(pnl_paper)
         row_sp.pack(fill="x", pady=2)
         ttk.Label(row_sp, text="Khoảng cách (mm)", width=14).pack(side="left")
-        ttk.Entry(row_sp, textvariable=self.v_spacing, width=8).pack(side="left")
+        self.entry_spacing = ttk.Entry(row_sp, textvariable=self.v_spacing, width=8)
+        self.entry_spacing.pack(side="left")
         ttk.Label(row_sp, text="vd: 5 ô li", foreground="#888888").pack(side="left", padx=4)
 
         row_m = ttk.Frame(pnl_paper)
@@ -215,6 +217,8 @@ class WriteTab(ttk.Frame):
             width=20,
         )
         self.cb_mode.pack(side="left", fill="x", expand=True)
+        self.cb_mode.bind("<<ComboboxSelected>>", self._on_mode_changed)
+        self.v_mode.trace_add("write", lambda *args: self._on_mode_changed())
 
         # Nhóm 2: Tuỳ chỉnh nét chữ
         opt = ttk.LabelFrame(right, text="Tuỳ chỉnh nét chữ", padding=8)
@@ -253,6 +257,24 @@ class WriteTab(ttk.Frame):
         ttk.Button(colf, text="Mặc định", command=lambda: self.v_color.set("")).pack(side="left")
         ttk.Checkbutton(opt, text="Không tự hạ chữ hoa đầu câu (strict-case)",
                         variable=self.v_strict).pack(anchor="w", pady=(6, 0))
+
+        self._on_mode_changed()
+
+    def _on_mode_changed(self, event=None) -> None:
+        """Khóa các điều khiển giấy và nền khi ở chế độ Fidelity (lấy layout từ file gốc)."""
+        is_fidelity = "fidelity" in self.v_mode.get().lower() or "khóa" in self.v_mode.get().lower()
+        if is_fidelity:
+            self.cb_paper.configure(state="disabled")
+            self.btn_paper_custom.configure(state="disabled")
+            self.cb_ori.configure(state="disabled")
+            self.cb_bg.configure(state="disabled")
+            self.entry_spacing.configure(state="disabled")
+        else:
+            self.cb_paper.configure(state="readonly")
+            self.btn_paper_custom.configure(state="normal")
+            self.cb_ori.configure(state="readonly")
+            self.cb_bg.configure(state="readonly")
+            self.entry_spacing.configure(state="normal")
 
     def _on_paper_changed(self, event=None) -> None:
         p_val = self.v_paper.get()

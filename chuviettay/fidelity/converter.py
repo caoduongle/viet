@@ -36,9 +36,10 @@ class FidelityConverter:
             f.write(script_content)
 
         try:
+            ps_exe = shutil.which("powershell") or "powershell"
             return subprocess.run(
-                ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script_path],
-                shell=True,
+                [ps_exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script_path],
+                shell=False,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -53,10 +54,11 @@ class FidelityConverter:
     @classmethod
     def is_word_available(cls) -> bool:
         """Kiểm tra Microsoft Word COM có khả dụng trên hệ thống Windows hay không (R6)."""
-        if sys.platform != "win32":
-            return False
         if cls._word_available_cache is not None:
             return cls._word_available_cache
+        if sys.platform != "win32":
+            cls._word_available_cache = False
+            return False
 
         ps_cmd = """
 try {
@@ -120,12 +122,12 @@ try {
                 cls._extract_with_word_com(docx_abs, json_abs)
             elif cls.is_libreoffice_available():
                 raise RuntimeError(
-                    "Trích xuất tọa độ DOCX hiện yêu cầu Microsoft Word (Windows). "
-                    "Vui lòng sử dụng hệ thống có Microsoft Word hoặc chọn chế độ Semantic Mode (--mode semantic)."
+                    "Fidelity Mode yêu cầu Microsoft Word COM trên Windows để trích xuất tọa độ không gian chính xác. "
+                    "LibreOffice chỉ hỗ trợ tạo PDF nền; vui lòng chuyển sang môi trường Windows có Word hoặc chọn chế độ Semantic Mode (--mode semantic)."
                 )
             else:
                 raise RuntimeError(
-                    "Fidelity Mode yêu cầu Microsoft Word (Windows) hoặc LibreOffice (Linux/macOS) để xử lý bố cục cố định. "
+                    "Fidelity Mode yêu cầu Microsoft Word (Windows) để trích xuất tọa độ văn bản và xử lý bố cục cố định. "
                     "Vui lòng cài đặt Microsoft Word hoặc sử dụng chế độ Semantic Mode (--mode semantic)."
                 )
 

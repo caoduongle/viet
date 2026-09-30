@@ -189,3 +189,34 @@ def test_gui_fidelity_mode_selection_and_validation(app, tmp_path, monkeypatch, 
     assert "Chế độ Fidelity" in err_call[1]
     assert not out_xopp.exists()
 
+
+def test_gui_mode_changed_locks_paper_options(app):
+    """Kiểm tra chọn Fidelity mode khóa các tùy chọn khổ giấy, hướng giấy, nền giấy, khoảng cách."""
+    tab = app.write_tab
+    # Mặc định Semantic mode: các control ở trạng thái hoạt động (readonly/normal)
+    assert str(tab.cb_paper.cget("state")) == "readonly"
+    assert str(tab.btn_paper_custom.cget("state")) == "normal"
+    assert str(tab.cb_ori.cget("state")) == "readonly"
+    assert str(tab.cb_bg.cget("state")) == "readonly"
+    assert str(tab.entry_spacing.cget("state")) == "normal"
+
+    # Chuyển sang Fidelity mode -> tất cả phải bị disabled
+    tab.v_mode.set("Khóa bố cục & ảnh (Fidelity)")
+    tab._on_mode_changed()
+    assert str(tab.cb_paper.cget("state")) == "disabled"
+    assert str(tab.btn_paper_custom.cget("state")) == "disabled"
+    assert str(tab.cb_ori.cget("state")) == "disabled"
+    assert str(tab.cb_bg.cget("state")) == "disabled"
+    assert str(tab.entry_spacing.cget("state")) == "disabled"
+
+    # Chuyển lại Semantic mode -> các control được phục hồi
+    tab.v_mode.set("Tự do (Semantic)")
+    tab._on_mode_changed()
+    assert str(tab.cb_paper.cget("state")) == "readonly"
+    assert str(tab.btn_paper_custom.cget("state")) == "normal"
+    assert str(tab.cb_ori.cget("state")) == "readonly"
+    assert str(tab.cb_bg.cget("state")) == "readonly"
+    assert str(tab.entry_spacing.cget("state")) == "normal"
+
+
+

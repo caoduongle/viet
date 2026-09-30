@@ -85,6 +85,17 @@ Xem `python3 hw_note.py --help` (và `python3 hw_note.py write --help`) để bi
 
 Định dạng đầu vào tự động nhận diện theo đuôi mở rộng (`.txt`, `.md`, `.markdown`, `.docx`), hỗ trợ bảng dữ liệu (GFM / Word) và công thức toán học (LaTeX / OMML) căn chỉnh theo baseline nét viết tay.
 
+### Chế độ xử lý tài liệu Word (.docx)
+
+Ứng dụng hỗ trợ 2 chế độ chuyển đổi tài liệu `.docx` sang chữ viết tay:
+
+| Chế độ | Mô tả | Hỗ trợ nền tảng | Công cụ yêu cầu |
+|---|---|---|---|
+| **Semantic Mode** (`--mode semantic`) | Trích xuất nội dung ngữ nghĩa (đoạn văn, bảng biểu, công thức toán) và tự động căn chỉnh, xuống dòng, ngắt trang linh hoạt theo các tùy chọn khổ giấy (A3, A4, A5, Letter) và nền giấy (ô li, dòng kẻ, chấm). | **Đa nền tảng 100%** (Windows, Linux, macOS) | Python thuần (`python-docx`, `markdown-it-py`) |
+| **Fidelity Mode** (`--mode fidelity`) | Khóa cố định 100% bố cục, vị trí dòng kẻ, hình ảnh và bảng biểu gốc của tài liệu. Chỉ thay thế chữ in bằng chữ viết tay đúng tại tọa độ gốc. | **Windows** (toàn diện)<br>**Linux/macOS** (hỗ trợ PDF nền) | Trích xuất tọa độ không gian yêu cầu **Microsoft Word COM** trên Windows.<br>Tạo PDF nền hỗ trợ Microsoft Word COM hoặc **LibreOffice**. |
+
+> **Ghi chú**: Trên Linux/macOS hoặc máy chủ CI không cài đặt Microsoft Word, vui lòng chọn chế độ **Semantic Mode** (`--mode semantic` trên CLI hoặc chọn *Tự do (Semantic)* trên GUI) để ứng dụng tự động dàn trang tối ưu.
+
 ---
 
 # Dành cho người phát triển
