@@ -97,7 +97,19 @@ def test_cli_write_custom_paper_with_units(capsys, tiny_bank_path, tmp_path):
     assert '<page width="425.2" height="566.93">' in raw or '<page width="425.20" height="566.93">' in raw
 
 
-def test_cli_write_mode_fidelity_and_semantic(capsys, tiny_bank_path, tmp_path):
+def test_cli_write_mode_fidelity_and_semantic(capsys, tiny_bank_path, tmp_path, monkeypatch):
+    from chuviettay.fidelity.converter import FidelityConverter
+
+    if not FidelityConverter.is_available():
+        import json
+        import shutil
+        fix_json = "tests/fixtures/fidelity/sample_fidelity_data.json"
+        fix_pdf = "tests/fixtures/fidelity/sample_background.pdf"
+        with open(fix_json, "r", encoding="utf-8") as f:
+            mock_data = json.load(f)
+        monkeypatch.setattr(FidelityConverter, "extract_spatial_data", lambda docx, out_json=None: mock_data)
+        monkeypatch.setattr(FidelityConverter, "convert_to_pdf", lambda docx, out_pdf: shutil.copyfile(fix_pdf, out_pdf))
+
     sample_docx = "tests/fixtures/sample.docx"
     out_fid = str(tmp_path / "cli_fid.xopp")
 

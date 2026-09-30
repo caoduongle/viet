@@ -46,7 +46,11 @@ class FidelityConverter:
         """Kiểm tra Microsoft Word COM có khả dụng trên hệ thống Windows hay không."""
         if sys.platform != "win32":
             return False
-        ps_cmd = "$w = New-Object -ComObject Word.Application; $v = $w.Version; $w.Quit(); Write-Host $v"
+        ps_cmd = (
+            "$w = New-Object -ComObject Word.Application; $v = $w.Version; $w.Quit(0); "
+            "[System.Runtime.InteropServices.Marshal]::ReleaseComObject($w) | Out-Null; "
+            "[GC]::Collect(); [GC]::WaitForPendingFinalizers(); Write-Host $v"
+        )
         try:
             res = cls._run_powershell_script(ps_cmd, timeout=10)
             return res.returncode == 0 and bool(res.stdout.strip())
@@ -81,13 +85,17 @@ class FidelityConverter:
 
         try:
             if cls.is_word_available():
-                try:
-                    cls._extract_with_word_com(docx_abs, json_abs)
-                except Exception as e:
-                    _log.warning("Trích xuất Word COM gặp lỗi: %s. Thử sử dụng fallback fixture.", e)
-                    cls._fallback_copy_fixture_json(json_abs)
+                cls._extract_with_word_com(docx_abs, json_abs)
+            elif cls.is_libreoffice_available():
+                raise RuntimeError(
+                    "Trích xuất tọa độ DOCX hiện yêu cầu Microsoft Word (Windows). "
+                    "Vui lòng sử dụng hệ thống có Microsoft Word hoặc chọn chế độ Semantic Mode (--mode semantic)."
+                )
             else:
-                cls._fallback_copy_fixture_json(json_abs)
+                raise RuntimeError(
+                    "Fidelity Mode yêu cầu Microsoft Word (Windows) hoặc LibreOffice (Linux/macOS) để xử lý bố cục cố định. "
+                    "Vui lòng cài đặt Microsoft Word hoặc sử dụng chế độ Semantic Mode (--mode semantic)."
+                )
 
             with open(json_abs, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -97,20 +105,6 @@ class FidelityConverter:
                     os.remove(json_abs)
                 except OSError:
                     pass
-
-    @classmethod
-    def _fallback_copy_fixture_json(cls, json_abs: str) -> None:
-        fixture_json = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "tests", "fixtures", "fidelity", "sample_fidelity_data.json"
-        )
-        if os.path.exists(fixture_json):
-            shutil.copyfile(fixture_json, json_abs)
-        else:
-            raise RuntimeError(
-                "Không tìm thấy Microsoft Word (Windows) hoặc LibreOffice (Linux/macOS) để trích xuất tọa độ DOCX. "
-                "Vui lòng cài đặt Microsoft Word hoặc sử dụng chế độ Semantic Mode (--mode semantic)."
-            )
 
     @staticmethod
     def _ps_quote(path: str) -> str:
@@ -126,6 +120,7 @@ class FidelityConverter:
 $ErrorActionPreference = 'Stop'
 $w = New-Object -ComObject Word.Application
 $w.Visible = $false
+$w.DisplayAlerts = 0
 try {{
     $doc = $w.Documents.Open({docx_q})
     $pagesDict = @{{}}
@@ -140,8 +135,8 @@ try {{
     $pageHeight = $sec.PageSetup.PageHeight
 
     foreach ($p in $doc.Paragraphs) {{
-        $txt = $p.Range.Text.Trim()
-        if ($txt) {{
+        $cleanTxt = $p.Range.Text.Replace([char]1, "").Trim()
+        if ($cleanTxt) {{
             $pg = $p.Range.Information(3) # wdActiveEndPageNumber
             if (-not $pagesDict.ContainsKey($pg)) {{
                 $pagesDict[$pg] = [System.Collections.Generic.List[hashtable]]::new()
@@ -157,18 +152,58 @@ try {{
             if ($p.Alignment -eq 1) {{ $align = "center" }}
             elseif ($p.Alignment -eq 2) {{ $align = "right" }}
 
-            $box = @{{
-                type = "text"
-                x = $x
-                y = $y
-                width = [double]($pageWidth - $x - $sec.PageSetup.RightMargin)
-                height = [double]($lineSpacing)
-                text = $txt
-                font_size = $fontSize
-                line_spacing = $lineSpacing
-                align = $align
+            if ($p.InlineShapes.Count -gt 0) {{
+                foreach ($ishape in $p.InlineShapes) {{
+                    $sStart = $ishape.Range.Start
+                    $sEnd = $ishape.Range.End
+                    if ($sStart -gt $p.Range.Start) {{
+                        $preTxt = $doc.Range($p.Range.Start, $sStart).Text.Replace([char]1, "").Trim()
+                        if ($preTxt) {{
+                            $pagesDict[$pg].Add(@{{
+                                type = "text"
+                                x = $x
+                                y = $y
+                                width = [double]($ishape.Range.Information(6) - $x)
+                                height = [double]$lineSpacing
+                                text = $preTxt
+                                font_size = $fontSize
+                                line_spacing = $lineSpacing
+                                align = $align
+                            }})
+                        }}
+                    }}
+                    if ($sEnd -lt $p.Range.End) {{
+                        $postTxt = $doc.Range($sEnd, $p.Range.End).Text.Replace([char]1, "").Trim()
+                        if ($postTxt) {{
+                            $postX = [double]($ishape.Range.Information(6) + $ishape.Width)
+                            $pagesDict[$pg].Add(@{{
+                                type = "text"
+                                x = $postX
+                                y = [double]$ishape.Range.Information(5)
+                                width = [double]($pageWidth - $postX - $sec.PageSetup.RightMargin)
+                                height = [double]$lineSpacing
+                                text = $postTxt
+                                font_size = $fontSize
+                                line_spacing = $lineSpacing
+                                align = $align
+                            }})
+                        }}
+                    }}
+                }}
+            }} else {{
+                $box = @{{
+                    type = "text"
+                    x = $x
+                    y = $y
+                    width = [double]($pageWidth - $x - $sec.PageSetup.RightMargin)
+                    height = [double]($lineSpacing)
+                    text = $cleanTxt
+                    font_size = $fontSize
+                    line_spacing = $lineSpacing
+                    align = $align
+                }}
+                $pagesDict[$pg].Add($box)
             }}
-            $pagesDict[$pg].Add($box)
         }}
     }}
 
@@ -227,10 +262,13 @@ try {{
 
     $jsonStr = $root | ConvertTo-Json -Depth 10
     [System.IO.File]::WriteAllText({json_q}, $jsonStr, [System.Text.Encoding]::UTF8)
-    $doc.Close()
+    $doc.Close(0)
 }} finally {{
-    $w.Quit()
+    if ($doc) {{ try {{ $doc.Close(0) }} catch {{}} }}
+    $w.Quit(0)
     [System.Runtime.InteropServices.Marshal]::ReleaseComObject($w) | Out-Null
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
 }}
 """
         res = cls._run_powershell_script(ps_script, timeout=60)
@@ -250,13 +288,17 @@ try {{
 $ErrorActionPreference = 'Stop'
 $w = New-Object -ComObject Word.Application
 $w.Visible = $false
+$w.DisplayAlerts = 0
 try {{
     $doc = $w.Documents.Open({docx_q})
     $doc.SaveAs2({pdf_q}, 17) # 17 = wdFormatPDF
-    $doc.Close()
+    $doc.Close(0)
 }} finally {{
-    $w.Quit()
+    if ($doc) {{ try {{ $doc.Close(0) }} catch {{}} }}
+    $w.Quit(0)
     [System.Runtime.InteropServices.Marshal]::ReleaseComObject($w) | Out-Null
+    [GC]::Collect()
+    [GC]::WaitForPendingFinalizers()
 }}
 """
             try:
@@ -270,19 +312,14 @@ try {{
             out_dir = os.path.dirname(pdf_abs)
             cmd = ["soffice", "--headless", "--convert-to", "pdf", docx_abs, "--outdir", out_dir]
             res = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if res.returncode == 0 and os.path.exists(pdf_abs):
-                return pdf_abs
-
-        # Fallback cho kiểm thử CI / môi trường không có Word
-        fixture_pdf = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-            "tests", "fixtures", "fidelity", "sample_background.pdf"
-        )
-        if os.path.exists(fixture_pdf):
-            shutil.copyfile(fixture_pdf, pdf_abs)
-            return pdf_abs
+            if res.returncode == 0:
+                produced_pdf = os.path.join(out_dir, f"{os.path.splitext(os.path.basename(docx_abs))[0]}.pdf")
+                if os.path.exists(produced_pdf) and os.path.abspath(produced_pdf) != pdf_abs:
+                    shutil.move(produced_pdf, pdf_abs)
+                if os.path.exists(pdf_abs):
+                    return pdf_abs
 
         raise RuntimeError(
-            "Không có công cụ kết xuất PDF (Microsoft Word hoặc LibreOffice). "
-            "Vui lòng cài đặt để sử dụng Fidelity Mode."
+            "Fidelity Mode yêu cầu Microsoft Word (Windows) hoặc LibreOffice (Linux/macOS) để kết xuất PDF nền. "
+            "Vui lòng cài đặt Microsoft Word hoặc sử dụng chế độ Semantic Mode (--mode semantic)."
         )

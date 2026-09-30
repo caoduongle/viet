@@ -110,8 +110,10 @@ def test_fidelity_layout_engine_stroke_generation(bank, sample_data, tmp_path):
         assert bg.get("pageno") == str(idx)
 
 
-def test_controller_write_docx_fidelity_api(tmp_path):
+def test_controller_write_docx_fidelity_api(tmp_path, monkeypatch):
     """AppController.write_docx_fidelity() điều phối toàn bộ workflow tạo ra file .xopp và companion PDF."""
+    from chuviettay.fidelity.converter import FidelityConverter
+
     ctl = AppController()
     ctl.load_bank(BANK_PATH)
 
@@ -120,6 +122,16 @@ def test_controller_write_docx_fidelity_api(tmp_path):
 
     # Dùng sample.docx
     docx_path = "tests/fixtures/sample.docx"
+
+    # Nếu môi trường kiểm thử không có Word COM (ví dụ CI runner), monkeypatch converter trả về fixture kiểm thử có kiểm soát
+    if not FidelityConverter.is_available():
+        import json
+        import shutil
+        with open(FIXTURE_JSON, "r", encoding="utf-8") as f:
+            mock_data = json.load(f)
+        monkeypatch.setattr(FidelityConverter, "extract_spatial_data", lambda docx, out_json=None: mock_data)
+        monkeypatch.setattr(FidelityConverter, "convert_to_pdf", lambda docx, out_pdf: shutil.copyfile(FIXTURE_PDF, out_pdf))
+
     result = ctl.write_docx_fidelity(docx_path, opts, out_xopp)
 
     assert os.path.exists(out_xopp)
@@ -129,6 +141,68 @@ def test_controller_write_docx_fidelity_api(tmp_path):
     # Companion background PDF phải được sinh ra cùng thư mục
     expected_bg = str(tmp_path / "api_fidelity_out_background.pdf")
     assert os.path.exists(expected_bg)
+
+
+def test_converter_fail_fast_when_no_engine_available(monkeypatch):
+    """FidelityConverter ném RuntimeError ngay lập tức khi không có Word COM hoặc LibreOffice (P0 zero-fallback)."""
+    from chuviettay.fidelity.converter import FidelityConverter
+
+    monkeypatch.setattr(FidelityConverter, "is_word_available", classmethod(lambda cls: False))
+    monkeypatch.setattr(FidelityConverter, "is_libreoffice_available", classmethod(lambda cls: False))
+
+    with pytest.raises(RuntimeError, match="Fidelity Mode yêu cầu Microsoft Word"):
+        FidelityConverter.extract_spatial_data("tests/fixtures/sample.docx")
+
+    with pytest.raises(RuntimeError, match="Fidelity Mode yêu cầu Microsoft Word"):
+        FidelityConverter.convert_to_pdf("tests/fixtures/sample.docx", "test.pdf")
+
+
+def test_spatial_text_extractor_mixed_inline_segmentation():
+    """Kiểm tra trích xuất phân đoạn khi đoạn văn có ảnh inline xen giữa."""
+    data = {
+        "source_file": "test.docx",
+        "total_pages": 1,
+        "pages": [
+            {
+                "page_index": 0,
+                "width": 595.28,
+                "height": 841.89,
+                "boxes": [
+                    {
+                        "type": "text",
+                        "x": 72.0,
+                        "y": 100.0,
+                        "width": 150.0,
+                        "height": 14.0,
+                        "text": "Trước ảnh",
+                    },
+                    {
+                        "type": "image",
+                        "x": 230.0,
+                        "y": 90.0,
+                        "width": 100.0,
+                        "height": 50.0,
+                        "image_id": "rId1",
+                    },
+                    {
+                        "type": "text",
+                        "x": 340.0,
+                        "y": 100.0,
+                        "width": 180.0,
+                        "height": 14.0,
+                        "text": "Sau ảnh",
+                    },
+                ],
+            }
+        ],
+    }
+    extractor = SpatialTextExtractor()
+    doc = extractor.load_from_data(data)
+    boxes = doc.pages[0].boxes
+    assert len(boxes) == 3
+    assert isinstance(boxes[0], TextBox) and boxes[0].text == "Trước ảnh"
+    assert isinstance(boxes[1], ImageBox)
+    assert isinstance(boxes[2], TextBox) and boxes[2].text == "Sau ảnh"
 
 
 def test_whiteout_background_generator(tmp_path):
@@ -166,4 +240,33 @@ def test_xopp_pdf_background_tag_generation():
     page_xml = xopp.page_open_xml(595.28, 841.89, background=bg_xml)
     assert '<page width="595.28" height="841.89">' in page_xml
     assert bg_xml in page_xml
+
+
+def test_libreoffice_convert_to_pdf_moves_output_file(tmp_path, monkeypatch):
+    """FidelityConverter.convert_to_pdf di chuyển tệp kết xuất từ soffice khi tên khác với output_pdf."""
+    import subprocess
+    from chuviettay.fidelity.converter import FidelityConverter
+
+    monkeypatch.setattr(FidelityConverter, "is_word_available", lambda: False)
+    monkeypatch.setattr(FidelityConverter, "is_libreoffice_available", lambda: True)
+
+    src_docx = str(tmp_path / "whiteout_temp.docx")
+    with open(src_docx, "w", encoding="utf-8") as f:
+        f.write("fake docx")
+
+    target_pdf = str(tmp_path / "final_background.pdf")
+
+    # Giả lập soffice sinh ra whiteout_temp.pdf trong outdir
+    def mock_run(cmd, capture_output=True, text=True, timeout=60):
+        produced = str(tmp_path / "whiteout_temp.pdf")
+        with open(produced, "wb") as f:
+            f.write(b"%PDF-1.4 mock")
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+
+    res = FidelityConverter.convert_to_pdf(src_docx, target_pdf)
+    assert res == os.path.abspath(target_pdf)
+    assert os.path.exists(target_pdf)
+
 

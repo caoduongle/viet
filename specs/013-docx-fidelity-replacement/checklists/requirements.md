@@ -2,6 +2,7 @@
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
 **Created**: 2026-09-30
+**Updated**: 2026-09-30 (P0/P1 Refinements: Zero Fixture Bleed, Comprehensive Shape Whiteout, Mixed-Inline Spatial Segmentation)
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,5 +32,7 @@
 
 ## Notes
 
-- Feature scope clearly separates Fidelity Mode (fixed page layout, geometry lock, image preservation) from Semantic Mode (Document IR, free reflow across user-selected paper formats).
+- Feature scope strictly defines zero-fallback fail-fast behavior for production dependencies (Word/LibreOffice), eliminating dummy fixture leakage.
+- Whiteout requirements expanded to cover DrawingML textboxes, shapes, canvas objects, and nested tables (0% printed text ghosting).
+- Layout requirement includes spatial segmentation for interleaved text and inline images (`text -> image -> text`).
 - All 16 quality criteria verified. Ready for `/speckit-plan`.

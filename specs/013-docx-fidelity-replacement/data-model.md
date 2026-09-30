@@ -15,7 +15,7 @@ Base class for all geometric objects located on a fixed page.
 - `z_index: int`: Stacking order on the page.
 
 ### `TextBox(SpatialBox)`
-Represents an individual text span, line, or paragraph cell with locked coordinates.
+Represents an individual text span, line, or paragraph segment with locked coordinates.
 - `text: str`: Raw text content to be converted into handwriting.
 - `font_size: float`: Original font size in points (used to calibrate stroke thickness and line height).
 - `font_family: str`: Original font name.
@@ -24,27 +24,26 @@ Represents an individual text span, line, or paragraph cell with locked coordina
 - `is_heading: bool`: Whether the text is marked as a title/heading.
 
 ### `ImageBox(SpatialBox)`
-Represents an embedded graphic illustration, chart, or figure.
+Represents an embedded graphic illustration, photo, or figure as a spatial exclusion boundary.
 - `image_id: str`: Unique resource identifier (e.g. `rId5`).
 - `image_filename: str`: Target filename inside the package (e.g. `image1.png`).
-- `image_bytes: bytes`: Raw image data.
 - `format: str`: Image mime type (`image/png`, `image/jpeg`).
 - `caption: str | None`: Associated figure caption text (if any).
+*Note*: Visual raster/vector rendering of the image is preserved losslessly by the companion background PDF. `ImageBox` ensures handwritten text does not collide with the graphic area and powers reporting statistics.
 
 ### `TableGeometry(SpatialBox)`
-Represents structural table cell boundaries and shading.
+Represents structural table cell boundaries and dimensions.
 - `rows: int`: Number of rows.
 - `cols: int`: Number of columns.
 - `cell_boxes: list[SpatialBox]`: Coordinate bounding boxes of each cell.
-- `border_strokes: list[Stroke]`: Border line vectors.
 
 ### `FixedPage`
 Represents an immutable single page in the document.
 - `page_index: int`: 0-indexed page sequence number.
 - `width: float`: Page width in points (e.g. `595.28` for A4).
 - `height: float`: Page height in points (e.g. `841.89` for A4).
-- `background_path: str`: Relative or absolute path to the non-text companion background PDF/asset.
-- `boxes: list[SpatialBox]`: Ordered collection of spatial elements on this page.
+- `background_path: str`: Relative path to the companion background PDF.
+- `boxes: list[SpatialBox]`: Ordered collection of spatial elements (text boxes, image boxes, table geometries) on this page.
 
 ### `FixedDocument`
 Represents the complete multi-page document structure.
@@ -67,14 +66,17 @@ class WriteMode(str, Enum):
 ```
 
 ### `WriteOptions` Extensions
-- `mode: WriteMode = WriteMode.SEMANTIC`: Selected operational mode.
-- `keep_background_pdf: bool = True`: Whether to retain the companion background PDF beside the `.xopp` file.
+- `mode: WriteMode = WriteMode.SEMANTIC`: Selected operational mode (`semantic` or `fidelity`).
+- `validate()`: Enforces valid mode and ensures compatible parameter constraints.
 
-### `FidelityResult` (Specialized or wrapped in `WriteResult`)
+### `WriteResult` Extensions
 - `out_path: str`: Generated `.xopp` file path.
-- `background_pdf_path: str`: Companion background PDF file path.
-- `total_pages: int`: Total number of pages processed (e.g. 19).
-- `n_boxes_replaced: int`: Count of text boxes converted to handwriting.
-- `n_images_preserved: int`: Count of embedded images kept in place (e.g. 19).
+- `n_lines: int`: Count of text lines processed.
 - `n_strokes: int`: Total handwritten strokes generated.
-- `missing_tokens: dict[str, int]`: Untracked characters or missing handwriting samples.
+- `n_tokens: int`: Total word/token count.
+- `n_missing_tokens: int`: Tokens lacking samples in the bank.
+- `missing: dict[str, int]`: Untracked words mapped to occurrence count.
+- `missing_symbols: dict[str, int]`: Untracked math symbols.
+- `n_pages: int`: Total pages in the fixed document (e.g. 19).
+- `n_images: int`: Count of embedded images preserved in the background (e.g. 19).
+- `n_tables: int`: Count of table structures preserved.

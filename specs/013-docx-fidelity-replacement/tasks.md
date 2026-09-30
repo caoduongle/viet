@@ -1,108 +1,111 @@
 # Tasks: DOCX Fidelity and In-Place Handwriting Replacement Mode
 
-**Feature Branch**: `013-docx-fidelity-replacement` | **Date**: 2026-09-30 | **Spec**: [spec.md](spec.md) | **Plan**: [plan.md](plan.md)
+**Input**: Design artifacts from `specs/013-docx-fidelity-replacement/` (`spec.md`, `plan.md`, `data-model.md`, `research.md`, `contracts/`, `quickstart.md`)
 
 ---
 
 ## Phase 1: Setup (Shared Infrastructure)
 
-**Purpose**: Project initialization and basic structure for the fidelity layout module.
+**Purpose**: Module structure initialization, test fixtures, and schema extensions.
 
-- [X] T001 Create package directory `chuviettay/fidelity/` and initialize `chuviettay/fidelity/__init__.py`
-- [X] T002 [P] Create test fixtures directory `tests/fixtures/fidelity/` with mock UTF-8 JSON extraction data and sample background PDF
+- [X] T001 Initialize package structure in `chuviettay/fidelity/__init__.py`
+- [X] T002 [P] Configure unit test fixtures and sample data in `tests/fixtures/fidelity/sample_fidelity_data.json` and `tests/fixtures/fidelity/sample_background.pdf`
 
 ---
 
 ## Phase 2: Foundational (Blocking Prerequisites)
 
-**Purpose**: Core data models, configuration options, converter interfaces, and architectural safety rules that MUST be complete before ANY user story can be implemented.
+**Purpose**: Core data models and foundational converters that MUST be complete before user stories can execute.
 
-**⚠️ CRITICAL**: No user story work can begin until this phase is complete.
+- [X] T003 Implement fixed-layout spatial models (`FixedDocument`, `FixedPage`, `SpatialBox`, `TextBox`, `ImageBox`, `TableGeometry`) in `chuviettay/fidelity/fixed_model.py`
+- [X] T004 [P] Implement fail-fast `FidelityConverter` interface with `_ps_quote` string escaping and strict `RuntimeError` (zero fixture fallback in production) in `chuviettay/fidelity/converter.py`
+- [X] T005 [P] Implement `pdf_background_xml` with relative domain support in `chuviettay/model/xopp.py`
 
-- [X] T003 [P] Implement `FixedDocument`, `FixedPage`, `SpatialBox`, `TextBox`, `ImageBox`, and `TableGeometry` models in `chuviettay/fidelity/fixed_model.py`
-- [X] T004 [P] Implement `WriteMode` (`SEMANTIC = "semantic"`, `FIDELITY = "fidelity"`) and extend `WriteOptions` with `mode: WriteMode` in `chuviettay/model/composer.py`
-- [X] T005 Implement `FidelityConverter` interface with Word COM PowerShell runner (UTF-8 JSON bridge + safe COM cleanup) and headless LibreOffice/mock fallback in `chuviettay/fidelity/converter.py`
-- [X] T006 Update `tests/test_architecture.py` to include `py_files("fidelity")` in architecture safety rules (no print/input, no sys.exit, no tkinter outside view)
-
-**Checkpoint**: Foundation ready - spatial models, options, and conversion abstractions in place.
+**Checkpoint**: Foundational models and core converter interfaces ready — user story implementation can proceed.
 
 ---
 
 ## Phase 3: User Story 1 - Exact Layout & Geometry Preservation with In-Place Text Replacement (Priority: P1) 🎯 MVP
 
-**Goal**: Extract spatial bounding boxes for all text elements from DOCX, fit handwritten strokes directly into their respective bounding boxes, and preserve exact page count and dimensions without reflowing lines across pages.
+**Goal**: Lock document geometry and page count, fit handwritten strokes into text bounding boxes, and segment mixed-inline content (`text -> image -> text`) so strokes never overwrite images.
 
-**Independent Test**: Provide a multi-page DOCX fixture, execute fidelity replacement, and verify that the output has the exact same page count and that handwritten strokes are placed within the geometric bounding box of each text element.
+**Independent Test**: Convert a document with known coordinates; verify output has identical page count, strokes remain inside text bounding boxes, and paragraphs with inline images are split cleanly around image boundaries.
 
 ### Tests for User Story 1
-- [X] T007 [P] [US1] Create unit and integration tests for fidelity spatial extraction and stroke placement in `tests/test_docx_fidelity.py`
+- [X] T006 [P] [US1] Unit test for `FixedDocument` deserialization, multiline paragraph splitting, and mixed-inline segmentation in `tests/test_docx_fidelity.py`
+- [X] T007 [P] [US1] Unit test for in-place stroke placement, baseline calculation, and scale adjustment in `tests/test_docx_fidelity.py`
 
 ### Implementation for User Story 1
-- [X] T008 [US1] Implement `SpatialTextExtractor` to parse Word COM UTF-8 JSON export into `FixedPage` and `TextBox` models with multi-line paragraph support in `chuviettay/fidelity/extractor.py`
-- [X] T009 [US1] Implement `FidelityLayoutEngine` in `chuviettay/fidelity/engine.py` placing handwriting strokes fitted into each `TextBox` bounding box without reflow
-- [X] T010 [US1] Implement `AppController.write_docx_fidelity()` in `chuviettay/controller/app_controller.py` coordinating extraction, background generation, and stroke rendering
+- [X] T008 [US1] Implement `SpatialTextExtractor` with multiline splitting and inline image segmentation in `chuviettay/fidelity/extractor.py`
+- [X] T009 [US1] Implement `FidelityLayoutEngine` fitting strokes into `TextBox` regions with alignment (`left`, `center`, `right`) and scale adjustment in `chuviettay/fidelity/engine.py`
 
-**Checkpoint**: User Story 1 functional: text replaced in-place into bounding boxes across fixed pages.
+**Checkpoint**: User Story 1 functional — strokes are fitted into bounding boxes without reflow or image collision.
 
 ---
 
-## Phase 4: User Story 2 - Complete Non-Text Graphic Element Preservation (Priority: P1) 🎯 MVP
+## Phase 4: User Story 2 - Complete Non-Text Graphic Element Preservation & Clean Whiteout (Priority: P1) 🎯 MVP
 
-**Goal**: Preserve 100% of embedded images (all 19 PNG inline drawings in Problem Set 03), table borders, charts, and diagrams in a non-text visual background generated via DOCX whiteout run transformation.
+**Goal**: Preserve 100% of images and tables in the background PDF, while neutralizing all printed text to `#FFFFFF` across standard paragraphs, nested tables, headers, footers, and DrawingML/textbox shapes.
 
-**Independent Test**: Process a document containing embedded images and tables. Verify all images and tables appear intact at their exact coordinates in the companion background PDF without printed text ghosting.
+**Independent Test**: Execute whiteout transformation on a document with tables, inline shapes, and DrawingML callouts; verify that all text elements are white (`#FFFFFF`) while image vectors and borders remain intact.
 
 ### Tests for User Story 2
-- [X] T011 [P] [US2] Add unit test for whiteout run transformation and non-text element preservation in `tests/test_docx_fidelity.py`
+- [X] T010 [P] [US2] Unit test for `WhiteoutBackgroundGenerator` verifying complete text whitening across paragraphs, nested tables, and DrawingML shapes in `tests/test_docx_fidelity.py`
+- [X] T011 [P] [US2] Integration test for PDF background generation with non-text elements in `tests/test_docx_fidelity.py`
 
 ### Implementation for User Story 2
-- [X] T012 [US2] Implement `WhiteoutBackgroundGenerator` in `chuviettay/fidelity/background.py` setting text runs to `w:color w:val="FFFFFF"` to preserve 100% of images, table borders, and shapes without printed text bleed
-- [X] T013 [US2] Integrate background PDF generation and relative path linking into `FidelityLayoutEngine` in `chuviettay/fidelity/engine.py`
+- [X] T012 [US2] Implement comprehensive XPath-based whiteout transform covering `doc.paragraphs`, `cell.tables`, headers/footers, and DrawingML/VML shapes in `chuviettay/fidelity/background.py`
+- [X] T013 [US2] Implement Word COM and LibreOffice PDF conversion pipeline in `chuviettay/fidelity/converter.py` with `[char]1` filtering for image-only paragraphs
 
-**Checkpoint**: User Stories 1 AND 2 work together as a solid MVP: 19 pages, 19 images, and 8 tables 100% preserved with handwriting overlay.
+**Checkpoint**: User Stories 1 and 2 integrated — clean background PDF generated with 100% graphics and zero printed text ghosting.
 
 ---
 
-## Phase 5: User Story 3 - Distinct Mode Selection: Semantic Reflow vs. Fidelity In-Place (Priority: P2)
+## Phase 5: User Story 3 - Distinct Mode Selection & Strict Production Dependency Enforcement (Priority: P2)
 
-**Goal**: Allow users to explicitly select between Semantic Mode (free-flowing reflow across paper sizes/grids) and Fidelity Mode (fixed-page layout preserving geometry and images) via CLI and GUI.
+**Goal**: Expose `--mode {semantic,fidelity}` on CLI and GUI, enforce non-DOCX validation, report accurate statistics (`n_pages`, `n_images`, `n_tables`), and enforce strict fail-fast behavior without dummy fixture leakage in production.
 
-**Independent Test**: Execute CLI and GUI with `--mode semantic` and `--mode fidelity` and confirm distinct pipeline activation.
+**Independent Test**: Execute CLI and GUI in both modes; verify semantic mode uses `DocumentLayoutEngine`, fidelity mode uses `FidelityLayoutEngine`, non-DOCX files in fidelity mode are rejected with clear guidance, and missing Word/LibreOffice raises a clear `RuntimeError`.
 
 ### Tests for User Story 3
-- [X] T014 [P] [US3] Add CLI and Controller mode switching tests in `tests/test_cli_format.py` and `tests/test_docx_fidelity.py`
+- [X] T014 [P] [US3] Unit test for `WriteMode` validation, `WriteResult` statistics, and fail-fast `RuntimeError` when converter is unavailable in `tests/test_docx_fidelity.py`
+- [X] T015 [P] [US3] CLI tests for `--mode fidelity`, `--mode semantic`, non-DOCX rejection, and fidelity statistics output in `tests/test_cli_format.py`
+- [X] T016 [P] [US3] GUI test for Fidelity mode selection and non-DOCX error dialog in `tests/test_gui_document.py`
 
 ### Implementation for User Story 3
-- [X] T015 [US3] Add `--mode {semantic,fidelity}` flag to `hw-note write` in `chuviettay/cli.py` routing DOCX to `write_docx_fidelity` or `write_document`
-- [X] T016 [US3] Add Fidelity/Semantic mode selection option to GUI `WriteTab` in `chuviettay/view/write_tab.py`
+- [X] T017 [US3] Add `WriteMode` enum, `mode` field to `WriteOptions`, and `n_pages`/`n_images` to `WriteResult` in `chuviettay/model/composer.py`
+- [X] T018 [US3] Implement `write_docx_fidelity` in `chuviettay/controller/app_controller.py` with strict converter checks and comprehensive logging
+- [X] T019 [US3] Add `--mode` argument, non-DOCX validation, and fidelity statistics report to CLI in `chuviettay/cli.py`
+- [X] T020 [US3] Add "Chế độ DOCX" Combobox and file requirement enforcement to GUI in `chuviettay/view/write_tab.py`
 
-**Checkpoint**: User Story 3 functional: users have clear, distinct control over Semantic vs. Fidelity modes.
+**Checkpoint**: Mode switching and dependency fail-fast fully operational across CLI, GUI, and Controller.
 
 ---
 
 ## Phase 6: User Story 4 - Multi-Page Annotation Viewer Compatibility (Priority: P3)
 
-**Goal**: Ensure generated `.xopp` files open seamlessly in Xournal++ with valid multi-page `<background type="pdf" domain="relative" filename="..." pageno="N"/>` tags and crisp stroke overlays.
+**Goal**: Ensure multi-page `.xopp` files properly link to the companion background PDF using portable relative paths (`domain="relative"`) across all pages.
 
-**Independent Test**: Verify generated `.xopp` XML conforms to Xournal++ multi-page background specifications and relative path portability.
+**Independent Test**: Verify generated `.xopp` XML contains `<background type="pdf" domain="relative" filename="..." pageno="N"/>` for every page matching the source document.
 
 ### Tests for User Story 4
-- [X] T017 [P] [US4] Add XOPP background tag validation test verifying multi-page `<background type="pdf" .../>` tags in `tests/test_docx_fidelity.py`
+- [X] T021 [P] [US4] Test multi-page relative background XML generation and page sequence validation in `tests/test_docx_fidelity.py`
 
 ### Implementation for User Story 4
-- [X] T018 [US4] Support companion PDF relative path handling and multi-page XML generation in `chuviettay/model/xopp.py`
+- [X] T022 [US4] Finalize relative path resolution and multi-page XML serialization in `chuviettay/fidelity/engine.py`
 
-**Checkpoint**: User Story 4 functional: complete multi-page Xournal++ compatibility verified.
+**Checkpoint**: Multi-page `.xopp` packages are fully compliant with Xournal++ format specifications and portable across directories.
 
 ---
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-**Purpose**: Validation, linting, regression prevention, and final quality checks.
+**Purpose**: Validation, linting, architectural integrity, and full regression verification.
 
-- [X] T019 Run validation scenarios in `specs/013-docx-fidelity-replacement/quickstart.md`
-- [X] T020 Run linter `python -m ruff check .` and resolve all formatting/linting issues
-- [X] T021 Run full automated test suite `pytest -v --timeout=60` across all test suites ensuring 100% pass rate
+- [X] T023 Run validation scenarios in `specs/013-docx-fidelity-replacement/quickstart.md`
+- [X] T024 [P] Verify layered architecture rules in `tests/test_architecture.py`
+- [X] T025 [P] Run linter `python -m ruff check .` and ensure 0 lint errors
+- [X] T026 Run full automated test suite `pytest -v --timeout=60` ensuring 100% pass rate across all 422+ tests
 
 ---
 
@@ -112,28 +115,28 @@
 - **Setup (Phase 1)**: No dependencies — start immediately.
 - **Foundational (Phase 2)**: Depends on Phase 1 — BLOCKS all user stories.
 - **User Story 1 (Phase 3)**: Depends on Phase 2.
-- **User Story 2 (Phase 4)**: Depends on Phase 2; integrates with US1 to complete MVP.
+- **User Story 2 (Phase 4)**: Depends on Phase 2; integrates with US1 to form the complete MVP.
 - **User Story 3 (Phase 5)**: Depends on Phase 3 and Phase 4.
 - **User Story 4 (Phase 6)**: Depends on Phase 3 and Phase 4.
 - **Polish (Phase 7)**: Depends on all user stories completed.
 
 ### Parallel Opportunities
 - T002 can run in parallel with T001.
-- T003 and T004 can run in parallel in Phase 2.
-- Test tasks T007, T011, T014, and T017 can be developed concurrently with their respective domain definitions.
-- Polish tasks T019 and T020 can run concurrently.
+- T004 and T005 can run in parallel in Phase 2.
+- Test tasks T006, T007, T010, T011, T014, T015, T016, and T021 can run in parallel.
+- Polish tasks T024 and T025 can run in parallel.
 
 ---
 
 ## Implementation Strategy
 
 ### MVP Scope (Phases 1, 2, 3, 4)
-1. Complete Foundational models and converter interfaces (Phases 1 & 2).
-2. Implement Spatial Text Extractor and In-Place Stroke Layout (Phase 3).
-3. Implement Whiteout Background Generator for 100% image & table preservation (Phase 4).
-4. Validate MVP with `test_docx_fidelity.py`.
+1. Complete Foundational models and converter interfaces with zero-fixture fallback (Phases 1 & 2).
+2. Implement Spatial Text Extractor with mixed-inline segmentation and In-Place Stroke Layout (Phase 3).
+3. Implement Deep XML Whiteout Background Generator for 100% image, table, and shape preservation (Phase 4).
+4. Validate MVP with `tests/test_docx_fidelity.py`.
 
 ### Incremental Delivery
-- Add Phase 5 (CLI and GUI `--mode` selector).
-- Add Phase 6 (Xournal++ relative path background portability).
-- Add Phase 7 (Full regression and lint verification).
+- Add Phase 5 (CLI and GUI `--mode` selector, non-DOCX validation, and statistics reporting).
+- Add Phase 6 (Multi-page relative path background linking for Xournal++ portability).
+- Add Phase 7 (Full regression, architectural conformance, and lint verification).
