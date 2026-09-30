@@ -151,9 +151,9 @@ def merge_bank_dicts(
     base_tomb_dict.clear()
     base_tomb_dict.update(merged_tombstones)
 
-    # Áp dụng tombstone để loại bỏ từ / ký hiệu / chữ số / dấu câu đã bị xoá
+    # Áp dụng tombstone để loại bỏ từ / ký hiệu / chữ số / dấu câu / chữ cái đã bị xoá
     for w in merged_tombstones:
-        for c_name in ("words", "digits", "punct", "symbols"):
+        for c_name in ("words", "digits", "punct", "symbols", "letters"):
             base.get(c_name, {}).pop(w, None)
 
     # Đồng bộ generation cao hơn giữa base và disk
@@ -161,8 +161,8 @@ def merge_bank_dicts(
     if disk_gen > base_gen:
         base["generation"] = disk_gen
 
-    # 2. Hợp nhất words, digits, punct, symbols
-    for c_name in ("words", "digits", "punct", "symbols"):
+    # 2. Hợp nhất words, digits, punct, symbols, letters
+    for c_name in ("words", "digits", "punct", "symbols", "letters"):
         disk_c = disk.get(c_name, {})
         base_c = base.setdefault(c_name, {})
         for label, disk_samples in disk_c.items():
@@ -177,6 +177,18 @@ def merge_bank_dicts(
                     if sig not in existing_sigs:
                         base_c[label].append(s)
                         existing_sigs.add(sig)
+
+    # 3. Hợp nhất marks tự dạy nếu có
+    disk_marks = disk.get("marks", {})
+    if disk_marks:
+        base_marks = base.setdefault("marks", {t: [] for t in TONES})
+        for t in TONES:
+            existing_sigs = {_sample_signature(s) for s in base_marks.get(t, [])}
+            for m in disk_marks.get(t, []):
+                sig = _sample_signature(m)
+                if sig not in existing_sigs:
+                    base_marks.setdefault(t, []).append(m)
+                    existing_sigs.add(sig)
 
     return base
 
@@ -194,6 +206,7 @@ class Bank:
         self.digits: dict[str, list[dict]] = self.d["digits"]
         self.punct: dict[str, list[dict]] = self.d["punct"]
         self.symbols: dict[str, list[dict]] = self.d.setdefault("symbols", {})
+        self.letters: dict[str, list[dict]] = self.d.setdefault("letters", {})
         self.xh: float = float(self.d["xh"])
         self.pen: dict = self.d["pen"]
         self.tl: dict[str, list[tuple[str, dict]]] = {}
@@ -216,7 +229,7 @@ class Bank:
             pass
         self._dirty: bool = False
         self.rebuild()
-        _log.debug("Đã mở kho mẫu %s (%d từ, %d ký hiệu)", path, len(self.words), len(self.symbols))
+        _log.debug("Đã mở kho mẫu %s (%d từ, %d ký hiệu, %d chữ cái)", path, len(self.words), len(self.symbols), len(self.letters))
 
     # -------------------------------------------------------------- tạo kho mới
     @staticmethod
@@ -226,7 +239,7 @@ class Bank:
         return {
             "schema_version": CURRENT_VERSION,
             "xh": 7.0, "wgaps": [11.0], "dgaps": [3.5], "line": 24.0,
-            "words": {}, "digits": {}, "punct": {}, "symbols": {}, "v": 1,
+            "words": {}, "digits": {}, "punct": {}, "symbols": {}, "letters": {}, "v": 1,
             "pen": {"tool": "pen", "color": "#000000ff", "width": "1.2", "capStyle": "round"},
             "x0": 78.0, "width": 500.0, "ratio": 6.6,
             "tombstones": {},
@@ -243,6 +256,7 @@ class Bank:
         bank.digits = bank.d["digits"]
         bank.punct = bank.d["punct"]
         bank.symbols = bank.d["symbols"]
+        bank.letters = bank.d["letters"]
         bank.xh = float(bank.d["xh"])
         bank.pen = bank.d["pen"]
         bank.tl = {}
@@ -286,6 +300,10 @@ class Bank:
                 if inst.get("T", "") == "" or inst.get("ti", -1) >= 0:
                     self.tl.setdefault(tk, []).append((k, inst))
         self._raw_marks = {t: [] for t in TONES}
+        standalone_marks = self.d.get("marks", {})
+        for t in TONES:
+            for m in standalone_marks.get(t, []):
+                self._raw_marks[t].append(dict(m))
         for k, insts in self.words.items():
             for inst in insts:
                 self._harvest(k, inst)
@@ -520,6 +538,8 @@ class Bank:
             target_dict = self.digits
         elif word in self.punct:
             target_dict = self.punct
+        elif word in getattr(self, "letters", {}):
+            target_dict = self.letters
         elif word not in self.words:
             return 0
 
@@ -569,3 +589,54 @@ class Bank:
         if removed:
             self._dirty = True
         return len(removed)
+
+    def add_letter_sample(self, letter: str, rel_strokes: list[Stroke], width: float, dedup: bool = True) -> dict:
+        """Thêm MỘT mẫu chữ cái mới vào self.letters."""
+        sig = sample_signature(rel_strokes)
+        existing = self.letters.setdefault(letter, [])
+        if dedup:
+            for ex in existing:
+                ex_sig = ex.get("_sig")
+                if ex_sig is None:
+                    ex_sig = sample_signature(ex.get("s", []))
+                    ex["_sig"] = ex_sig
+                if ex_sig == sig:
+                    return ex
+        inst = {"w": round(width, 2), "s": rel_strokes, "_sig": sig}
+        existing.append(inst)
+        self._dirty = True
+
+        if letter in self._tombstones or letter in self._deleted_words:
+            self._readded_words[letter] = time.time()
+        self._deleted_words.discard(letter)
+        self._tombstones.pop(letter, None)
+        return inst
+
+    def drop_letter(self, letter: str) -> int:
+        """Xoá toàn bộ mẫu của một chữ cái khỏi kho letters và ghi nhận tombstone."""
+        if letter not in self.letters:
+            return 0
+        self._generation += 1
+        self.d["generation"] = self._generation
+        self._deleted_words.add(letter)
+        self._tombstones[letter] = {"deleted_at": time.time(), "generation": self._generation}
+        self._readded_words.pop(letter, None)
+        removed = self.letters.pop(letter, [])
+        if removed:
+            self._dirty = True
+        return len(removed)
+
+    def add_tone_sample(self, tone: str, stroke: Stroke, dx: float = 0.0, dy: float = 0.0) -> dict:
+        """Thêm MỘT mẫu dấu thanh rời trực tiếp vào kho marks."""
+        if tone not in TONES:
+            raise ValueError(f"Dấu thanh không hợp lệ: {tone!r}. Chỉ chấp nhận các dấu trong TONES.")
+        xs, ys = stroke[0::2], stroke[1::2]
+        cx = sum(xs) / len(xs) if xs else 0.0
+        cy = sum(ys) / len(ys) if ys else 0.0
+        mark = {"s": [shift(stroke, -cx, -cy)], "dx": dx, "dy": dy, "_src": "standalone"}
+        marks_dict = self.d.setdefault("marks", {t: [] for t in TONES})
+        marks_dict.setdefault(tone, []).append(mark)
+        self._raw_marks.setdefault(tone, []).append(mark)
+        self._refresh_tone_marks(tone)
+        self._dirty = True
+        return mark

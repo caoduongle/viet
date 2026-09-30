@@ -303,8 +303,13 @@ def validate_bank_dict(d: Any, context: str = "", allow_legacy: bool = False) ->
         if not isinstance(gen, int) or isinstance(gen, bool) or gen < 0:
             raise BankValidationError(f"Trường 'generation' phải là số nguyên không âm, nhận được: {gen!r}{ctx}")
 
-    # 5. Kiểm tra sâu cấu trúc danh sách mẫu trong words/digits/punct/symbols
-    categories = ("words", "digits", "punct", "symbols") if "symbols" in d else ("words", "digits", "punct")
+    # 5. Kiểm tra sâu cấu trúc danh sách mẫu trong words/digits/punct/symbols/letters
+    if "letters" in d:
+        categories = ("words", "digits", "punct", "symbols", "letters")
+    elif "symbols" in d:
+        categories = ("words", "digits", "punct", "symbols")
+    else:
+        categories = ("words", "digits", "punct")
     for c_name in categories:
         container = d[c_name]
         is_punct = (c_name == "punct")
@@ -330,10 +335,12 @@ def _migrate_v1_to_v2(d: dict[str, Any]) -> dict[str, Any]:
 
 
 def _migrate_v2_to_v3(d: dict[str, Any]) -> dict[str, Any]:
-    """Nâng cấp từ v2 lên v3: thêm schema_version = 3 và chuẩn bị kho symbols."""
+    """Nâng cấp từ v2 lên v3: thêm schema_version = 3, chuẩn bị kho symbols và letters."""
     d["schema_version"] = 3
     if "symbols" not in d:
         d["symbols"] = {}
+    if "letters" not in d:
+        d["letters"] = {}
     return d
 
 

@@ -53,7 +53,7 @@ class DocumentLayoutEngine:
         else:
             self.width = self.page_format.usable_width
         self.gaps = [g for g in bank.d["wgaps"] if 6.0 <= g <= 20.0] or [11.0]
-        self.wr = Writer(bank, self.rnd, self.J, not opts.strict_case, opts.space)
+        self.wr = Writer(bank, self.rnd, self.J, not opts.strict_case, opts.space, assemble_letters=opts.assemble_letters)
 
 
     def _render_text_line(
@@ -466,6 +466,18 @@ class DocumentLayoutEngine:
         for sym, count in missing_symbols.items():
             all_missing[sym] = all_missing.get(sym, 0) + count
 
+        from chuviettay.model.text_utils import missing_letters_ranked
+        missing_lets = (
+            missing_letters_ranked(
+                list(self.wr.missing.keys()),
+                getattr(self.bank, "letters", {}),
+                getattr(self.bank, "marks", {}),
+                strict_case=self.opts.strict_case,
+            )
+            if self.wr.missing
+            else []
+        )
+
         result = WriteResult(
             out_path=out_path,
             n_lines=total_lines,
@@ -474,6 +486,8 @@ class DocumentLayoutEngine:
             n_missing_tokens=nmiss,
             missing=all_missing,
             missing_symbols=dict(missing_symbols),
+            missing_letters=missing_lets,
+            assembled_words=list(self.wr.assembled),
             n_tables=total_tables,
             n_math_blocks=total_math_blocks,
             n_pages=pb.n_pages,

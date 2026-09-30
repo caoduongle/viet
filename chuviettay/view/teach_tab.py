@@ -165,11 +165,14 @@ class TeachTab(ttk.Frame):
         rel, width = self.canvas.to_bank_strokes(self.ctl.session_scale)
         use_deferred = (self.ctl.bank_size >= 30) if self.ctl else False
         try:
-            outcome = self.ctl.teach_word(
-                label, rel, width,
-                calibrating=self._calib_pending,
-                recompute=self.canvas.to_bank_strokes,
-                deferred_save=use_deferred)   # L14: Lưu hoãn cho kho lớn (>=30 từ) để UI <50ms
+            if not self._calib_pending and self.ctl.is_letter_token(label):
+                outcome = self.ctl.teach_letter(label, rel, width, deferred_save=use_deferred)
+            else:
+                outcome = self.ctl.teach_word(
+                    label, rel, width,
+                    calibrating=self._calib_pending,
+                    recompute=self.canvas.to_bank_strokes,
+                    deferred_save=use_deferred)   # L14: Lưu hoãn cho kho lớn (>=30 từ) để UI <50ms
         except Exception as e:  # noqa: BLE001
             report_error("Lỗi khi lưu", e, _log)
             return

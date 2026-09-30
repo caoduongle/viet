@@ -79,6 +79,7 @@ class WriteOptions:
     # Chế độ kết xuất: semantic (tái dàn trang) hoặc fidelity (khóa cố định bố cục)
     mode: str = "semantic"
     missing_grid: bool = True     # tự động tạo file _thieu.xopp khi thiếu mẫu (có thể tắt bằng --no-missing-grid)
+    assemble_letters: bool = False  # tự động ghép từ các mẫu chữ cái khi thiếu từ nguyên khối
 
     def validate(self) -> None:
         """Kiểm tra tính hợp lệ nghiệp vụ của các tùy chọn viết. Ném ValueError nếu sai."""
@@ -194,6 +195,8 @@ class WriteResult:
     missing: dict[str, int] = field(default_factory=dict)   # token thiếu mẫu -> số lần gặp
     missing_grid_path: str | None = None   # file lưới ô đã tạo để dạy các từ thiếu (None nếu không thiếu gì)
     missing_symbols: dict[str, int] = field(default_factory=dict)  # ký hiệu toán học thiếu mẫu -> số lần gặp
+    missing_letters: list[tuple[str, int]] = field(default_factory=list)  # (chữ cái/dấu, số từ mở khoá)
+    assembled_words: list[str] = field(default_factory=list)  # các từ được ghép thành công từ chữ cái
     n_tables: int = 0                      # tổng số bảng biểu đã dàn trang
     n_math_blocks: int = 0                 # tổng số khối công thức toán học đã dàn trang
     n_pages: int = 1                       # tổng số trang của tài liệu
@@ -222,7 +225,7 @@ def compose_document(bank: Bank, text: str, opts: WriteOptions) -> tuple[list[st
     rnd = random.Random(opts.seed)
     J = opts.jitter
     text = normalize_text(text)
-    wr = Writer(bank, rnd, J, not opts.strict_case, opts.space)
+    wr = Writer(bank, rnd, J, not opts.strict_case, opts.space, assemble_letters=opts.assemble_letters)
     line_h = opts.line or bank.d["line"]
     width = opts.width or bank.d["width"]
     x0 = bank.d["x0"]
@@ -281,9 +284,23 @@ def compose_document(bank: Bank, text: str, opts: WriteOptions) -> tuple[list[st
         o.append(xopp.PAGE_CLOSE)
     o.append("</xournal>")
 
+    from chuviettay.model.text_utils import missing_letters_ranked
+    missing_lets = (
+        missing_letters_ranked(
+            list(wr.missing.keys()),
+            getattr(bank, "letters", {}),
+            getattr(bank, "marks", {}),
+            strict_case=opts.strict_case,
+        )
+        if wr.missing
+        else []
+    )
+
     result = WriteResult(
         out_path="", n_lines=len(lines), n_strokes=nstroke,
         n_tokens=ntok, n_missing_tokens=nmiss, missing=dict(wr.missing),
+        missing_letters=missing_lets,
+        assembled_words=list(wr.assembled),
     )
     return o, result
 

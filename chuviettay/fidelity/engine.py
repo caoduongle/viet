@@ -25,7 +25,7 @@ class FidelityLayoutEngine:
         self.bank = bank
         self.opts = opts
         self.rnd = random.Random(opts.seed)
-        self.wr = Writer(bank, self.rnd, opts.jitter, not opts.strict_case, opts.space)
+        self.wr = Writer(bank, self.rnd, opts.jitter, not opts.strict_case, opts.space, assemble_letters=opts.assemble_letters)
 
     def render(self, document: FixedDocument, out_path: str) -> WriteResult:
         """Kết xuất FixedDocument thành tệp .xopp đa trang liên kết PDF nền."""
@@ -161,6 +161,18 @@ class FidelityLayoutEngine:
         total_images = sum(len(p.image_boxes) for p in document.pages)
         total_tables = sum(len(p.table_geometries) for p in document.pages)
 
+        from chuviettay.model.text_utils import missing_letters_ranked
+        missing_lets = (
+            missing_letters_ranked(
+                list(self.wr.missing.keys()),
+                getattr(self.bank, "letters", {}),
+                getattr(self.bank, "marks", {}),
+                strict_case=self.opts.strict_case,
+            )
+            if self.wr.missing
+            else []
+        )
+
         return WriteResult(
             out_path=out_path,
             n_lines=total_lines,
@@ -173,4 +185,6 @@ class FidelityLayoutEngine:
             n_images=total_images,
             n_tables=total_tables,
             missing_grid_path=missing_grid_path,
+            missing_letters=missing_lets,
+            assembled_words=list(self.wr.assembled),
         )

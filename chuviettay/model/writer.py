@@ -22,14 +22,17 @@ class Writer:
     lần liên tiếp cho cùng một token, và self.missing để gom các phần chưa có mẫu)."""
 
     def __init__(self, bank: Bank, rnd: random.Random, jitter: float = 1.0,
-                 loose_case: bool = True, space: float = 1.0):
+                 loose_case: bool = True, space: float = 1.0,
+                 assemble_letters: bool = False):
         self.b = bank
         self.rnd = rnd
         self.J = jitter
         self.loose = loose_case
         self.space = space
+        self.assemble_letters = assemble_letters
         self.last: dict[str, int] = {}       # tag -> chỉ số mẫu chọn lần trước (né lặp)
         self.missing: dict[str, int] = {}     # phần chưa có mẫu -> số lần gặp
+        self.assembled: list[str] = []        # các từ đã ghép tự động từ chữ cái
 
     def pick(self, lst: list, tag: str):
         """Chọn ngẫu nhiên 1 phần tử trong `lst`, né KHÔNG chọn trùng chỉ số đã chọn
@@ -45,7 +48,8 @@ class Writer:
     def word(self, core: str) -> tuple[list[Stroke], float] | None:
         """Ghép MỘT từ (đã tách khỏi số/dấu câu bao quanh). Thử khớp thẳng (kể cả biến
         thể hạ chữ hoa đầu nếu loose_case), rồi mới thử ghép thân-chữ + dấu-thanh-rời
-        (substitute). None nếu hoàn toàn chưa có mẫu nào dùng được."""
+        (substitute), rồi thử ghép từ các chữ cái mẫu (assemble_word).
+        None nếu hoàn toàn chưa có mẫu nào dùng được."""
         variants = [core]
         if self.loose and core[:1].isupper():
             variants.append(core[:1].lower() + core[1:])
@@ -57,7 +61,82 @@ class Writer:
             r = self.substitute(c)
             if r:
                 return r
+        if self.assemble_letters:
+            for c in variants:
+                r = self.assemble_word(c)
+                if r:
+                    self.assembled.append(core)
+                    return r
         return None
+
+    def assemble_word(self, core: str) -> tuple[list[Stroke], float] | None:
+        """Ghép MỘT từ tiếng Việt từ các mẫu chữ cái đơn lẻ trong bank.letters và dấu thanh rời trong bank.marks."""
+        from chuviettay.model.text_utils import split_letters
+
+        letters, T, vi = split_letters(core)
+        if not letters:
+            return None
+
+        if T and not self.b.marks.get(T):
+            return None
+
+        xh = getattr(self.b, "xh", 7.0)
+        overlap = max(0.3, min(1.2, 0.08 * xh))
+        cur_x = 0.0
+        body_strokes: list[Stroke] = []
+        vowel_cx = 0.0
+
+        for idx, ch in enumerate(letters):
+            lib = None
+            if getattr(self.b, "letters", None) and ch in self.b.letters:
+                lib = self.b.letters[ch]
+            elif self.loose and ch.isupper() and getattr(self.b, "letters", None) and ch.lower() in self.b.letters:
+                lib = self.b.letters[ch.lower()]
+            elif len(ch) == 1 and ch in self.b.words:
+                lib = self.b.words[ch]
+            elif self.loose and ch.isupper() and len(ch) == 1 and ch.lower() in self.b.words:
+                lib = self.b.words[ch.lower()]
+
+            if not lib:
+                return None
+
+            inst = self.pick(lib, "let:" + ch)
+            w = inst.get("w", 1.0 * xh)
+            ch_strokes = inst.get("s", [])
+
+            if idx == vi and ch == "i" and T and T != NANG:
+                clean_strokes = []
+                for st in ch_strokes:
+                    bb = bbox(st)
+                    is_dot = (bb[3] < -0.85 * xh and (bb[2] - bb[0]) < 0.6 * xh)
+                    if not is_dot:
+                        clean_strokes.append(st)
+                ch_strokes = clean_strokes or ch_strokes
+
+            placed = [shift(st, cur_x, 0) for st in ch_strokes]
+            body_strokes.extend(placed)
+
+            if idx == vi:
+                vowel_cx = cur_x + w / 2.0
+
+            advance = max(0.2 * xh, w - overlap)
+            if self.J > 0 and self.rnd:
+                advance += self.rnd.uniform(-0.02 * self.J * xh, 0.02 * self.J * xh)
+            cur_x += advance
+
+        total_w = cur_x + overlap
+
+        if T and vi >= 0:
+            m = self.pick(self.b.marks[T], "m" + T)
+            cx = vowel_cx + m.get("dx", 0.0)
+            if T == NANG:
+                cy = max(0.0, near_extreme(body_strokes, cx, max)) + m.get("dy", 0.0)
+            else:
+                cy = near_extreme(body_strokes, cx, min) + m.get("dy", 0.0)
+            for st in m.get("s", []):
+                body_strokes.append(shift(st, cx, cy))
+
+        return body_strokes, total_w
 
     def substitute(self, c: str) -> tuple[list[Stroke], float] | None:
         """Chưa có mẫu cho ĐÚNG từ `c`, nhưng có thể đã có mẫu cho từ khác cùng phần

@@ -53,6 +53,8 @@ class BankStats:
     digit_counts: dict[str, int] = field(default_factory=dict)
     punct_counts: dict[str, int] = field(default_factory=dict)
     tone_mark_counts: dict[str, int] = field(default_factory=dict)   # theo thứ tự TONES
+    n_letters: int = 0
+    letter_counts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass

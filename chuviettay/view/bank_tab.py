@@ -12,24 +12,11 @@ import tkinter as tk
 from collections.abc import Callable
 from tkinter import filedialog, messagebox, ttk
 
-from chuviettay.controller.app_controller import TONE_NAMES, AppController
-from chuviettay.controller.results import BankStats
+from chuviettay.controller.app_controller import AppController
+from chuviettay.formatting import format_stats_gui
 from chuviettay.view.dialogs import report_error
 
 _log = logging.getLogger(__name__)
-
-
-def format_stats_gui(stats: BankStats) -> str:
-    """Nhãn thống kê nhiều dòng cho tab Kho mẫu (thuần: không cần Tk, test được)."""
-    digits = " ".join("%s:%d" % kv for kv in stats.digit_counts.items()) or "(chưa có)"
-    puncts = " ".join("%s:%d" % kv for kv in stats.punct_counts.items()) or "(chưa có)"
-    marks = " ".join(str(n) for n in stats.tone_mark_counts.values())
-    return "\n".join([
-        "%d từ, %d mẫu" % (stats.n_words, stats.n_samples),
-        "Chữ số có mẫu: " + digits,
-        "Dấu câu có mẫu: " + puncts,
-        "Dấu thanh để ghép (%s): %s" % (",".join(TONE_NAMES), marks),
-    ])
 
 
 class BankTab(ttk.Frame):
@@ -70,12 +57,14 @@ class BankTab(ttk.Frame):
         ttk.Button(right, text="Chọn kho mẫu khác...", command=on_choose_bank).pack(fill="x", pady=2)
 
         self._all_words: list[tuple[str, int]] = []   # (từ, số mẫu)
-        self._shown: list[str] = []                    # các từ đang hiển thị, cùng thứ tự với Listbox
+        self._all_letters: list[tuple[str, int]] = [] # (chữ cái, số mẫu)
+        self._shown: list[tuple[str, str]] = []       # [(loại, nhãn), ...]
         self.refresh()
 
     def refresh(self) -> None:
         self.stats_lbl.configure(text=format_stats_gui(self.ctl.get_stats()))
         self._all_words = self.ctl.list_words()
+        self._all_letters = self.ctl.list_letters() if hasattr(self.ctl, "list_letters") else []
         self._filter()
 
     def _filter(self) -> None:
@@ -84,23 +73,36 @@ class BankTab(ttk.Frame):
         self._shown = []
         for w, n in self._all_words:
             if q in w.lower():
-                self._shown.append(w)
+                self._shown.append(("word", w))
                 self.word_list.insert("end", "%s  (%d mẫu)" % (w, n))
+        for ch, n in self._all_letters:
+            if q in ch.lower():
+                self._shown.append(("letter", ch))
+                self.word_list.insert("end", "[chữ cái] %s  (%d mẫu)" % (ch, n))
 
-    def selected_word(self) -> str | None:
+    def selected_item(self) -> tuple[str, str] | None:
         sel = self.word_list.curselection()
         return self._shown[sel[0]] if sel else None
 
+    def selected_word(self) -> str | None:
+        item = self.selected_item()
+        return item[1] if item else None
+
     def drop_selected(self) -> None:
-        label = self.selected_word()
-        if label is None:
+        item = self.selected_item()
+        if item is None:
             return
-        if not messagebox.askyesno("Xoá từ", "Xoá hết mẫu của '%s' khỏi kho?" % label):
+        kind, label = item
+        prompt = "Xoá chữ cái '%s' khỏi kho?" % label if kind == "letter" else "Xoá hết mẫu của '%s' khỏi kho?" % label
+        if not messagebox.askyesno("Xoá mẫu", prompt):
             return
         try:
-            self.ctl.drop_words([label])
+            if kind == "letter":
+                self.ctl.drop_letter(label)
+            else:
+                self.ctl.drop_words([label])
         except Exception as e:  # noqa: BLE001
-            report_error("Lỗi khi xoá từ", e, _log)
+            report_error("Lỗi khi xoá", e, _log)
             return
         self.refresh()
 

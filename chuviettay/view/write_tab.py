@@ -96,6 +96,7 @@ class WriteTab(ttk.Frame):
         self.v_background = tk.StringVar(value="Trắng (Plain)")
         self.v_spacing = tk.StringVar(value="")
         self.v_mode = tk.StringVar(value="Tự do (Semantic)")
+        self.v_assemble = tk.BooleanVar(value=False)
         self.custom_paper_width: float | None = None
         self.custom_paper_height: float | None = None
         self.current_docx_path: str | None = None
@@ -132,6 +133,8 @@ class WriteTab(ttk.Frame):
         act_box.pack(side="left", padx=6, anchor="n", pady=4)
         ttk.Button(act_box, text="Dạy các từ này →",
                    command=self.teach_missing).pack(fill="x", pady=2)
+        ttk.Button(act_box, text="Dạy chữ cái thiếu →",
+                   command=self.teach_missing_letters).pack(fill="x", pady=2)
         ttk.Button(act_box, text="Dạy bộ tối thiểu →",
                    command=self.teach_minimal_essentials).pack(fill="x", pady=2)
 
@@ -257,6 +260,8 @@ class WriteTab(ttk.Frame):
         ttk.Button(colf, text="Mặc định", command=lambda: self.v_color.set("")).pack(side="left")
         ttk.Checkbutton(opt, text="Không tự hạ chữ hoa đầu câu (strict-case)",
                         variable=self.v_strict).pack(anchor="w", pady=(6, 0))
+        ttk.Checkbutton(opt, text="Ghép từ chữ cái khi thiếu từ nguyên khối",
+                        variable=self.v_assemble).pack(anchor="w", pady=(2, 0))
 
         self._on_mode_changed()
 
@@ -394,6 +399,7 @@ class WriteTab(ttk.Frame):
             background_spacing=bg_spacing,
             background_margin=bg_margin,
             mode=("fidelity" if ("khóa" in self.v_mode.get().lower() or "fidelity" in self.v_mode.get().lower()) else "semantic"),
+            assemble_letters=self.v_assemble.get(),
         )
         opts.validate()
         return opts
@@ -539,3 +545,14 @@ class WriteTab(ttk.Frame):
             messagebox.showinfo("Đầy đủ", "Kho mẫu đã có đủ bộ tối thiểu (chữ số, dấu câu và các từ phổ biến).")
             return
         self.on_teach_missing(todo)
+
+    def teach_missing_letters(self) -> None:
+        if not self.last_missing:
+            messagebox.showinfo("Không có gì để dạy", "Chưa có từ nào đang thiếu.")
+            return
+        words = [w for w, _n in self.last_missing]
+        ranked = self.ctl.missing_letters_for_words(words, strict_case=self.v_strict.get())
+        if not ranked:
+            messagebox.showinfo("Đầy đủ", "Tất cả các chữ cái và dấu thanh cấu thành đều đã có trong kho!")
+            return
+        self.on_teach_missing([item[0] for item in ranked])

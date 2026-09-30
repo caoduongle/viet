@@ -278,6 +278,48 @@ class AppController:
         return TeachOutcome(label=label, instance=instance,
                             session_scale=self.session_scale, recalibrated=recalibrated)
 
+    def teach_letter(
+        self,
+        letter: str,
+        rel_strokes: list[Stroke],
+        width: float,
+        deferred_save: bool = False,
+    ) -> TeachOutcome:
+        """Lưu một mẫu chữ cái đơn lẻ vào kho letters (hoặc marks nếu là dấu thanh)."""
+        bank = self._require_bank()
+        if letter in TONES and rel_strokes:
+            instance = bank.add_tone_sample(letter, rel_strokes[0])
+        else:
+            instance = bank.add_letter_sample(letter, rel_strokes, width)
+        bank.mark_dirty()
+        if deferred_save:
+            self.schedule_save()
+        else:
+            bank.save()
+        _log.info("Dạy chữ cái %r, hệ số cỡ tay phiên hiện tại: %.2fx", letter, self.session_scale)
+        return TeachOutcome(
+            label=letter,
+            instance=instance,
+            session_scale=self.session_scale,
+            recalibrated=False,
+        )
+
+    def is_letter_token(self, token: str) -> bool:
+        """Kiểm tra token có phải là chữ cái hoặc dấu thanh đơn lẻ hay không."""
+        from chuviettay.model.text_utils import PUNCT_CHARS
+        t = token.strip()
+        if len(t) == 1 and not t.isdigit() and t not in PUNCT_CHARS:
+            return True
+        return t in TONES
+
+    def drop_letter(self, letter: str) -> DropResult:
+        """Xoá toàn bộ mẫu của chữ cái đã cho khỏi kho letters và lưu."""
+        bank = self._require_bank()
+        removed_count = bank.drop_letter(letter)
+        bank.save()
+        _log.info("Xoá chữ cái khỏi kho: %s (%d mẫu)", letter, removed_count)
+        return DropResult(removed={letter: removed_count})
+
     def missing_seed_words(self, n: int, exclude: Iterable[str] = ()) -> list[str]:
         """Tối đa n từ tiếng Việt thông dụng (SEED) mà kho mẫu CHƯA đủ để viết, bỏ qua
         các từ trong `exclude` (ví dụ đã nằm sẵn trong hàng đợi dạy)."""
@@ -294,6 +336,23 @@ class AppController:
         items = get_minimal_essentials(60)
         return [item for item in items if not bank.can(item) and item not in excl]
 
+    def missing_letters_for_words(
+        self,
+        words: list[str],
+        strict_case: bool = False,
+    ) -> list[tuple[str, int, list[str]]]:
+        """Tính toán danh sách các chữ cái và dấu thanh còn thiếu để viết các từ đã cho,
+        sắp xếp theo độ phủ tham lam (greedy coverage)."""
+        from chuviettay.model.text_utils import missing_letters_ranked
+
+        bank = self._require_bank()
+        return missing_letters_ranked(
+            words,
+            getattr(bank, "letters", {}),
+            getattr(bank, "marks", {}),
+            strict_case=strict_case,
+        )
+
     def export_seed_grid(self, n: int, out_path: str) -> SeedResult:
         """Lệnh `seed`: tạo file lưới ô các từ thông dụng còn thiếu để viết mẫu."""
         bank = self._require_bank()
@@ -308,18 +367,27 @@ class AppController:
     # ------------------------------------------------------------------ quản lý kho
     def get_stats(self) -> BankStats:
         bank = self._require_bank()
+        letters = getattr(bank, "letters", {})
         return BankStats(
             n_words=len(bank.words),
             n_samples=sum(len(v) for v in bank.words.values()),
             digit_counts={k: len(v) for k, v in sorted(bank.digits.items())},
             punct_counts={k: len(v) for k, v in bank.punct.items()},
             tone_mark_counts={t: len(bank.marks[t]) for t in TONES},
+            n_letters=len(letters),
+            letter_counts={k: len(v) for k, v in sorted(letters.items())},
         )
 
     def list_words(self) -> list[tuple[str, int]]:
         """[(từ, số mẫu), ...] sắp theo thứ tự chữ cái -- để hiển thị/tìm kiếm."""
         bank = self._require_bank()
         return sorted((w, len(insts)) for w, insts in bank.words.items())
+
+    def list_letters(self) -> list[tuple[str, int]]:
+        """[(chữ_cái, số mẫu), ...] sắp theo thứ tự chữ cái -- để hiển thị/tìm kiếm."""
+        bank = self._require_bank()
+        letters = getattr(bank, "letters", {})
+        return sorted((ch, len(insts)) for ch, insts in letters.items())
 
     def drop_words(self, words: list[str]) -> DropResult:
         """Xoá hết mẫu của các từ đã cho, rồi rebuild + lưu MỘT lần."""

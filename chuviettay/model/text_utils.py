@@ -72,6 +72,78 @@ def strip_tone(key: str) -> str:
         "NFC", "".join(c for c in unicodedata.normalize("NFD", key) if c not in TONES))
 
 
+def split_letters(word: str) -> tuple[list[str], str, int]:
+    """Phân tách một từ tiếng Việt thành danh sách chữ cái cơ sở (NFC), dấu thanh và vị trí nguyên âm mang dấu.
+
+    Args:
+        word: Từ tiếng Việt (đã chuẩn hoá NFC hoặc bất kỳ dạng Unicode nào).
+
+    Returns:
+        letters: Danh sách chữ cái cơ sở (NFC) không chứa dấu thanh (ví dụ: ['đ', 'ư', 'ơ', 'n', 'g']).
+        tone: Ký tự dấu thanh Unicode (trong config.TONES) hoặc "" nếu không có dấu thanh.
+        vowel_index: Chỉ số của nguyên âm mang dấu thanh trong danh sách `letters` (-1 nếu không có).
+    """
+    tone, vi, _, _ = tone_info(word)
+    unaccented = strip_tone(word)
+    letters = list(unicodedata.normalize("NFC", unaccented))
+    return letters, tone, vi
+
+
+def missing_letters_ranked(
+    missing_words: list[str],
+    bank_letters: dict[str, list[dict]],
+    bank_marks: dict[str, list[dict]],
+    strict_case: bool = False,
+) -> list[tuple[str, int, list[str]]]:
+    """Xác định các chữ cái và dấu thanh còn thiếu để viết các từ trong missing_words,
+    sắp xếp theo tần suất xuất hiện và khả năng mở khoá từ (greedy coverage).
+
+    Args:
+        missing_words: Danh sách các từ chưa có mẫu hoặc chưa ghép được.
+        bank_letters: Từ điển chữ cái đã học trong kho.
+        bank_marks: Từ điển dấu thanh đã có trong kho.
+        strict_case: Nếu False, chữ hoa có thể dùng mẫu chữ thường nếu chưa có mẫu hoa.
+
+    Returns:
+        [(ký_tự_hoặc_dấu, số_từ_mở_khoá, [danh_sách_từ_mở_khoá]), ...]
+        được sắp xếp giảm dần theo số_từ_mở_khoá, rồi theo thứ tự bảng chữ cái.
+    """
+    word_deps: dict[str, set[str]] = {}  # missing_char -> set of words needing it
+
+    for w in missing_words:
+        w_clean = w.strip()
+        if not w_clean:
+            continue
+        letters, tone, _ = split_letters(w_clean)
+        needed_in_word: set[str] = set()
+
+        for ch in letters:
+            has_sample = False
+            if ch in bank_letters and bank_letters[ch]:
+                has_sample = True
+            elif not strict_case and ch.isupper() and ch.lower() in bank_letters and bank_letters[ch.lower()]:
+                has_sample = True
+
+            if not has_sample:
+                target_ch = ch if (strict_case or not ch.isupper()) else ch.lower()
+                needed_in_word.add(target_ch)
+
+        if tone:
+            if not bank_marks.get(tone):
+                needed_in_word.add(tone)
+
+        for req in needed_in_word:
+            word_deps.setdefault(req, set()).add(w_clean)
+
+    ranked: list[tuple[str, int, list[str]]] = []
+    for ch, words_set in word_deps.items():
+        w_list = sorted(words_set)
+        ranked.append((ch, len(w_list), w_list))
+
+    ranked.sort(key=lambda item: (-item[1], item[0]))
+    return ranked
+
+
 def vowel_x(letters: list[str], vi: int, width: float) -> float:
     """Ước lượng toạ độ x (theo tỉ lệ `width`) của nguyên âm mang dấu thanh, dựa trên
     độ rộng ước lượng của từng chữ cái đứng trước nó."""

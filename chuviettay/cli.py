@@ -79,6 +79,7 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
         background_margin=bg_margin,
         background_color=getattr(a, "background_color", "#ffffffff"),
         mode=getattr(a, "mode", "semantic"),
+        assemble_letters=getattr(a, "assemble", False),
     )
 
     target_file = getattr(a, "file", None) or getattr(a, "file_pos", None)
@@ -150,6 +151,10 @@ def _cmd_stats(ctl: AppController, a: argparse.Namespace) -> None:
         " ".join("%s:%d" % kv for kv in s.punct_counts.items())))
     print("Dấu thanh có mẫu để ghép: " + " ".join("%d" % n for n in s.tone_mark_counts.values())
           + " (huyền, sắc, ngã, hỏi, nặng)")
+    if s.n_letters:
+        print("Chữ cái đơn lẻ (%d chữ): %s" % (
+            s.n_letters,
+            " ".join("%s:%d" % kv for kv in s.letter_counts.items())))
 
 
 # ---------------------------------------------------------------- bộ đọc tham số
@@ -192,6 +197,8 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--background-color", default="#ffffffff", help="màu nền hex RGBA (mặc định: #ffffffff)")
     w.add_argument("--mode", default="semantic", choices=["semantic", "fidelity"],
                    help="chế độ kết xuất: semantic (tái dàn trang) hoặc fidelity (khóa cố định bố cục & ảnh; mặc định: semantic)")
+    w.add_argument("--assemble", action="store_true",
+                   help="tự động ghép chữ cái thành từ khi thiếu mẫu nguyên từ")
     w.set_defaults(fn=_cmd_write)
 
 
