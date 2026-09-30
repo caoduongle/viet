@@ -95,8 +95,10 @@ class WriteTab(ttk.Frame):
         self.v_orientation = tk.StringVar(value="Dọc (Portrait)")
         self.v_background = tk.StringVar(value="Trắng (Plain)")
         self.v_spacing = tk.StringVar(value="")
+        self.v_mode = tk.StringVar(value="Tự do (Semantic)")
         self.custom_paper_width: float | None = None
         self.custom_paper_height: float | None = None
+        self.current_docx_path: str | None = None
 
 
         left = ttk.Frame(self)
@@ -195,6 +197,18 @@ class WriteTab(ttk.Frame):
         ttk.Label(row_sp, text="Khoảng cách (mm)", width=14).pack(side="left")
         ttk.Entry(row_sp, textvariable=self.v_spacing, width=8).pack(side="left")
         ttk.Label(row_sp, text="vd: 5 ô li", foreground="#888888").pack(side="left", padx=4)
+
+        row_m = ttk.Frame(pnl_paper)
+        row_m.pack(fill="x", pady=2)
+        ttk.Label(row_m, text="Chế độ DOCX", width=14).pack(side="left")
+        self.cb_mode = ttk.Combobox(
+            row_m,
+            textvariable=self.v_mode,
+            values=["Tự do (Semantic)", "Khóa bố cục & ảnh (Fidelity)"],
+            state="readonly",
+            width=20,
+        )
+        self.cb_mode.pack(side="left", fill="x", expand=True)
 
         # Nhóm 2: Tuỳ chỉnh nét chữ
         opt = ttk.LabelFrame(right, text="Tuỳ chỉnh nét chữ", padding=8)
@@ -347,6 +361,7 @@ class WriteTab(ttk.Frame):
             background=bg_style,
             background_spacing=bg_spacing,
             background_margin=bg_margin,
+            mode=("fidelity" if ("khóa" in self.v_mode.get().lower() or "fidelity" in self.v_mode.get().lower()) else "semantic"),
         )
         opts.validate()
         return opts
@@ -354,6 +369,7 @@ class WriteTab(ttk.Frame):
 
     def _on_text_modified(self, event=None) -> None:
         self.current_doc = None
+        self.current_docx_path = None
 
     # ------------------------------------------------------------ hành động
     def open_document(self) -> None:
@@ -373,6 +389,7 @@ class WriteTab(ttk.Frame):
 
         ext = os.path.splitext(path)[1].lower()
         if ext in (".md", ".markdown", ".docx", ".txt"):
+            self.current_docx_path = path if ext == ".docx" else None
             try:
                 res = self.ctl.import_document(path)
                 self.current_doc = res.document
@@ -448,7 +465,16 @@ class WriteTab(ttk.Frame):
             # Luôn viết bằng kho mẫu MỚI NHẤT trên đĩa (bản gốc: cmd_write tự nạp lại kho mỗi lần bấm),
             # để nếu bạn vừa chạy `hw_note.py learn ...` ở cửa sổ dòng lệnh khác thì từ mới có hiệu lực ngay.
             self.ctl.reload_bank()
-            if self.current_doc is not None:
+            if opts.mode == "fidelity":
+                if not self.current_docx_path:
+                    messagebox.showerror(
+                        "Chế độ Fidelity",
+                        "Chế độ khóa bố cục (Fidelity) chỉ áp dụng cho tệp .docx đã mở bằng nút 'Mở tài liệu'.\n"
+                        "Vui lòng chuyển sang chế độ 'Tự do (Semantic)' cho văn bản gõ trực tiếp hoặc tệp khác.",
+                    )
+                    return
+                result = self.ctl.write_docx_fidelity(self.current_docx_path, opts, out)
+            elif self.current_doc is not None:
                 result = self.ctl.write_document(self.current_doc, opts, out)
             else:
                 result = self.ctl.write_text(text, opts, out)

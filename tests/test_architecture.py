@@ -90,6 +90,7 @@ def test_khong_print_hay_input_trong_cac_lop_loi():
         + py_files("importer")
         + py_files("layout")
         + py_files("math")
+        + py_files("fidelity")
     )
     bad = print_calls(core_files)
     assert not bad, ("Chỉ cli.py được in ra màn hình; các lớp còn lại trả dữ liệu / ghi log:\n  "
@@ -106,6 +107,7 @@ def test_khong_dung_sys_exit_trong_cac_lop_loi():
         + py_files("importer")
         + py_files("layout")
         + py_files("math")
+        + py_files("fidelity")
     )
     for f in core_files:
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
@@ -113,6 +115,12 @@ def test_khong_dung_sys_exit_trong_cac_lop_loi():
                     and isinstance(node.value, ast.Name) and node.value.id == "sys"):
                 bad.append("%s:%d sys.exit" % (f.relative_to(PKG.parent), node.lineno))
     assert not bad, "Thoát chương trình là việc của cli.py/hw_*.py, không phải của lõi:\n  " + "\n  ".join(bad)
+
+
+def test_fidelity_khong_phu_thuoc_view_hay_cli():
+    """Tầng fidelity/ không được phụ thuộc vào giao diện (view), CLI hay tkinter."""
+    bad = violations(py_files("fidelity"), ["tkinter"] + UI_AND_ENTRY)
+    assert not bad, "Fidelity không được phụ thuộc View/CLI/Tkinter:\n  " + "\n  ".join(bad)
 
 
 @pytest.mark.parametrize("name", ["hw_note.py", "hw_gui.py"])

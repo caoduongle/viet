@@ -78,18 +78,32 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
         background_spacing=bg_spacing,
         background_margin=bg_margin,
         background_color=getattr(a, "background_color", "#ffffffff"),
+        mode=getattr(a, "mode", "semantic"),
     )
 
     target_file = getattr(a, "file", None) or getattr(a, "file_pos", None)
     fmt = getattr(a, "format", "auto")
+    mode = getattr(a, "mode", "semantic").lower().strip()
     use_doc_importer = False
+    is_docx = False
     if target_file:
         import os
         ext = os.path.splitext(target_file)[1].lower()
+        is_docx = (ext == ".docx" or fmt == "docx")
         if fmt in ("txt", "md", "docx") or (fmt == "auto" and ext in (".txt", ".md", ".markdown", ".docx")):
             use_doc_importer = True
 
-    if use_doc_importer and target_file:
+    if mode == "fidelity" and not (target_file and is_docx):
+        sys.exit(
+            "Lỗi: Chế độ Fidelity (--mode fidelity) chỉ áp dụng cho tệp .docx (giữ nguyên số trang và hình ảnh).\n"
+            "Vui lòng chỉ định tệp .docx (ví dụ: python -m chuviettay write tailieu.docx --mode fidelity) "
+            "hoặc sử dụng chế độ mặc định (--mode semantic)."
+        )
+
+    if target_file and is_docx and mode == "fidelity":
+        result = ctl.write_docx_fidelity(target_file, opts, a.out)
+        print(f"Fidelity mode: {result.n_pages} trang, {result.n_images} hình ảnh, {result.n_tables} bảng biểu được giữ nguyên.")
+    elif use_doc_importer and target_file:
         import_res = ctl.import_document(target_file, fmt)
         for warn in import_res.warnings:
             print(f"Cảnh báo: {warn}")
@@ -176,6 +190,8 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--background-spacing", help="khoảng cách dòng/lưới ô kẻ (ví dụ: 5mm, 14.17pt, 24pt)")
     w.add_argument("--background-margin", help="lề dọc cho ruled (ví dụ: 72pt, 2.5cm)")
     w.add_argument("--background-color", default="#ffffffff", help="màu nền hex RGBA (mặc định: #ffffffff)")
+    w.add_argument("--mode", default="semantic", choices=["semantic", "fidelity"],
+                   help="chế độ kết xuất: semantic (tái dàn trang) hoặc fidelity (khóa cố định bố cục & ảnh; mặc định: semantic)")
     w.set_defaults(fn=_cmd_write)
 
 

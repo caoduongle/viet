@@ -21,6 +21,7 @@ Giờ cả cli.py lẫn view/ đều chỉ gọi các phương thức ở đây.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Callable, Iterable
 
 from chuviettay import paths
@@ -118,6 +119,53 @@ class AppController:
         _log.info("Viết document %s: %d dòng, %d nét, thiếu mẫu %d/%d token",
                   out_path, result.n_lines, result.n_strokes,
                   result.n_missing_tokens, result.n_tokens)
+        return result
+
+    def write_docx_fidelity(self, docx_path: str, opts: WriteOptions, out_path: str) -> WriteResult:
+        """Đổi tệp DOCX thành .xopp theo chế độ Fidelity (giữ nguyên số trang, ảnh, bảng và vị trí)."""
+        from chuviettay.fidelity.background import WhiteoutBackgroundGenerator
+        from chuviettay.fidelity.converter import FidelityConverter
+        from chuviettay.fidelity.engine import FidelityLayoutEngine
+        from chuviettay.fidelity.extractor import SpatialTextExtractor
+
+        opts.validate()
+        bank = self._require_bank()
+
+        out_dir = os.path.dirname(os.path.abspath(out_path)) or "."
+        os.makedirs(out_dir, exist_ok=True)
+        base_name = os.path.splitext(os.path.basename(out_path))[0]
+        bg_pdf_path = os.path.join(out_dir, f"{base_name}_background.pdf")
+
+        # 1. Tạo tệp DOCX whiteout và chuyển sang PDF nền
+        whiteout_docx = WhiteoutBackgroundGenerator.create_whiteout_docx(docx_path)
+        try:
+            FidelityConverter.convert_to_pdf(whiteout_docx, bg_pdf_path)
+        finally:
+            if os.path.exists(whiteout_docx):
+                try:
+                    os.remove(whiteout_docx)
+                except OSError:
+                    pass
+
+        # 2. Trích xuất cấu trúc không gian các TextBox
+        extractor = SpatialTextExtractor()
+        doc = extractor.extract(docx_path, background_pdf=bg_pdf_path)
+
+        # 3. Kết xuất nét viết tay vào từng Bounding Box
+        engine = FidelityLayoutEngine(bank, opts)
+        result = engine.render(doc, out_path)
+
+        _log.info(
+            "Fidelity render %s: %d trang, %d ảnh, %d bảng, %d dòng, %d nét, thiếu mẫu %d/%d token",
+            out_path,
+            result.n_pages,
+            result.n_images,
+            result.n_tables,
+            result.n_lines,
+            result.n_strokes,
+            result.n_missing_tokens,
+            result.n_tokens,
+        )
         return result
 
     def import_document(self, file_path: str, fmt: str = "auto") -> ImportResult:

@@ -33,10 +33,18 @@ PAGE_OPEN = ('<page width="%s" height="%s">\n'
 PAGE_CLOSE = '</layer>\n</page>'
 
 
+def pdf_background_xml(filename: str, pageno: int = 0, domain: str = "relative") -> str:
+    """Sinh chuỗi XML thẻ <background type="pdf" ...> cho trang XOPP."""
+    clean_fn = escape(filename)
+    return f'<background type="pdf" domain="{domain}" filename="{clean_fn}" pageno="{pageno}"/>'
+
+
 def page_open_xml(page_w: float, page_h: float, background: Any = None) -> str:
     """Sinh chuỗi XML mở trang <page ...> kèm thẻ <background ...> và mở <layer>."""
     if background is not None and hasattr(background, "to_xml"):
         bg_xml = background.to_xml()
+    elif isinstance(background, str):
+        bg_xml = background
     else:
         bg_xml = '<background type="solid" color="#ffffffff" style="plain"/>'
     return f'<page width="{fmt(page_w)}" height="{fmt(page_h)}">\n{bg_xml}\n<layer>'

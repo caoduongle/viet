@@ -170,3 +170,22 @@ def test_gui_custom_paper_dialog(app, monkeypatch):
     assert dlg.result[0] == 425.20
     assert dlg.result[1] == 566.93
 
+
+def test_gui_fidelity_mode_selection_and_validation(app, tmp_path, monkeypatch, dlg):
+    """Kiểm tra chọn chế độ Fidelity trên GUI và bắt buộc phải mở file DOCX."""
+    app.write_tab.v_mode.set("Khóa bố cục & ảnh (Fidelity)")
+    opts = app.write_tab.read_options()
+    assert opts.mode == "fidelity"
+
+    # Nhập text chay mà chưa mở DOCX -> báo lỗi
+    app.write_tab.text.delete("1.0", "end")
+    app.write_tab.text.insert("1.0", "Văn bản gõ tay")
+    out_xopp = tmp_path / "out_fid_gui.xopp"
+    monkeypatch.setattr(filedialog, "asksaveasfilename", lambda **kw: str(out_xopp))
+
+    app.write_tab.do_write()
+    assert "showerror" in dlg.kinds()
+    err_call = [c for c in dlg.calls if c[0] == "showerror"][-1]
+    assert "Chế độ Fidelity" in err_call[1]
+    assert not out_xopp.exists()
+

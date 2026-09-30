@@ -16,6 +16,7 @@ import os
 import random
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from chuviettay.config import MAXH
@@ -26,6 +27,12 @@ from chuviettay.model.writer import Writer
 
 if TYPE_CHECKING:
     from chuviettay.document.page_format import PageFormat
+
+
+class WriteMode(str, Enum):
+    """Chế độ kết xuất chữ viết tay."""
+    SEMANTIC = "semantic"  # Tái dàn trang ngữ nghĩa tự do qua DocumentLayoutEngine
+    FIDELITY = "fidelity"  # Khóa cố định bố cục, giữ nguyên ảnh & trang qua FixedLayoutEngine
 
 
 COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$")
@@ -69,9 +76,16 @@ class WriteOptions:
     background_margin: float | None = None   # lề dọc cho ruled (pt)
     background_color: str = "#ffffffff"      # màu nền hex RGBA
 
+    # Chế độ kết xuất: semantic (tái dàn trang) hoặc fidelity (khóa cố định bố cục)
+    mode: str = "semantic"
+
     def validate(self) -> None:
         """Kiểm tra tính hợp lệ nghiệp vụ của các tùy chọn viết. Ném ValueError nếu sai."""
         from chuviettay.document.page_format import PAPER_SIZES, VALID_BACKGROUND_STYLES
+
+        m = self.mode.lower().strip()
+        if m not in ("semantic", "fidelity"):
+            raise ValueError(f"Chế độ xử lý không hợp lệ: {self.mode!r}. Chỉ chấp nhận: semantic, fidelity")
 
         if not math.isfinite(self.scale) or self.scale <= 0:
             raise ValueError(f"scale phải là số dương hữu hạn, nhận được: {self.scale}")
@@ -181,6 +195,8 @@ class WriteResult:
     missing_symbols: dict[str, int] = field(default_factory=dict)  # ký hiệu toán học thiếu mẫu -> số lần gặp
     n_tables: int = 0                      # tổng số bảng biểu đã dàn trang
     n_math_blocks: int = 0                 # tổng số khối công thức toán học đã dàn trang
+    n_pages: int = 1                       # tổng số trang của tài liệu
+    n_images: int = 0                      # tổng số hình ảnh giữ nguyên ở nền
 
     def missing_sorted(self) -> list[tuple[str, int]]:
         """[(token, số lần gặp), ...] gặp nhiều nhất xếp trước, bằng nhau thì theo chữ

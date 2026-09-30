@@ -95,3 +95,42 @@ def test_cli_write_custom_paper_with_units(capsys, tiny_bank_path, tmp_path):
     raw = gzip.decompress(open(out, "rb").read()).decode("utf-8")
     # 15 cm ~ 425.20 pt, 20 cm ~ 566.93 pt
     assert '<page width="425.2" height="566.93">' in raw or '<page width="425.20" height="566.93">' in raw
+
+
+def test_cli_write_mode_fidelity_and_semantic(capsys, tiny_bank_path, tmp_path):
+    sample_docx = "tests/fixtures/sample.docx"
+    out_fid = str(tmp_path / "cli_fid.xopp")
+
+    rc, cap = run_cli(
+        capsys,
+        tiny_bank_path,
+        "write",
+        sample_docx,
+        "-o",
+        out_fid,
+        "--mode",
+        "fidelity",
+    )
+    assert rc == 0
+    assert os.path.exists(out_fid)
+    assert "Fidelity mode:" in cap.out
+
+    raw_fid = gzip.decompress(open(out_fid, "rb").read()).decode("utf-8")
+    assert '<background type="pdf"' in raw_fid
+
+
+def test_cli_fidelity_mode_rejects_non_docx(tiny_bank_path, tmp_path):
+    out = str(tmp_path / "cli_invalid.xopp")
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main([
+            "--bank",
+            tiny_bank_path,
+            "write",
+            "-t",
+            "Văn bản thuần",
+            "-o",
+            out,
+            "--mode",
+            "fidelity",
+        ])
+    assert "chỉ áp dụng cho tệp .docx" in str(excinfo.value)
