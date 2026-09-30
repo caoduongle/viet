@@ -41,3 +41,11 @@ giác thầy đầy khoan món khả phi nghiệm hóa cẩn suy đông suốt v
 khủng tiếc dành thị lái tương bữa chả kiếp trận im bức mãi triệu quanh màu buồn riêng biển nàng
 dài đỡ sơ ngờ nổ đạo đem linh chức chất thẳng chống mơ tổ hoạt mắn lịch gắng quen chừng thù khóa
 """.split()
+
+MINIMAL_DIGITS: list[str] = [str(i) for i in range(10)]
+MINIMAL_PUNCT: list[str] = [",", ".", "!", "?", ":", ";", "-", "(", ")", '"', "'"]
+
+
+def get_minimal_essentials(n_words: int = 60) -> list[str]:
+    """Trả về bộ tối thiểu gồm chữ số 0-9, dấu câu thông dụng và top n từ phổ biến nhất."""
+    return list(MINIMAL_DIGITS) + list(MINIMAL_PUNCT) + list(SEED[:n_words])

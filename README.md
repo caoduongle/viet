@@ -133,6 +133,29 @@ chuviettay/
 │   ├── composer.py       dàn dòng + chia trang + "run tay" + xuất .xopp (WriteOptions, WriteResult)
 │   ├── learning.py       học mẫu từ file .xopp đã viết tay
 │   └── seed_words.py     700 từ thông dụng (dữ liệu tĩnh)
+├── document/
+│   ├── ir.py             Document Intermediate Representation (Paragraph, Heading, Table, MathBlock...)
+│   └── page_format.py    Quy chuẩn khổ giấy, hướng giấy, lề trang và nền giấy (.xopp)
+├── importer/
+│   ├── base.py           BaseImporter trừu tượng và factory
+│   ├── txt_importer.py   Nạp tệp văn bản thuần (.txt)
+│   ├── markdown_importer.py Nạp tệp Markdown (.md) kèm bảng và công thức
+│   ├── docx_importer.py  Nạp tệp Word (.docx) kèm bảng phức tạp và định dạng
+│   └── omml.py           Chuyển đổi công thức toán Office Math Markup Language (OMML) sang LaTeX
+├── layout/
+│   ├── engine.py         DocumentLayoutEngine: dàn trang tự do theo cấu trúc ngữ nghĩa
+│   ├── page_buffer.py    Bộ đệm trang đa luồng kết xuất .xopp
+│   ├── math_layout.py    Dàn công thức toán học theo baseline nét viết tay
+│   └── table_layout.py   Dàn bảng biểu, đo độ rộng ô theo nét thật và viền bảng
+├── math/
+│   ├── nodes.py          Cấu trúc cây cú pháp toán học (MathNode, FracNode, SqrtNode...)
+│   └── parser.py         Bộ phân tích biểu thức LaTeX sang cây cú pháp
+├── fidelity/
+│   ├── converter.py      FidelityConverter: chuyển đổi PDF nền và trích xuất tọa độ cố định
+│   ├── extractor.py      SpatialTextExtractor: trích xuất dòng văn bản và hình học không gian
+│   ├── background.py     WhiteoutBackgroundGenerator: làm trắng chữ in giữ nguyên ảnh/bảng
+│   ├── engine.py         FidelityLayoutEngine: đặt nét viết tay vào đúng bounding box gốc
+│   └── fixed_model.py    Mô hình dữ liệu không gian FixedDocument, TextBox, ImageBox
 ├── controller/
 │   ├── app_controller.py AppController — write_text, teach_word, learn_from_files, drop_words, ...
 │   └── results.py        các dataclass kết quả
@@ -193,7 +216,7 @@ python3 -m pytest -vv -s --timeout=30             # chạy tất cả kèm watch
 xvfb-run -a python3 -m pytest -vv -s --timeout=30 # Linux không màn hình: chạy cả test giao diện thật
 ```
 
-Hơn 370 ca kiểm thử tự động, chia nhóm:
+Hơn 470 ca kiểm thử tự động, chia nhóm:
 
 - **Đơn vị** cho từng hàm/lớp Model (`test_text_utils`, `test_bank`, `test_writer`, `test_xopp`, ...) và
   cho `AppController`; kho mẫu thử là một kho **nhỏ tự dựng** (`tests/conftest.py`) nên tự tính tay được đáp án.

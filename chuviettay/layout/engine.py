@@ -6,7 +6,7 @@ import os
 import random
 from typing import TYPE_CHECKING
 
-from chuviettay.controller.results import WriteOptions, WriteResult
+from chuviettay.model.composer import WriteOptions, WriteResult
 
 from chuviettay.document.ir import (
     Document,
@@ -46,7 +46,7 @@ class DocumentLayoutEngine:
         self.rnd = random.Random(opts.seed)
         self.J = opts.jitter
         self.S = opts.scale
-        self.line_h = opts.line or bank.d["line"]
+        self.line_h = opts.line if opts.line is not None else (float(bank.d["line"]) * self.S)
         self.x0 = self.page_format.margin_left
         if opts.width is not None:
             self.width = min(opts.width, self.page_format.usable_width)
@@ -99,14 +99,22 @@ class DocumentLayoutEngine:
         ntok = 0
         nmiss = 0
 
-        for inline in inlines:
+        # Gộp các Text inline liền kề để tránh chèn khoảng trắng giả tạo trước dấu câu (L6)
+        merged_inlines: list[Inline] = []
+        for inl in inlines:
+            if isinstance(inl, Text) and merged_inlines and isinstance(merged_inlines[-1], Text):
+                merged_inlines[-1].text += (inl.text or "")
+            else:
+                merged_inlines.append(inl)
+
+        for inline in merged_inlines:
             if isinstance(inline, Text):
                 norm = normalize_text(inline.text or "")
                 for tok in norm.split():
                     st, w, miss = self.wr.token(tok)
                     ntok += 1
                     if miss:
-                        nmiss += len(miss)
+                        nmiss += 1
                         for m in miss:
                             self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
                     items.append((st, w * self.S * scale_mult, miss))
@@ -116,23 +124,26 @@ class DocumentLayoutEngine:
                 st, w, miss = self.wr.symbol(sym)
                 ntok += 1
                 if miss:
-                    nmiss += len(miss)
+                    nmiss += 1
                     for m in miss:
                         if missing_symbols is not None:
                             missing_symbols[m] = missing_symbols.get(m, 0) + 1
-                        self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
+                        else:
+                            self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
                 items.append((st, w * self.S * scale_mult, miss))
 
             elif isinstance(inline, MathInline):
                 math_ast = inline.ast or parse_latex_math(inline.latex)
                 math_engine = MathLayoutEngine(self.bank, S=1.0, writer=self.wr, rnd=self.rnd)
                 m_item = math_engine.measure(math_ast)
+                math_miss_count = sum(math_engine.missing_symbols.values())
                 for sym, count in math_engine.missing_symbols.items():
                     if missing_symbols is not None:
                         missing_symbols[sym] = missing_symbols.get(sym, 0) + count
-                    self.wr.missing[sym] = self.wr.missing.get(sym, 0) + count
+                    else:
+                        self.wr.missing[sym] = self.wr.missing.get(sym, 0) + count
                     nmiss += count
-                ntok += 1
+                ntok += max(1, len(m_item.glyphs), math_miss_count)
 
                 # Chuyển đổi MathLayoutItem thành các nét viết tay tương đối trong toạ độ bank (S=1.0)
                 math_strokes: list[Stroke] = []
@@ -257,7 +268,15 @@ class DocumentLayoutEngine:
                                 cur_y += self.line_h * 0.1
 
                 elif isinstance(block, Table):
-                    table_engine = TableLayoutEngine(self.width, self.line_h)
+                    def measure_word_bounds(word: str) -> float:
+                        _, w, _ = self.wr.token(word)
+                        return w * self.S
+
+                    table_engine = TableLayoutEngine(
+                        self.width,
+                        self.line_h,
+                        calc_text_bounds=measure_word_bounds,
+                    )
 
                     def cell_inlines_formatter(cell: TableCell, usable_w: float) -> list[list[tuple[float, list[Stroke], float]]]:
                         nonlocal ntok, nmiss
@@ -338,7 +357,12 @@ class DocumentLayoutEngine:
                                 break
 
                         # 1. Sinh nét viền bảng cho trang hiện tại
-                        border_strokes = table_engine.generate_border_strokes(slice_data, block.border_style)
+                        border_strokes = table_engine.generate_border_strokes(
+                            slice_data,
+                            block.border_style,
+                            jitter=self.J,
+                            seed=self.rnd.randint(0, 1000000),
+                        )
                         for bs in border_strokes:
                             cur_page.append(xopp.stroke_xml(bs.points, self.bank.pen, self.opts.color, self.opts.wscale))
                             total_strokes += 1
@@ -390,11 +414,11 @@ class DocumentLayoutEngine:
                     math_ast = block.ast or parse_latex_math(block.latex)
                     math_engine = MathLayoutEngine(self.bank, S=self.S, writer=self.wr, rnd=self.rnd)
                     item = math_engine.measure(math_ast)
+                    math_miss_count = sum(math_engine.missing_symbols.values())
                     for sym, count in math_engine.missing_symbols.items():
                         missing_symbols[sym] = missing_symbols.get(sym, 0) + count
-                        self.wr.missing[sym] = self.wr.missing.get(sym, 0) + count
                         nmiss += count
-                    ntok += 1
+                    ntok += max(1, len(item.glyphs), math_miss_count)
 
                     if cur_y + item.size.height > max_page_y and cur_y > pf.content_top:
                         new_page()
@@ -423,7 +447,7 @@ class DocumentLayoutEngine:
                     total_lines += 1
                     total_math_blocks += 1
 
-            if cur_page or pb.n_pages == 0:
+            if cur_page or cur_y > pf.content_top or pb.n_pages == 0:
                 pb.append_page(cur_page, page_h=page_h, page_w=page_w, background=bg)
             cur_page = []
             pb.close()
@@ -452,6 +476,7 @@ class DocumentLayoutEngine:
             missing_symbols=dict(missing_symbols),
             n_tables=total_tables,
             n_math_blocks=total_math_blocks,
+            n_pages=pb.n_pages,
         )
 
         if all_missing:

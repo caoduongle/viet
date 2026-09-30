@@ -19,17 +19,26 @@ _log = logging.getLogger(__name__)
 class FidelityConverter:
     """Điều phối trích xuất tọa độ không gian và kết xuất PDF nền cho DOCX."""
 
+    _word_available_cache: bool | None = None
+    _libreoffice_available_cache: bool | None = None
+
+    @classmethod
+    def reset_cache(cls) -> None:
+        """Đặt lại bộ nhớ đệm trạng thái khả dụng của công cụ (phục vụ kiểm thử)."""
+        cls._word_available_cache = None
+        cls._libreoffice_available_cache = None
+
     @classmethod
     def _run_powershell_script(cls, script_content: str, timeout: int = 60) -> subprocess.CompletedProcess[str]:
         """Thực thi an toàn một khối lệnh PowerShell bằng tệp tạm thời với ExecutionPolicy Bypass."""
-        ps_exe = shutil.which("powershell.exe") or shutil.which("powershell") or "powershell.exe"
         fd, script_path = tempfile.mkstemp(prefix="ps_", suffix=".ps1")
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(script_content)
 
         try:
             return subprocess.run(
-                [ps_exe, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script_path],
+                ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script_path],
+                shell=True,
                 capture_output=True,
                 text=True,
                 timeout=timeout,
@@ -43,25 +52,48 @@ class FidelityConverter:
 
     @classmethod
     def is_word_available(cls) -> bool:
-        """Kiểm tra Microsoft Word COM có khả dụng trên hệ thống Windows hay không."""
+        """Kiểm tra Microsoft Word COM có khả dụng trên hệ thống Windows hay không (R6)."""
         if sys.platform != "win32":
             return False
-        ps_cmd = (
-            "$w = New-Object -ComObject Word.Application; $v = $w.Version; $w.Quit(0); "
-            "[System.Runtime.InteropServices.Marshal]::ReleaseComObject($w) | Out-Null; "
-            "[GC]::Collect(); [GC]::WaitForPendingFinalizers(); Write-Host $v"
-        )
+        if cls._word_available_cache is not None:
+            return cls._word_available_cache
+
+        ps_cmd = """
+try {
+    $ErrorActionPreference = 'Stop'
+    $w = New-Object -ComObject Word.Application
+    if ($w -ne $null) {
+        $v = $w.Version
+        $w.Quit(0)
+        [System.Runtime.InteropServices.Marshal]::ReleaseComObject($w) | Out-Null
+        [GC]::Collect()
+        [GC]::WaitForPendingFinalizers()
+        Write-Host $v
+    } else {
+        exit 1
+    }
+} catch {
+    exit 1
+}
+"""
         try:
             res = cls._run_powershell_script(ps_cmd, timeout=10)
-            return res.returncode == 0 and bool(res.stdout.strip())
+            avail = res.returncode == 0 and bool(res.stdout.strip())
+            cls._word_available_cache = avail
+            return avail
         except Exception as e:
             _log.debug("Kiểm tra Word COM thất bại: %s", e)
+            cls._word_available_cache = False
             return False
 
     @classmethod
     def is_libreoffice_available(cls) -> bool:
-        """Kiểm tra LibreOffice soffice có khả dụng hay không."""
-        return shutil.which("soffice") is not None or shutil.which("libreoffice") is not None
+        """Kiểm tra LibreOffice soffice có khả dụng hay không (R6)."""
+        if cls._libreoffice_available_cache is not None:
+            return cls._libreoffice_available_cache
+        avail = shutil.which("soffice") is not None or shutil.which("libreoffice") is not None
+        cls._libreoffice_available_cache = avail
+        return avail
 
     @classmethod
     def is_available(cls) -> bool:

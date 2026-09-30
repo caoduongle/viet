@@ -49,12 +49,19 @@ class MainWindow(tk.Tk):
             text="Chưa có kho mẫu hợp lệ.\nBấm 'Chọn kho mẫu khác...' hoặc 'Tạo kho mẫu mới...' ở góc trên.")
         self.notebook = ttk.Notebook(self)
         self._tabs_built = False
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
         try:
             self.ctl.load_bank(create_if_missing=create_if_missing)
         except Exception as e:  # noqa: BLE001
             report_error("Không mở được kho mẫu", e, _log)
         self._sync_ui()
+
+    def _on_close(self) -> None:
+        try:
+            self.ctl.flush_save()
+        finally:
+            self.destroy()
 
     # ------------------------------------------------------------ dựng / đồng bộ giao diện
     def _build_tabs(self) -> None:
@@ -83,6 +90,7 @@ class MainWindow(tk.Tk):
         self.notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
     def _on_tab_changed(self) -> None:
+        self.ctl.flush_save()
         if self.notebook.select() == str(self.bank_tab):
             self.bank_tab.refresh()
 
@@ -94,6 +102,7 @@ class MainWindow(tk.Tk):
 
     # ------------------------------------------------------------ chọn / tạo kho mẫu
     def _switch_bank(self, path: str) -> bool:
+        self.ctl.flush_save()
         try:
             self.ctl.load_bank(path, create_if_missing=True)
         except Exception as e:  # noqa: BLE001

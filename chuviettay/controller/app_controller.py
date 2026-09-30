@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from collections.abc import Callable, Iterable
 
 from chuviettay import paths
@@ -58,7 +59,32 @@ class AppController:
         # Hệ số cỡ tay của PHIÊN dạy hiện tại (1.0 = chưa hiệu chỉnh). Là trạng thái
         # nghiệp vụ chứ không phải trạng thái giao diện nên để ở Controller.
         self.session_scale: float = 1.0
+        self.debounce_delay: float = 2.0
+        self._save_timer: threading.Timer | None = None
+        self._save_lock = threading.Lock()
         _log.debug("Khởi tạo AppController (bank_path=%s)", self.bank_path)
+
+    # ------------------------------------------------------------------ debounce save (US7)
+    def schedule_save(self) -> None:
+        """Lên lịch lưu kho mẫu sau khoảng thời gian debounce (mặc định 2.0s)."""
+        with self._save_lock:
+            if self._save_timer is not None:
+                self._save_timer.cancel()
+            self._save_timer = threading.Timer(self.debounce_delay, self._on_debounce_save)
+            self._save_timer.daemon = True
+            self._save_timer.start()
+
+    def _on_debounce_save(self) -> None:
+        self.flush_save()
+
+    def flush_save(self) -> None:
+        """Ép ghi các thay đổi dơ (dirty) ngay lập tức xuống đĩa và huỷ timer."""
+        with self._save_lock:
+            if self._save_timer is not None:
+                self._save_timer.cancel()
+                self._save_timer = None
+            if self.bank and self.bank.is_dirty:
+                self.bank.save()
 
     # ------------------------------------------------------------------ kho mẫu
     def load_bank(self, path: str | None = None, create_if_missing: bool = False) -> Bank:
@@ -70,6 +96,7 @@ class AppController:
             người dùng bắt đầu dạy chữ từ đầu.
         Đổi kho mẫu thì hệ số cỡ tay của phiên cũ không còn ý nghĩa -> đặt lại 1.0.
         """
+        self.flush_save()
         target = path or self.bank_path
         bank = Bank.load_or_create(target) if create_if_missing else Bank(target)
         self.bank = bank
@@ -91,6 +118,11 @@ class AppController:
     def has_bank(self) -> bool:
         """Đã có kho mẫu hợp lệ được nạp hay chưa."""
         return self.bank is not None
+
+    @property
+    def bank_size(self) -> int:
+        """Số lượng từ trong kho mẫu hiện tại."""
+        return len(self.bank.words) if self.bank else 0
 
     @property
     def x_height(self) -> float:
@@ -202,6 +234,7 @@ class AppController:
         width: float,
         calibrating: bool = False,
         recompute: Callable[[float], tuple[list[Stroke], float]] | None = None,
+        deferred_save: bool = False,
     ) -> TeachOutcome:
         """Lưu MỘT từ vừa vẽ trực tiếp trong app (không qua file .xopp trung gian).
 
@@ -215,6 +248,8 @@ class AppController:
             (view truyền canvas.to_bank_strokes vào đây). Chính xác nhất vì không bị
             làm tròn 2 lần. Nếu không truyền, tự co giãn nét đã có theo tỉ lệ mới/cũ
             (kết quả tương đương, lệch tối đa ~0.01 đơn vị do làm tròn).
+        deferred_save: nếu True, đánh dấu dirty và lên lịch ghi hoãn (debounced 2.0s)
+            thay vì ghi đè đồng bộ ngay lập tức, giúp UI phản hồi < 50ms.
         """
         bank = self._require_bank()
         recalibrated = False
@@ -233,7 +268,11 @@ class AppController:
                 recalibrated = True
 
         instance = bank.add_sample_incremental(label, rel_strokes, width)
-        bank.save()
+        bank.mark_dirty()
+        if deferred_save:
+            self.schedule_save()
+        else:
+            bank.save()
         _log.info("Dạy từ %r (%s), hệ số cỡ tay phiên hiện tại: %.2fx",
                   label, "hiệu chỉnh cỡ tay" if recalibrated else "bình thường", self.session_scale)
         return TeachOutcome(label=label, instance=instance,
@@ -245,6 +284,15 @@ class AppController:
         bank = self._require_bank()
         excl = set(exclude)
         return [w for w in SEED if not bank.can(w) and w not in excl][:n]
+
+    def missing_minimal_essentials(self, exclude: Iterable[str] = ()) -> list[str]:
+        """Danh sách các ký tự/từ trong bộ tối thiểu (chữ số, dấu câu, top 60 từ) còn thiếu."""
+        from chuviettay.model.seed_words import get_minimal_essentials
+
+        bank = self._require_bank()
+        excl = set(exclude)
+        items = get_minimal_essentials(60)
+        return [item for item in items if not bank.can(item) and item not in excl]
 
     def export_seed_grid(self, n: int, out_path: str) -> SeedResult:
         """Lệnh `seed`: tạo file lưới ô các từ thông dụng còn thiếu để viết mẫu."""

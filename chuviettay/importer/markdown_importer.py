@@ -5,6 +5,7 @@ import os
 import re
 from typing import Any
 
+
 from chuviettay.document.ir import (
     Block,
     Document,
@@ -34,12 +35,21 @@ class MarkdownImporter(BaseImporter):
         require_dependency("mdit_py_plugins", feature_desc="tính năng toán học trong Markdown")
 
     def _sanitize_html(self, text: str) -> str:
-        """Loại bỏ hoàn toàn các thẻ script, style và HTML tags thô để bảo mật và tránh ô nhiễm nét chữ."""
-        # Xoá toàn bộ nội dung trong <script>...</script> và <style>...</style>
-        no_scripts = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", text, flags=re.DOTALL | re.IGNORECASE)
-        # Xoá các thẻ HTML đơn lẻ <tag> hoặc </tag>
-        clean_text = re.sub(r"<[^>]+>", "", no_scripts)
-        return clean_text
+        """Loại bỏ an toàn các thẻ HTML và script độc hại,
+        đồng thời bảo toàn nguyên vẹn mọi khối công thức toán ($...$, $$...$$)
+        và các toán tử so sánh <, > (L7)."""
+        if not text:
+            return ""
+        # Tách riêng các khối công thức toán ($...$, $$...$$) để không bao giờ bị can thiệp
+        parts = re.split(r"(\$\$.*?\$\$|\$.*?\$)", text, flags=re.DOTALL)
+        for i in range(0, len(parts), 2):
+            chunk = parts[i]
+            # Loại bỏ thẻ script/style kèm nội dung bên trong
+            chunk = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", chunk, flags=re.DOTALL | re.IGNORECASE)
+            # Loại bỏ các thẻ HTML mở/đóng chuẩn (chỉ match tag name hợp lệ theo sau bởi khoảng trắng, / hoặc >)
+            chunk = re.sub(r"</?[a-zA-Z][a-zA-Z0-9]*(?:\s+[^>]*)?/?>", "", chunk)
+            parts[i] = chunk
+        return "".join(parts)
 
     def _parse_inlines(self, inline_token: Any) -> list[Inline]:
         """Chuyển đổi token inline của markdown-it thành danh sách Inline IR."""
@@ -67,7 +77,14 @@ class MarkdownImporter(BaseImporter):
                 if child.content:
                     inlines.append(Text(text=child.content))
 
-        return inlines
+        # Gộp các Text inline liền kề để tránh chèn khoảng trắng giả tạo trước dấu câu (L6)
+        merged: list[Inline] = []
+        for inl in inlines:
+            if isinstance(inl, Text) and merged and isinstance(merged[-1], Text):
+                merged[-1].text += inl.text
+            else:
+                merged.append(inl)
+        return merged
 
     def _extract_list_start(self, tok: Any) -> int:
         """Trích xuất số bắt đầu cho ordered list từ thuộc tính token, mặc định 1."""
@@ -86,6 +103,39 @@ class MarkdownImporter(BaseImporter):
             except (ValueError, TypeError):
                 return 1
         return 1
+
+    def _parse_list(self, tokens: list[Any], start_idx: int) -> tuple[ListBlock, int]:
+        """Phân tích danh sách Markdown theo kiểu đệ quy để bảo toàn phân cấp danh sách lồng nhau."""
+        tok = tokens[start_idx]
+        is_ordered = (tok.type == "ordered_list_open")
+        start = self._extract_list_start(tok) if is_ordered else 1
+        close_type = "ordered_list_close" if is_ordered else "bullet_list_close"
+        items: list[list[Block]] = []
+        i = start_idx + 1
+        n = len(tokens)
+
+        while i < n and tokens[i].type != close_type:
+            if tokens[i].type == "list_item_open":
+                item_blocks: list[Block] = []
+                i += 1
+                while i < n and tokens[i].type != "list_item_close":
+                    cur = tokens[i]
+                    if cur.type == "paragraph_open":
+                        if i + 1 < n and tokens[i + 1].type == "inline":
+                            inlines = self._parse_inlines(tokens[i + 1])
+                            if inlines:
+                                item_blocks.append(Paragraph(inlines=inlines))
+                            i += 1
+                    elif cur.type in ("bullet_list_open", "ordered_list_open"):
+                        nested_list, new_i = self._parse_list(tokens, i)
+                        item_blocks.append(nested_list)
+                        i = new_i
+                    i += 1
+                items.append(item_blocks)
+            else:
+                i += 1
+
+        return ListBlock(ordered=is_ordered, items=items, start=start), i
 
     def import_text(self, text: str) -> ImportResult:
         """Phân tích chuỗi Markdown thành Document IR."""
@@ -128,26 +178,11 @@ class MarkdownImporter(BaseImporter):
                 if tok.content.strip():
                     blocks.append(MathBlock(latex=tok.content.strip()))
 
-            # 4. List Block
+            # 4. List Block (đệ quy lồng nhau)
             elif tok.type in ("bullet_list_open", "ordered_list_open"):
-                is_ordered = (tok.type == "ordered_list_open")
-                start = self._extract_list_start(tok) if is_ordered else 1
-                items: list[list[Block]] = []
-                i += 1
-                while i < n and tokens[i].type not in ("bullet_list_close", "ordered_list_close"):
-                    if tokens[i].type == "list_item_open":
-                        item_blocks: list[Block] = []
-                        i += 1
-                        while i < n and tokens[i].type != "list_item_close":
-                            if tokens[i].type == "paragraph_open":
-                                if i + 1 < n and tokens[i + 1].type == "inline":
-                                    item_blocks.append(Paragraph(inlines=self._parse_inlines(tokens[i + 1])))
-                                    i += 1
-                            i += 1
-                        items.append(item_blocks)
-                    else:
-                        i += 1
-                blocks.append(ListBlock(ordered=is_ordered, items=items, start=start))
+                list_block, new_i = self._parse_list(tokens, i)
+                blocks.append(list_block)
+                i = new_i
 
             # 5. Table Block
             elif tok.type == "table_open":
@@ -182,6 +217,15 @@ class MarkdownImporter(BaseImporter):
                         rows.append(TableRow(cells=cells))
                     i += 1
                 blocks.append(Table(rows=rows, border_style=TableBorder.ALL, col_alignments=col_alignments))
+
+            # 6. Code Block / Fenced Code
+            elif tok.type in ("fence", "code_block"):
+                info = (tok.info or "").strip()
+                unsupported.append(f"code_block: {info}" if info else "code_block")
+
+            # 7. Horizontal Rule (---)
+            elif tok.type == "hr":
+                unsupported.append("hr: horizontal rule")
 
             i += 1
 

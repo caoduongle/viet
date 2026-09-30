@@ -42,7 +42,8 @@ class TeachTab(ttk.Frame):
         e.pack(side="left", padx=4)
         e.bind("<Return>", lambda ev: self.add_word())
         ttk.Button(top, text="Thêm", command=self.add_word).pack(side="left")
-        ttk.Button(top, text="Nạp từ thông dụng còn thiếu...", command=self.add_seed).pack(side="left", padx=10)
+        ttk.Button(top, text="Bộ tối thiểu", command=self.add_minimal_essentials).pack(side="left", padx=6)
+        ttk.Button(top, text="Nạp từ thông dụng còn thiếu...", command=self.add_seed).pack(side="left", padx=6)
         ttk.Button(top, text="Xoá hàng đợi", command=self.clear_queue).pack(side="left")
         ttk.Button(top, text="Hiệu chỉnh cỡ tay", command=self.start_calibration).pack(side="right")
 
@@ -95,6 +96,15 @@ class TeachTab(ttk.Frame):
             self.queue.append(w)
         self.add_var.set("")
         self._refresh()
+
+    def add_minimal_essentials(self) -> None:
+        todo = self.ctl.missing_minimal_essentials(exclude=self.queue)
+        if not todo:
+            messagebox.showinfo("Đầy đủ", "Kho mẫu đã có đủ bộ tối thiểu (chữ số, dấu câu và các từ phổ biến).")
+            return
+        self.queue.extend(todo)
+        self._refresh()
+        messagebox.showinfo("Đã nạp", "Đã thêm %d mục tối thiểu vào hàng đợi." % len(todo))
 
     def add_seed(self) -> None:
         n = simpledialog.askinteger("Nạp từ thông dụng", "Nạp bao nhiêu từ còn thiếu?",
@@ -153,11 +163,13 @@ class TeachTab(ttk.Frame):
             return
         label = self.current
         rel, width = self.canvas.to_bank_strokes(self.ctl.session_scale)
+        use_deferred = (self.ctl.bank_size >= 30) if self.ctl else False
         try:
             outcome = self.ctl.teach_word(
                 label, rel, width,
                 calibrating=self._calib_pending,
-                recompute=self.canvas.to_bank_strokes)   # tính lại từ pixel gốc khi đổi hệ số
+                recompute=self.canvas.to_bank_strokes,
+                deferred_save=use_deferred)   # L14: Lưu hoãn cho kho lớn (>=30 từ) để UI <50ms
         except Exception as e:  # noqa: BLE001
             report_error("Lỗi khi lưu", e, _log)
             return

@@ -53,8 +53,8 @@ def test_raw_marks_retains_filtered_outliers(tmp_path):
 
     assert hasattr(b, "_raw_marks"), "Bank phải có thuộc tính _raw_marks"
     assert len(b._raw_marks["\u0300"]) == 12, "Toàn bộ 12 dấu phải còn nguyên trong _raw_marks"
-    # marks áp dụng lọc phân vị 10-90% khi có >= 10 mẫu -> loại bỏ biên (còn 9 mẫu)
-    assert len(b.marks["\u0300"]) == 9, "marks phải lọc phân vị khi có 12 mẫu (còn 9 mẫu)"
+    # marks áp dụng lọc phân vị 10-90% khi có >= 10 mẫu -> loại bỏ biên đối xứng (còn 10 mẫu khi n=12)
+    assert len(b.marks["\u0300"]) == 10, "marks phải lọc phân vị đối xứng khi có 12 mẫu (còn 10 mẫu)"
 
 
 def test_tone_marks_parity_across_different_counts(tmp_path):

@@ -8,6 +8,7 @@ from chuviettay.document.ir import (
     Document,
     Heading,
     Inline,
+    LineBreak,
     MathBlock,
     MathInline,
     Paragraph,
@@ -228,6 +229,30 @@ class DocxImporter(BaseImporter):
 
         return ImportResult(document=Document(blocks=blocks), warnings=warnings, unsupported=unsupported)
 
+    def _extract_inlines_from_run(self, r_elem: Any, unsupported: list[str]) -> list[Inline]:
+        """Trích xuất toàn bộ phần tử nội dòng từ một <w:r> (chữ, tab, ngắt dòng mềm), lọc delText/instrText."""
+        inlines: list[Inline] = []
+        for c in r_elem:
+            ctag = c.tag.split("}")[-1] if "}" in c.tag else c.tag
+            if ctag == "t":
+                txt = c.text or ""
+                if txt:
+                    inlines.append(Text(text=txt))
+            elif ctag == "tab":
+                inlines.append(Text(text="    "))
+            elif ctag in ("br", "cr"):
+                inlines.append(LineBreak())
+            elif ctag in ("drawing", "pict"):
+                unsupported.append(f"{ctag}: embedded image or drawing shape")
+            elif ctag == "delText":
+                # Bản ghi xoá trong tracked change - bỏ qua không in
+                pass
+            elif ctag == "instrText":
+                # Mã lệnh trường Word - bỏ qua không in lộ text thô, ghi vào unsupported
+                if "field_instruction: Word field code" not in unsupported:
+                    unsupported.append("field_instruction: Word field code")
+        return inlines
+
     def _parse_paragraph(self, p: Any, unsupported: list[str]) -> Block | None:
         style_name = p.style.name if p.style else ""
         level: int | None = None
@@ -241,47 +266,76 @@ class DocxImporter(BaseImporter):
             except Exception:
                 level = 1
 
+        align = "left"
+        p_pr = next((c for c in p._element if c.tag.endswith("pPr")), None)
+        if p_pr is not None:
+            jc = next((c for c in p_pr if c.tag.endswith("jc")), None)
+            if jc is not None:
+                val = next((v for k, v in jc.attrib.items() if k.endswith("val")), "").lower()
+                if val == "center":
+                    align = "center"
+                elif val == "right":
+                    align = "right"
+                elif val in ("both", "distribute"):
+                    align = "justify"
+
         inlines: list[Inline] = []
         omml_blocks: list[MathBlock] = []
 
-        # Quét các thẻ con XML trực tiếp bên trong <w:p>
-        for child in p._element:
-            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+        def collect_runs(elem: Any) -> None:
+            for child in elem:
+                tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                if tag == "r":
+                    inlines.extend(self._extract_inlines_from_run(child, unsupported))
+                elif tag in ("ins", "smartTag"):
+                    collect_runs(child)
+                elif tag == "hyperlink":
+                    collect_runs(child)
+                elif tag == "sdt":
+                    sdt_content = next((c for c in child if c.tag.endswith("sdtContent")), None)
+                    if sdt_content is not None:
+                        collect_runs(sdt_content)
+                elif tag in ("oMath", "oMathPara"):
+                    for sub_el in child.iter():
+                        sub_tag = sub_el.tag.split("}")[-1] if "}" in sub_el.tag else sub_el.tag
+                        if sub_tag in UNSUPPORTED_OMML_TAGS:
+                            msg = f"m:{sub_tag}: unsupported OMML math element ({UNSUPPORTED_OMML_TAGS[sub_tag]})"
+                            if msg not in unsupported:
+                                unsupported.append(msg)
+                    ast_nodes, ltx = _parse_omml_children(child)
+                    math_ast = MathRow(ast_nodes) if len(ast_nodes) > 1 else (ast_nodes[0] if ast_nodes else MathRow([]))
+                    inlines.append(MathInline(latex=ltx, ast=math_ast))
+                    omml_blocks.append(MathBlock(latex=ltx, ast=math_ast))
+                elif tag in ("drawing", "pict"):
+                    unsupported.append(f"{tag}: embedded image or drawing shape")
+                elif tag == "del":
+                    # Tracked change deletion container - bỏ qua
+                    pass
 
-            if tag == "r":
-                # Kiểm tra nét vẽ / hình ảnh không được hỗ trợ trong run
-                for r_child in child:
-                    r_tag = r_child.tag.split("}")[-1] if "}" in r_child.tag else r_child.tag
-                    if r_tag in ("drawing", "pict"):
-                        unsupported.append(f"{r_tag}: embedded image or drawing shape")
+        collect_runs(p._element)
 
-                text_elem = next((c for c in child if c.tag.endswith("t")), None)
-                if text_elem is not None and text_elem.text:
-                    inlines.append(Text(text=text_elem.text))
+        # Gộp các Text inline liền kề để tránh chèn khoảng trắng giả tạo (L6)
+        merged_inlines: list[Inline] = []
+        for inl in inlines:
+            if isinstance(inl, Text) and merged_inlines and isinstance(merged_inlines[-1], Text):
+                merged_inlines[-1].text += inl.text
+            else:
+                merged_inlines.append(inl)
+        inlines = merged_inlines
 
-            elif tag in ("oMath", "oMathPara"):
-                for sub_el in child.iter():
-                    sub_tag = sub_el.tag.split("}")[-1] if "}" in sub_el.tag else sub_el.tag
-                    if sub_tag in UNSUPPORTED_OMML_TAGS:
-                        msg = f"m:{sub_tag}: unsupported OMML math element ({UNSUPPORTED_OMML_TAGS[sub_tag]})"
-                        if msg not in unsupported:
-                            unsupported.append(msg)
+        # Nhận diện danh sách có bullet hoặc numbering
+        is_list = False
+        if p_pr is not None:
+            num_pr = next((c for c in p_pr if c.tag.endswith("numPr")), None)
+            if num_pr is not None:
+                is_list = True
+        if not is_list and style_name.lower().startswith("list"):
+            is_list = True
 
-                ast_nodes, ltx = _parse_omml_children(child)
-                math_ast = MathRow(ast_nodes) if len(ast_nodes) > 1 else (ast_nodes[0] if ast_nodes else MathRow([]))
-                inlines.append(MathInline(latex=ltx, ast=math_ast))
-                omml_blocks.append(MathBlock(latex=ltx, ast=math_ast))
-
-            elif tag == "hyperlink":
-                for r_child in child:
-                    r_tag = r_child.tag.split("}")[-1] if "}" in r_child.tag else r_child.tag
-                    if r_tag == "r":
-                        text_elem = next((c for c in r_child if c.tag.endswith("t")), None)
-                        if text_elem is not None and text_elem.text:
-                            inlines.append(Text(text=text_elem.text))
-
-            elif tag in ("drawing", "pict"):
-                unsupported.append(f"{tag}: embedded image or drawing shape")
+        if is_list and inlines:
+            first_txt = inlines[0].text if isinstance(inlines[0], Text) else ""
+            if not first_txt.startswith(("•", "-", "*", "1.", "2.", "3.", "4.", "5.")):
+                inlines.insert(0, Text(text="• "))
 
         # Nếu đoạn văn trống hoàn toàn và không có inlines
         if not inlines and not p.text.strip():
@@ -294,7 +348,7 @@ class DocxImporter(BaseImporter):
         if level is not None:
             return Heading(level=level, inlines=inlines or [Text(text=p.text)])
         else:
-            return Paragraph(inlines=inlines or [Text(text=p.text)])
+            return Paragraph(inlines=inlines or [Text(text=p.text)], align=align)
 
     def _parse_table(self, tbl: Any, unsupported: list[str]) -> Table:
         rows: list[TableRow] = []

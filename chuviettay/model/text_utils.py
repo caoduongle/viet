@@ -12,6 +12,7 @@ chu_cua_ban.json.gz đã học từ trước.
 from __future__ import annotations
 
 import math
+from typing import Any
 import unicodedata
 
 from chuviettay.config import NANG, TONES
@@ -143,3 +144,50 @@ def place(strokes: list[Stroke], ox: float, oy: float, s: float, rot: float) -> 
     c, sn = math.cos(rot), math.sin(rot)
     return [[(ox + s * (st[i] * c - st[i + 1] * sn), oy + s * (st[i] * sn + st[i + 1] * c))
              for i in range(0, len(st), 2)] for st in strokes]
+
+
+PUNCT_CHARS = set(".,!?:;-\"'()[]{}/…“”‘’–—")
+
+
+def is_symbol_label(label: str, known_symbols: Any = None) -> bool:
+    """Xác định xem nhãn ô học có phải là ký hiệu toán học / glyph đặc biệt hay không."""
+    if label.startswith("\\"):
+        return True
+    if known_symbols is not None:
+        sym_set = known_symbols.symbols if hasattr(known_symbols, "symbols") else known_symbols
+        if label in sym_set:
+            return True
+    if len(label) == 1:
+        cat = unicodedata.category(label)
+        if cat in ("Sm", "So", "Sk"):
+            return True
+        code = ord(label)
+        if (0x0370 <= code <= 0x03FF) or (0x2190 <= code <= 0x22FF):
+            return True
+    return False
+
+
+def classify_token(token: str, known_symbols: Any = None) -> str:
+    """Phân loại nhãn token thành một trong các nhóm: 'digits', 'punct', 'symbols', hoặc 'words'."""
+    t = token.strip()
+    if not t:
+        return "words"
+    if t.isdigit() and len(t) == 1:
+        return "digits"
+    if is_symbol_label(t, known_symbols):
+        return "symbols"
+    if t in PUNCT_CHARS or (len(t) == 1 and not t.isalnum()):
+        return "punct"
+    return "words"
+
+
+def sample_signature(strokes: list[Stroke]) -> str:
+    """Tạo chữ ký băm (SHA-256) từ tọa độ nét vẽ đã làm tròn để phát hiện và khử trùng mẫu học trùng lặp."""
+    import hashlib
+
+    parts = []
+    for s in strokes:
+        parts.append(",".join(f"{round(coord, 2):.2f}" for coord in s))
+    norm_repr = ";".join(parts)
+    return hashlib.sha256(norm_repr.encode("utf-8")).hexdigest()
+

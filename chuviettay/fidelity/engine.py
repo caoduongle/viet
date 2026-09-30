@@ -70,9 +70,9 @@ class FidelityLayoutEngine:
                 if not words:
                     continue
 
-                # Tính tỷ lệ thu phóng theo font size ban đầu so với x-height kho mẫu
+                # Tính tỷ lệ thu phóng theo font size ban đầu so với x-height kho mẫu (R5)
                 target_font_size = tb.font_size or 12.0
-                font_scale_ratio = target_font_size / max(10.0, bank_xh)
+                font_scale_ratio = target_font_size / (bank_xh if bank_xh > 0 else 7.0)
                 eff_scale = base_scale * font_scale_ratio
 
                 # Tính baseline y (thường nằm ở khoảng 75% chiều cao của dòng)
@@ -141,6 +141,23 @@ class FidelityLayoutEngine:
         # Lưu file .xopp
         xopp.save_xopp(out_path, parts)
 
+        missing_grid_path = None
+        # R5: Tự động tạo file lưới ô từ còn thiếu nếu được yêu cầu
+        if missing_tokens > 0 and self.opts.missing_grid:
+            grid_path = os.path.splitext(out_path)[0] + "_thieu.xopp"
+            miss_keys = sorted(self.wr.missing)
+            samples = {k: self.bank.words[k][0]["s"] for k in miss_keys if k in self.bank.words}
+            xopp.make_grid(
+                grid_path,
+                miss_keys,
+                self.bank,
+                f"Các từ thiếu mẫu khi viết {os.path.basename(out_path)}",
+                samples,
+                calib=False,
+            )
+            missing_grid_path = grid_path
+            _log.info("Đã tạo file lưới ô từ còn thiếu: %s (%d từ)", grid_path, len(miss_keys))
+
         total_images = sum(len(p.image_boxes) for p in document.pages)
         total_tables = sum(len(p.table_geometries) for p in document.pages)
 
@@ -155,4 +172,5 @@ class FidelityLayoutEngine:
             n_pages=len(document.pages),
             n_images=total_images,
             n_tables=total_tables,
+            missing_grid_path=missing_grid_path,
         )

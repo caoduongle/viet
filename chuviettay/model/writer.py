@@ -98,16 +98,16 @@ class Writer:
         gaps = b.d.get("dgaps") or [3.5]
         for ch in s:
             if ch in ",.":
-                lib = b.punct.get(",") or b.punct.get(".")
+                lib = b.punct.get(ch) or b.punct.get(",") or b.punct.get(".") or b.words.get(ch)
                 if not lib:
                     missing.append(ch)
                     continue
-                g = self.pick(lib, "p,")
+                g = self.pick(lib, "p" + ch)
                 out += [shift(st, x, 0) for st in g["s"]]
                 x += max(st[i] for st in g["s"] for i in range(0, len(st), 2)) + 0.6
                 first = True
                 continue
-            lib = b.digits.get(ch)
+            lib = b.digits.get(ch) or b.words.get(ch)
             if not lib:
                 missing.append(ch)
                 continue
@@ -140,6 +140,12 @@ class Writer:
         if tok in b.words:
             inst = self.pick(b.words[tok], tok)
             return list(inst["s"]), inst["w"], []
+        if getattr(b, "digits", None) and tok in b.digits:
+            inst = self.pick(b.digits[tok], "d" + tok)
+            return list(inst["s"]), inst["w"], []
+        if getattr(b, "punct", None) and tok in b.punct:
+            inst = self.pick(b.punct[tok], "p" + tok)
+            return list(inst["s"]), inst["w"], []
         if getattr(b, "symbols", None) and tok in b.symbols:
             inst = self.pick(b.symbols[tok], "sym:" + tok)
             return list(inst["s"]), inst["w"], []
@@ -149,6 +155,10 @@ class Writer:
         for ch in lead:
             if ch in b.words:
                 inst = self.pick(b.words[ch], ch)
+                strokes += [shift(st, x, 0) for st in inst["s"]]
+                x += inst["w"] + 0.15 * b.xh
+            elif getattr(b, "punct", None) and ch in b.punct:
+                inst = self.pick(b.punct[ch], "p" + ch)
                 strokes += [shift(st, x, 0) for st in inst["s"]]
                 x += inst["w"] + 0.15 * b.xh
             elif getattr(b, "symbols", None) and ch in b.symbols:
@@ -173,7 +183,7 @@ class Writer:
             x += w
         for ch in trail:
             lib = b.punct.get(ch)
-            if lib and core:
+            if lib:
                 g = self.pick(lib, "p" + ch)
                 strokes += [shift(st, x, 0) for st in g["s"]]
                 x += max(st[i] for st in g["s"] for i in range(0, len(st), 2)) + 0.3
@@ -187,6 +197,11 @@ class Writer:
                 x += inst["w"] + 0.15 * b.xh
             else:
                 miss.append(ch)
-        if not core and not lead and trail == tok and tok not in b.words:
+        if not core and not lead and trail == tok and (
+            tok not in b.words
+            and tok not in getattr(b, "punct", {})
+            and tok not in getattr(b, "digits", {})
+            and tok not in getattr(b, "symbols", {})
+        ):
             miss = [tok]
         return strokes, x, miss

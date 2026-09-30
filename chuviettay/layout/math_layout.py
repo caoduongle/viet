@@ -43,7 +43,7 @@ class MathLayoutEngine:
     ):
         self.bank = bank
         self.S = S
-        self.xh = float(getattr(bank, "xh", 10.0)) * S
+        self.xh = float(getattr(bank, "xh", 10.0))
         self.rnd = rnd or random.Random(42)
         from chuviettay.model.writer import Writer
         self.writer = writer or Writer(bank, self.rnd)
@@ -51,14 +51,15 @@ class MathLayoutEngine:
 
     def measure(self, node: MathNode, scale: float = 1.0, depth: int = 0) -> MathLayoutItem:
         """Đo đạc đệ quy và định vị toạ độ tương đối (gốc (0,0) nằm tại baseline của phần tử)."""
-        eff_scale = max(0.5 * self.S, scale)
+        scale = max(0.2, scale)
+        eff_scale = self.S * scale
 
         # 1. MathRow: Chuỗi phần tử nằm ngang cùng đường cơ sở
         if isinstance(node, MathRow):
             if not node.items:
                 return MathLayoutItem(size=Size(width=0.0, height=0.0, ascent=0.0, descent=0.0, baseline=0.0))
 
-            measured_items = [self.measure(it, eff_scale, depth) for it in node.items]
+            measured_items = [self.measure(it, scale, depth) for it in node.items]
             max_ascent = max((it.size.ascent for it in measured_items), default=self.xh * eff_scale)
             max_descent = max((it.size.descent for it in measured_items), default=0.2 * self.xh * eff_scale)
 
@@ -109,8 +110,19 @@ class MathLayoutEngine:
 
             if st:
                 scaled_w = w * eff_scale
-                ascent = 0.9 * self.xh * eff_scale
-                descent = 0.2 * self.xh * eff_scale
+                ys = [pt for stroke in st for pt in stroke[1::2]]
+                has_ascender = any(c.isupper() or c in "bdfhklđ" for c in txt)
+                if ys and has_ascender:
+                    ascent = max(self.xh * eff_scale, -min(ys) * eff_scale)
+                else:
+                    ascent = self.xh * eff_scale
+
+                has_descender = any(c in "gjpqy" for c in txt)
+                if ys and has_descender:
+                    descent = max(0.2 * self.xh * eff_scale, max(ys) * eff_scale)
+                else:
+                    descent = 0.2 * self.xh * eff_scale
+
                 glyphs = [PositionedGlyph(strokes=st, x=0.0, y=0.0, scale=eff_scale)]
                 return MathLayoutItem(
                     size=Size(width=scaled_w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent),
@@ -132,8 +144,14 @@ class MathLayoutEngine:
             if hasattr(self.bank, "symbols") and sym in self.bank.symbols and self.bank.symbols[sym]:
                 sample = self.bank.symbols[sym][0]
                 w = float(sample.get("w", 10.0)) * eff_scale
-                ascent = 0.9 * self.xh * eff_scale
-                descent = 0.2 * self.xh * eff_scale
+                s = sample.get("s", [])
+                ys = [pt for stroke in s for pt in stroke[1::2]]
+                if ys:
+                    ascent = max(0.9 * self.xh * eff_scale, -min(ys) * eff_scale)
+                    descent = max(0.2 * self.xh * eff_scale, max(ys) * eff_scale)
+                else:
+                    ascent = 0.9 * self.xh * eff_scale
+                    descent = 0.2 * self.xh * eff_scale
                 glyphs = [PositionedGlyph(strokes=sample.get("s", []), x=0.0, y=0.0, scale=eff_scale)]
                 return MathLayoutItem(
                     size=Size(width=w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent),
@@ -144,8 +162,13 @@ class MathLayoutEngine:
             st, w, miss = self.writer.token(sym)
             if st and not miss:
                 scaled_w = w * eff_scale
-                ascent = 0.8 * self.xh * eff_scale
-                descent = 0.2 * self.xh * eff_scale
+                ys = [pt for stroke in st for pt in stroke[1::2]]
+                if ys:
+                    ascent = max(0.8 * self.xh * eff_scale, -min(ys) * eff_scale)
+                    descent = max(0.2 * self.xh * eff_scale, max(ys) * eff_scale)
+                else:
+                    ascent = 0.8 * self.xh * eff_scale
+                    descent = 0.2 * self.xh * eff_scale
                 glyphs = [PositionedGlyph(strokes=st, x=0.0, y=0.0, scale=eff_scale)]
                 return MathLayoutItem(
                     size=Size(width=scaled_w, height=ascent + descent, ascent=ascent, descent=descent, baseline=ascent),
@@ -192,7 +215,7 @@ class MathLayoutEngine:
 
         # 4. Fraction: Phân số
         elif isinstance(node, Fraction):
-            child_scale = max(0.5 * self.S, eff_scale * 0.85)
+            child_scale = scale * 0.85
             num_item = self.measure(node.num, child_scale, depth + 1)
             den_item = self.measure(node.den, child_scale, depth + 1)
 
@@ -242,8 +265,8 @@ class MathLayoutEngine:
 
         # 5. Superscript: Số mũ
         elif isinstance(node, Superscript):
-            base_item = self.measure(node.base, eff_scale, depth)
-            exp_scale = max(0.5 * self.S, eff_scale * 0.7)
+            base_item = self.measure(node.base, scale, depth)
+            exp_scale = scale * 0.7
             exp_item = self.measure(node.exp, exp_scale, depth + 1)
 
             shift_y = -0.55 * base_item.size.ascent
@@ -269,8 +292,8 @@ class MathLayoutEngine:
 
         # 6. Subscript: Chỉ số dưới
         elif isinstance(node, Subscript):
-            base_item = self.measure(node.base, eff_scale, depth)
-            sub_scale = max(0.5 * self.S, eff_scale * 0.7)
+            base_item = self.measure(node.base, scale, depth)
+            sub_scale = scale * 0.7
             sub_item = self.measure(node.sub, sub_scale, depth + 1)
 
             shift_y = 0.35 * base_item.size.descent + 3.0 * eff_scale
@@ -296,8 +319,8 @@ class MathLayoutEngine:
 
         # 7. SubSuperscript: Cả chỉ số dưới và trên
         elif isinstance(node, SubSuperscript):
-            base_item = self.measure(node.base, eff_scale, depth)
-            child_scale = max(0.5 * self.S, eff_scale * 0.7)
+            base_item = self.measure(node.base, scale, depth)
+            child_scale = scale * 0.7
             sub_item = self.measure(node.sub, child_scale, depth + 1)
             exp_item = self.measure(node.exp, child_scale, depth + 1)
 
@@ -330,13 +353,13 @@ class MathLayoutEngine:
 
         # 8. Root: Căn thức
         elif isinstance(node, Root):
-            rad_item = self.measure(node.radicand, eff_scale, depth + 1)
+            rad_item = self.measure(node.radicand, scale, depth + 1)
 
             # Bậc căn thức (degree, ví dụ: \sqrt[3]{x})
             deg_item = None
             deg_w = 0.0
             if getattr(node, "degree", None) is not None:
-                deg_scale = eff_scale * 0.65
+                deg_scale = scale * 0.65
                 deg_item = self.measure(node.degree, deg_scale, depth + 1)
                 deg_w = deg_item.size.width
 

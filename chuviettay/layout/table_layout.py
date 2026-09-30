@@ -1,6 +1,8 @@
 """Động cơ đo đạc kích thước bảng, gói chữ trong ô và sinh nét viền bảng."""
 from __future__ import annotations
 
+import math
+import random
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -122,11 +124,18 @@ class TableLayoutData:
 class TableLayoutEngine:
     """Tính toán kích thước cột/hàng, ngắt dòng nội dung ô và sinh nét vẽ viền bảng."""
 
-    def __init__(self, available_width: float, line_height: float, cell_padding: float = 6.0):
+    def __init__(
+        self,
+        available_width: float,
+        line_height: float,
+        cell_padding: float = 6.0,
+        calc_text_bounds: Any = None,
+    ):
         self.available_width = max(50.0, available_width)
         self.line_height = max(10.0, line_height)
         self.cell_padding = cell_padding
         self.char_w = self.line_height * 0.45  # ước lượng tương đối độ rộng ký tự
+        self.calc_text_bounds = calc_text_bounds
 
     def _resolve_occupancy(self, table: Table) -> tuple[list[tuple[int, int, int, int, TableCell]], int]:
         """Phân giải ma trận chiếm chỗ 2D cho toàn bộ bảng. Trả về (placements, num_cols)."""
@@ -206,8 +215,12 @@ class TableLayoutEngine:
                 continue
             txt = self._extract_cell_text(cell)
             words = txt.split()
-            longest_w = max((len(w) for w in words), default=0) * self.char_w + 2 * self.cell_padding
-            full_w = len(txt) * self.char_w + 2 * self.cell_padding
+            if self.calc_text_bounds is not None and words:
+                longest_w = max((self.calc_text_bounds(w) for w in words), default=0.0) + 2 * self.cell_padding
+                full_w = sum(self.calc_text_bounds(w) for w in words) + max(0, len(words) - 1) * (self.char_w * 0.8) + 2 * self.cell_padding
+            else:
+                longest_w = max((len(w) for w in words), default=0) * self.char_w + 2 * self.cell_padding
+                full_w = len(txt) * self.char_w + 2 * self.cell_padding
 
             per_col_min = max(30.0, longest_w / eff_cs)
             per_col_nat = max(40.0, full_w / eff_cs)
@@ -367,10 +380,39 @@ class TableLayoutEngine:
             cells=laid_out_cells,
         )
 
-    def generate_border_strokes(self, data: TableLayoutData, style: TableBorder) -> list[PositionedStroke]:
-        """Tạo danh sách các đường nét vẽ thẳng (2 toạ độ điểm) làm khung viền bảng, ẩn nét trong ô gộp."""
+    def generate_border_strokes(
+        self,
+        data: TableLayoutData,
+        style: TableBorder = TableBorder.ALL,
+        jitter: float = 0.0,
+        seed: int | None = None,
+    ) -> list[PositionedStroke]:
+        """Tạo danh sách các đường nét vẽ thẳng hoặc hơi run tay (jitter) làm khung viền bảng, ẩn nét trong ô gộp."""
         if style == TableBorder.NONE or data.width <= 0 or data.height <= 0:
             return []
+
+        rnd = random.Random(seed if seed is not None else 42)
+
+        def jitter_segment(p1: tuple[float, float], p2: tuple[float, float]) -> list[tuple[float, float]]:
+            if jitter <= 0.0:
+                return [p1, p2]
+            dx = p2[0] - p1[0]
+            dy = p2[1] - p1[1]
+            dist = math.hypot(dx, dy)
+            if dist < 15.0:
+                return [p1, p2]
+            num_steps = max(2, int(dist / 25.0))
+            pts = [p1]
+            for step in range(1, num_steps):
+                t = step / num_steps
+                bx = p1[0] + dx * t
+                by = p1[1] + dy * t
+                nx = -dy / dist
+                ny = dx / dist
+                offset = rnd.gauss(0, 0.35 * jitter)
+                pts.append((round(bx + nx * offset, 2), round(by + ny * offset, 2)))
+            pts.append(p2)
+            return pts
 
         x1 = data.x
         x2 = data.x + data.width
@@ -381,12 +423,12 @@ class TableLayoutEngine:
 
         # 1. Khung bao quanh ngoài (OUTER, ALL, HORIZONTAL)
         if style in (TableBorder.OUTER, TableBorder.ALL, TableBorder.HORIZONTAL):
-            strokes.append(PositionedStroke(points=[(x1, y1), (x2, y1)]))
-            strokes.append(PositionedStroke(points=[(x1, y2), (x2, y2)]))
+            strokes.append(PositionedStroke(points=jitter_segment((x1, y1), (x2, y1))))
+            strokes.append(PositionedStroke(points=jitter_segment((x1, y2), (x2, y2))))
 
         if style in (TableBorder.OUTER, TableBorder.ALL):
-            strokes.append(PositionedStroke(points=[(x1, y1), (x1, y2)]))
-            strokes.append(PositionedStroke(points=[(x2, y1), (x2, y2)]))
+            strokes.append(PositionedStroke(points=jitter_segment((x1, y1), (x1, y2))))
+            strokes.append(PositionedStroke(points=jitter_segment((x2, y1), (x2, y2))))
 
         # Bản đồ các ô và vùng gộp để ẩn nét kẻ bên trong
         num_rows = len(data.row_heights)
@@ -422,11 +464,11 @@ class TableLayoutEngine:
                             cur_seg_start = col_xs[c_idx]
                     else:
                         if cur_seg_start is not None:
-                            strokes.append(PositionedStroke(points=[(cur_seg_start, div_y), (col_xs[c_idx], div_y)]))
+                            strokes.append(PositionedStroke(points=jitter_segment((cur_seg_start, div_y), (col_xs[c_idx], div_y))))
                             cur_seg_start = None
 
                 if cur_seg_start is not None:
-                    strokes.append(PositionedStroke(points=[(cur_seg_start, div_y), (col_xs[num_cols], div_y)]))
+                    strokes.append(PositionedStroke(points=jitter_segment((cur_seg_start, div_y), (col_xs[num_cols], div_y))))
 
         # 3. Đường chia dọc giữa các cột (chỉ có trong ALL) theo từng phân đoạn hàng
         if style == TableBorder.ALL:
@@ -450,10 +492,10 @@ class TableLayoutEngine:
                             cur_seg_start = row_ys[r_idx]
                     else:
                         if cur_seg_start is not None:
-                            strokes.append(PositionedStroke(points=[(div_x, cur_seg_start), (div_x, row_ys[r_idx])]))
+                            strokes.append(PositionedStroke(points=jitter_segment((div_x, cur_seg_start), (div_x, row_ys[r_idx]))))
                             cur_seg_start = None
 
                 if cur_seg_start is not None:
-                    strokes.append(PositionedStroke(points=[(div_x, cur_seg_start), (div_x, row_ys[num_rows])]))
+                    strokes.append(PositionedStroke(points=jitter_segment((div_x, cur_seg_start), (div_x, row_ys[num_rows]))))
 
         return strokes

@@ -164,7 +164,7 @@ def test_importer_khong_phu_thuoc_view_hay_cli():
     assert not bad, "Importer không được phụ thuộc View/CLI/Controller:\n  " + "\n  ".join(bad)
 
 
-def test_layout_engine_khong_phu_thuoc_view_cli_hay_importer():
-    """Tầng layout/ không được phụ thuộc vào giao diện người dùng, CLI hay các bộ importer."""
-    bad = violations(py_files("layout"), ["chuviettay.importer"] + UI_AND_ENTRY)
-    assert not bad, "Layout Engine không được phụ thuộc View/CLI/Importer:\n  " + "\n  ".join(bad)
+def test_layout_engine_khong_phu_thuoc_view_cli_controller_hay_importer():
+    """Tầng layout/ không được phụ thuộc vào giao diện người dùng, CLI, Controller hay các bộ importer."""
+    bad = violations(py_files("layout"), ["chuviettay.controller", "chuviettay.importer"] + UI_AND_ENTRY)
+    assert not bad, "Layout Engine không được phụ thuộc View/CLI/Controller/Importer:\n  " + "\n  ".join(bad)

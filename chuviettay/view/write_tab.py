@@ -128,8 +128,12 @@ class WriteTab(ttk.Frame):
         misswrap.pack(fill="both", expand=True, pady=(10, 0))
         self.miss_list = tk.Listbox(misswrap, height=5)
         self.miss_list.pack(side="left", fill="both", expand=True)
-        ttk.Button(misswrap, text="Dạy các từ này →",
-                   command=self.teach_missing).pack(side="left", padx=6, anchor="n", pady=4)
+        act_box = ttk.Frame(misswrap)
+        act_box.pack(side="left", padx=6, anchor="n", pady=4)
+        ttk.Button(act_box, text="Dạy các từ này →",
+                   command=self.teach_missing).pack(fill="x", pady=2)
+        ttk.Button(act_box, text="Dạy bộ tối thiểu →",
+                   command=self.teach_minimal_essentials).pack(fill="x", pady=2)
 
     def _build_options(self, right: ttk.Frame) -> None:
         # Nhóm 1: Trang & Nền giấy
@@ -180,10 +184,12 @@ class WriteTab(ttk.Frame):
             values=[
                 "Trắng (Plain)",
                 "Dòng kẻ (Ruled)",
+                "Dòng kẻ ngang (Lined)",
                 "Dòng kẻ + lề",
                 "Ô li (Graph)",
                 "Chấm (Dotted)",
                 "Isometric (Ô li xiên)",
+                "Isometric chấm (Iso Dotted)",
                 "Khuông nhạc (Music)",
             ],
             state="readonly",
@@ -315,14 +321,18 @@ class WriteTab(ttk.Frame):
 
         bg_text = self.v_background.get().strip().lower()
         bg_margin = None
-        if "ô li xiên" in bg_text or "isometric" in bg_text:
+        if "iso dotted" in bg_text or "isometric chấm" in bg_text or "iso_dotted" in bg_text:
+            bg_style = "iso_dotted"
+        elif "ô li xiên" in bg_text or "iso_graph" in bg_text or "isometric" in bg_text:
             bg_style = "iso_graph"
         elif "ô li" in bg_text or "graph" in bg_text:
             bg_style = "graph"
         elif "lề" in bg_text or "margin" in bg_text:
             bg_style = "ruled"
             bg_margin = 72.0
-        elif "dòng kẻ" in bg_text or "ruled" in bg_text or "lined" in bg_text:
+        elif "lined" in bg_text or "kẻ ngang" in bg_text:
+            bg_style = "lined"
+        elif "dòng kẻ" in bg_text or "ruled" in bg_text:
             bg_style = "ruled"
         elif "chấm" in bg_text or "dotted" in bg_text:
             bg_style = "dotted"
@@ -500,3 +510,10 @@ class WriteTab(ttk.Frame):
             messagebox.showinfo("Không có gì để dạy", "Chưa có từ nào đang thiếu.")
             return
         self.on_teach_missing([w for w, _n in self.last_missing])
+
+    def teach_minimal_essentials(self) -> None:
+        todo = self.ctl.missing_minimal_essentials()
+        if not todo:
+            messagebox.showinfo("Đầy đủ", "Kho mẫu đã có đủ bộ tối thiểu (chữ số, dấu câu và các từ phổ biến).")
+            return
+        self.on_teach_missing(todo)

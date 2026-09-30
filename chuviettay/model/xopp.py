@@ -64,7 +64,8 @@ def save_xopp(path: str, parts: list[str]) -> None:
 def read_xopp(path: str) -> ET.Element:
     """Đọc file .xopp, tự nhận biết có nén gzip hay không (một số công cụ khác có thể
     ghi .xopp không nén), trả về gốc cây XML."""
-    raw = open(path, "rb").read()
+    with open(path, "rb") as f:
+        raw = f.read()
     if raw[:2] == b"\x1f\x8b":
         raw = gzip.decompress(raw)
     return ET.fromstring(raw)
@@ -85,8 +86,8 @@ def stroke_xml(pts: list[tuple[float, float]], pen: dict, color: str | None = No
     w = float(a.pop("width", "1.41")) * wscale
     if color:
         a["color"] = color
-    return '<stroke %s width="%s">%s</stroke>' % (
-        " ".join('%s="%s"' % (k, v) for k, v in a.items()), fmt(w), pts_xml(pts))
+    attrs = " ".join('%s="%s"' % (escape(str(k)), escape(str(v), entities={'"': "&quot;"})) for k, v in a.items())
+    return '<stroke %s width="%s">%s</stroke>' % (attrs, fmt(w), pts_xml(pts))
 
 
 # ---------------------------------------------------------------- file mẫu dạng lưới ô
