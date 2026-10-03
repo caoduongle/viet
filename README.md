@@ -85,6 +85,21 @@ Xem `python3 hw_note.py --help` (và `python3 hw_note.py write --help`) để bi
 
 Định dạng đầu vào tự động nhận diện theo đuôi mở rộng (`.txt`, `.md`, `.markdown`, `.docx`), hỗ trợ bảng dữ liệu (GFM / Word) và công thức toán học (LaTeX / OMML) căn chỉnh theo baseline nét viết tay.
 
+#### Công thức toán học
+
+| Nguồn | Hỗ trợ |
+|---|---|
+| Markdown | `$…$`, `$$…$$`, `\(…\)`, `\[…\]`, môi trường `\begin{align}…\end{align}` (kể cả trong mục danh sách và ô bảng). Tiền (`5$ rồi 10$`) không bị nhận nhầm là công thức. |
+| LaTeX | Phân số (`\frac \dfrac \binom`), căn, chỉ số/số mũ (kể cả `x^2`, `f'`), ngoặc co giãn `\left…\right`, `\sum \int \lim` có cận, tên hàm (`\sin \log …`), vectơ/góc/gạch ngang (`\overrightarrow \widehat \overline …`), `\mathbb \mathcal \text \mathrm`, ma trận / `cases` / `aligned` / `array`, khoảng trắng và hơn 200 ký hiệu. |
+| Word (.docx) | Công thức Office Math (OMML): phân số, chỉ số, căn, ngoặc nhiều phần tử, toán tử lớn, giới hạn, hàm, dấu trang trí, hệ phương trình, ma trận, khung. Công thức nhập trong cùng một run (`2x+3=0`) được tách đúng thành số/biến/toán tử. |
+| MathType | **Chưa đọc được** nội dung đối tượng OLE của MathType / Equation Editor. Ứng dụng phát hiện và thay bằng ô vuông trống `□`, kèm cảnh báo có số lượng (không bao giờ im lặng bỏ mất). Cách xử lý: trong Word dùng *Convert Equations* của MathType để đổi sang công thức gốc của Word rồi lưu lại, hoặc chép công thức sang Markdown/LaTeX. |
+
+Quy ước: dấu phẩy trần trong `$0,1$` là dấu ngăn cách (như TeX); dấu phẩy thập phân kiểu Việt Nam viết là `$0{,}1$`.
+Ký hiệu chưa có mẫu viết tay trong kho được vẽ tạm bằng nét vector và vẫn nằm trong danh sách "Ký hiệu thiếu mẫu" để bạn dạy thêm.
+Công thức quá rộng được thu nhỏ vừa dòng/ô bảng, hoặc ngắt dòng sau dấu quan hệ/toán tử; công thức cao làm tăng chiều cao dòng.
+
+> **Fidelity và công thức:** bản làm trắng có đặt màu trắng cho công thức OMML (theo lược đồ OOXML). LibreOffice bỏ qua màu chữ trong công thức, nên khi chuyển đổi Fidelity qua LibreOffice, công thức in có thể vẫn hiện màu đen dưới chữ viết tay; chế độ Semantic không bị ảnh hưởng.
+
 ### Chế độ xử lý tài liệu Word (.docx)
 
 Ứng dụng hỗ trợ 2 chế độ chuyển đổi tài liệu `.docx` sang chữ viết tay:
@@ -152,15 +167,18 @@ chuviettay/
 │   ├── txt_importer.py   Nạp tệp văn bản thuần (.txt)
 │   ├── markdown_importer.py Nạp tệp Markdown (.md) kèm bảng và công thức
 │   ├── docx_importer.py  Nạp tệp Word (.docx) kèm bảng phức tạp và định dạng
-│   └── omml.py           Chuyển đổi công thức toán Office Math Markup Language (OMML) sang LaTeX
+│   └── omml.py           Chuyển công thức Office Math (OMML) của Word sang cây cú pháp toán học
 ├── layout/
 │   ├── engine.py         DocumentLayoutEngine: dàn trang tự do theo cấu trúc ngữ nghĩa
-│   ├── page_buffer.py    Bộ đệm trang đa luồng kết xuất .xopp
-│   ├── math_layout.py    Dàn công thức toán học theo baseline nét viết tay
+│   ├── math_layout.py    Dàn công thức toán học theo baseline nét viết tay (khoảng cách kiểu TeX, ngoặc co giãn, ma trận...)
+│   ├── vector_glyphs.py  Nét vector dự phòng cho ký hiệu chưa có mẫu viết tay
 │   └── table_layout.py   Dàn bảng biểu, đo độ rộng ô theo nét thật và viền bảng
 ├── math/
-│   ├── nodes.py          Cấu trúc cây cú pháp toán học (MathNode, FracNode, SqrtNode...)
-│   └── parser.py         Bộ phân tích biểu thức LaTeX sang cây cú pháp
+│   ├── ast.py            Cấu trúc cây cú pháp toán học (MathRow, Fraction, Delimited, NAry, Matrix, Accent...)
+│   ├── symbols.py        Bảng ký hiệu, phân lớp kiểu TeX, chuẩn hoá Unicode
+│   ├── parser.py         Bộ phân tích biểu thức LaTeX sang cây cú pháp
+│   ├── latex_writer.py   Chuyển cây cú pháp ngược lại thành LaTeX
+│   └── build.py          Hàm dựng nút dùng chung giữa bộ phân tích LaTeX và OMML
 ├── fidelity/
 │   ├── converter.py      FidelityConverter: chuyển đổi PDF nền và trích xuất tọa độ cố định
 │   ├── extractor.py      SpatialTextExtractor: trích xuất dòng văn bản và hình học không gian

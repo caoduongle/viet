@@ -54,6 +54,8 @@ class DocumentLayoutEngine:
             self.width = self.page_format.usable_width
         self.gaps = [g for g in bank.d["wgaps"] if 6.0 <= g <= 20.0] or [11.0]
         self.wr = Writer(bank, self.rnd, self.J, not opts.strict_case, opts.space, assemble_letters=opts.assemble_letters)
+        # id(danh sách nét của mục công thức inline) -> (ascent, descent) theo toạ độ kho (S=1): để nới chiều cao dòng
+        self._math_extent: dict[int, tuple[float, float]] = {}
 
 
     def _render_text_line(
@@ -92,6 +94,7 @@ class DocumentLayoutEngine:
         inlines: list[Inline],
         scale_mult: float = 1.0,
         missing_symbols: dict[str, int] | None = None,
+        max_item_width: float | None = None,
     ) -> tuple[list[tuple[list[Stroke], float, list[str]]], int, int]:
         """Chuyển đổi danh sách Inline (Text, MathInline, Symbol, LineBreak) thành các mục (strokes, width, miss).
         Trả về: (items, n_tokens, n_missing_tokens)."""
@@ -135,7 +138,16 @@ class DocumentLayoutEngine:
             elif isinstance(inline, MathInline):
                 math_ast = inline.ast or parse_latex_math(inline.latex)
                 math_engine = MathLayoutEngine(self.bank, S=1.0, writer=self.wr, rnd=self.rnd)
-                m_item = math_engine.measure(math_ast)
+                # Công thức rộng hơn dòng/ô: thu nhỏ vừa khít (tối thiểu 50%); nếu vẫn quá rộng thì ngắt dòng
+                # sau quan hệ/toán tử (như công thức display) thay vì tràn lề
+                avail = (max_item_width if max_item_width is not None else self.width) / max(self.S * scale_mult, 1e-6)
+                probe_w = math_engine._scratch().measure(math_ast).size.width
+                if avail > 0 and probe_w * 0.5 > avail:
+                    pieces = math_engine.layout_lines(math_ast, avail)
+                elif avail > 0 and probe_w > avail:
+                    pieces = [math_engine.measure(math_ast, scale=max(0.5, avail / probe_w))]
+                else:
+                    pieces = [math_engine.measure(math_ast)]
                 math_miss_count = sum(math_engine.missing_symbols.values())
                 for sym, count in math_engine.missing_symbols.items():
                     if missing_symbols is not None:
@@ -143,25 +155,30 @@ class DocumentLayoutEngine:
                     else:
                         self.wr.missing[sym] = self.wr.missing.get(sym, 0) + count
                     nmiss += count
-                ntok += max(1, len(m_item.glyphs), math_miss_count)
+                ntok += max(1, sum(len(pc.glyphs) for pc in pieces), math_miss_count)
 
-                # Chuyển đổi MathLayoutItem thành các nét viết tay tương đối trong toạ độ bank (S=1.0)
-                math_strokes: list[Stroke] = []
-                for g in m_item.glyphs:
-                    for gst in g.strokes:
-                        fin_s = []
-                        for idx in range(0, len(gst), 2):
-                            fin_s.append(round(gst[idx] * g.scale + g.x, 2))
-                            fin_s.append(round(gst[idx + 1] * g.scale + g.y, 2))
-                        math_strokes.append(fin_s)
-                for ps in m_item.strokes:
-                    flat_pts = []
-                    for pt in ps.points:
-                        flat_pts.append(round(pt[0], 2))
-                        flat_pts.append(round(pt[1], 2))
-                    math_strokes.append(flat_pts)
+                for k, m_item in enumerate(pieces):
+                    # Chuyển đổi MathLayoutItem thành các nét viết tay tương đối trong toạ độ bank (S=1.0)
+                    math_strokes: list[Stroke] = []
+                    for g in m_item.glyphs:
+                        for gst in g.strokes:
+                            fin_s = []
+                            for idx in range(0, len(gst), 2):
+                                fin_s.append(round(gst[idx] * g.scale + g.x, 2))
+                                fin_s.append(round(gst[idx + 1] * g.scale + g.y, 2))
+                            math_strokes.append(fin_s)
+                    for ps in m_item.strokes:
+                        flat_pts = []
+                        for pt in ps.points:
+                            flat_pts.append(round(pt[0], 2))
+                            flat_pts.append(round(pt[1], 2))
+                        math_strokes.append(flat_pts)
 
-                items.append((math_strokes, m_item.size.width * self.S * scale_mult, list(math_engine.missing_symbols.keys())))
+                    self._math_extent[id(math_strokes)] = (m_item.size.ascent, m_item.size.descent)
+                    items.append((math_strokes, m_item.size.width * self.S * scale_mult,
+                                  list(math_engine.missing_symbols.keys())))
+                    if k < len(pieces) - 1:
+                        items.append(([], 0.0, ["__LINE_BREAK__"]))
 
             elif isinstance(inline, LineBreak):
                 items.append(([], 0.0, ["__LINE_BREAK__"]))
@@ -193,32 +210,42 @@ class DocumentLayoutEngine:
             cur_y = pf.content_top
 
 
-        def render_paragraph_inlines(inlines: list[Inline], scale_mult: float = 1.0, prefix: str = ""):
-            nonlocal cur_y, total_lines, total_strokes, ntok, nmiss
+        def render_paragraph_inlines(inlines: list[Inline], scale_mult: float = 1.0, prefix: str = "",
+                                     indent: float = 0.0):
+            nonlocal ntok, nmiss
             if prefix:
                 inlines = [Text(text=prefix)] + list(inlines)
 
-            items, n_t, n_m = self._layout_inlines(inlines, scale_mult=scale_mult, missing_symbols=missing_symbols)
+            avail_w = max(self.width - indent, 1.0)
+            items, n_t, n_m = self._layout_inlines(inlines, scale_mult=scale_mult, missing_symbols=missing_symbols,
+                                                   max_item_width=avail_w)
             ntok += n_t
             nmiss += n_m
 
             eff_line_h = self.line_h * scale_mult
             cur_line: list[tuple[float, list[Stroke], float]] = []
             curw = 0.0
+            line_asc = line_desc = 0.0     # chiều cao lớn nhất của công thức inline trên dòng hiện tại
 
             def flush_line():
-                nonlocal cur_y, total_lines, total_strokes, cur_line, curw
+                nonlocal cur_y, total_lines, total_strokes, cur_line, curw, line_asc, line_desc
                 if not cur_line:
                     return
-                if cur_y + eff_line_h > max_page_y:
+                # Công thức cao (phân số, căn...) cần thêm chỗ phía trên/dưới đường cơ sở để không chồng sang dòng kế
+                extra_top = max(0.0, line_asc - 0.7 * eff_line_h)
+                extra_bot = max(0.0, line_desc - 0.3 * eff_line_h)
+                line_h_total = eff_line_h + extra_top + extra_bot
+                if cur_y + line_h_total > max_page_y:
                     new_page()
-                line_strokes = self._render_text_line(cur_line, cur_y + eff_line_h, self.x0, scale_mult=scale_mult)
+                line_strokes = self._render_text_line(cur_line, cur_y + extra_top + eff_line_h, self.x0 + indent,
+                                                      scale_mult=scale_mult)
                 cur_page.extend(line_strokes)
                 total_strokes += len(line_strokes)
                 total_lines += 1
-                cur_y += eff_line_h
+                cur_y += line_h_total
                 cur_line = []
                 curw = 0.0
+                line_asc = line_desc = 0.0
 
             for st, w, miss in items:
                 if miss == ["__LINE_BREAK__"]:
@@ -226,14 +253,77 @@ class DocumentLayoutEngine:
                     continue
 
                 sp = self.rnd.choice(self.gaps) * self.S * scale_mult * self.opts.space * (1 + self.rnd.gauss(0, 0.06 * self.J))
-                if cur_line and curw + sp + w > self.width:
+                if cur_line and curw + sp + w > avail_w:
                     flush_line()
 
                 start = curw + (sp if cur_line else 0.0)
                 cur_line.append((start, st, w))
                 curw = start + w
+                ext = self._math_extent.get(id(st))
+                if ext is not None:
+                    line_asc = max(line_asc, ext[0] * self.S * scale_mult)
+                    line_desc = max(line_desc, ext[1] * self.S * scale_mult)
 
             flush_line()
+
+        def render_math_block(block: MathBlock, indent: float = 0.0):
+            """Công thức display: căn giữa, tự ngắt dòng sau quan hệ/toán tử nếu quá rộng, thu nhỏ nếu cần."""
+            nonlocal cur_y, total_lines, total_strokes, ntok, nmiss, total_math_blocks
+            math_ast = block.ast or parse_latex_math(block.latex)
+            math_engine = MathLayoutEngine(self.bank, S=self.S, writer=self.wr, rnd=self.rnd, display=True)
+            avail_w = max(self.width - indent, 1.0)
+            lines = math_engine.layout_lines(math_ast, avail_w)
+            math_miss_count = sum(math_engine.missing_symbols.values())
+            for sym, count in math_engine.missing_symbols.items():
+                missing_symbols[sym] = missing_symbols.get(sym, 0) + count
+                nmiss += count
+            ntok += max(1, sum(len(it.glyphs) for it in lines), math_miss_count)
+
+            for item in lines:
+                if cur_y + item.size.height > max_page_y and cur_y > pf.content_top:
+                    new_page()
+                math_x = self.x0 + indent + max(0.0, (avail_w - item.size.width) / 2.0)
+                baseline_y = cur_y + item.size.ascent
+
+                # 1. Stroke vector (gạch phân số, căn thức, ngoặc co giãn, dấu trang trí)
+                for ps in item.strokes:
+                    pts = [(math_x + pt[0], baseline_y + pt[1]) for pt in ps.points]
+                    cur_page.append(xopp.stroke_xml(pts, self.bank.pen, self.opts.color, self.opts.wscale))
+                    total_strokes += 1
+
+                # 2. Glyphs (ký hiệu có mẫu nét viết tay)
+                for g in item.glyphs:
+                    for st in g.strokes:
+                        fin = []
+                        for idx in range(0, len(st), 2):
+                            px = st[idx] * g.scale + math_x + g.x
+                            py = st[idx + 1] * g.scale + baseline_y + g.y
+                            fin.append((px, py))
+                        cur_page.append(xopp.stroke_xml(fin, self.bank.pen, self.opts.color, self.opts.wscale))
+                        total_strokes += 1
+
+                cur_y += item.size.height + (self.line_h * 0.25 if item is not lines[-1] else 0.0)
+                total_lines += 1
+            cur_y += self.line_h * 0.5
+            total_math_blocks += 1
+
+        def render_list(block: ListBlock, depth: int = 0):
+            """Danh sách (kể cả lồng nhau): mỗi mục có thể chứa đoạn văn, công thức display và danh sách con."""
+            nonlocal cur_y
+            indent = depth * 18.0 * self.S
+            for idx, item_blocks in enumerate(block.items):
+                pfx = f"{block.start + idx}. " if block.ordered else "- "
+                first_sub = True
+                for sub in item_blocks:
+                    if isinstance(sub, Paragraph):
+                        pref = pfx if first_sub else "  "
+                        first_sub = False
+                        render_paragraph_inlines(sub.inlines, scale_mult=1.0, prefix=pref, indent=indent)
+                        cur_y += self.line_h * 0.1
+                    elif isinstance(sub, MathBlock):
+                        render_math_block(sub, indent=indent)
+                    elif isinstance(sub, ListBlock):
+                        render_list(sub, depth + 1)
 
         try:
             for block in document.blocks:
@@ -257,15 +347,7 @@ class DocumentLayoutEngine:
                         cur_y += self.line_h * 0.2
 
                 elif isinstance(block, ListBlock):
-                    for idx, item_blocks in enumerate(block.items):
-                        pfx = f"{block.start + idx}. " if block.ordered else "- "
-                        first_sub = True
-                        for sub in item_blocks:
-                            if isinstance(sub, Paragraph):
-                                pref = pfx if first_sub else "  "
-                                first_sub = False
-                                render_paragraph_inlines(sub.inlines, scale_mult=1.0, prefix=pref)
-                                cur_y += self.line_h * 0.1
+                    render_list(block)
 
                 elif isinstance(block, Table):
                     def measure_word_bounds(word: str) -> float:
@@ -292,7 +374,10 @@ class DocumentLayoutEngine:
                                 cell_inlines.append(MathInline(latex=b.latex, ast=b.ast))
 
                         if cell_inlines:
-                            items, n_t, n_m = self._layout_inlines(cell_inlines, scale_mult=1.0, missing_symbols=missing_symbols)
+                            items, n_t, n_m = self._layout_inlines(
+                                cell_inlines, scale_mult=1.0, missing_symbols=missing_symbols,
+                                max_item_width=max(usable_w, 1.0),
+                            )
                             ntok += n_t
                             nmiss += n_m
                         else:
@@ -411,41 +496,7 @@ class DocumentLayoutEngine:
                     total_tables += 1
 
                 elif isinstance(block, MathBlock):
-                    math_ast = block.ast or parse_latex_math(block.latex)
-                    math_engine = MathLayoutEngine(self.bank, S=self.S, writer=self.wr, rnd=self.rnd)
-                    item = math_engine.measure(math_ast)
-                    math_miss_count = sum(math_engine.missing_symbols.values())
-                    for sym, count in math_engine.missing_symbols.items():
-                        missing_symbols[sym] = missing_symbols.get(sym, 0) + count
-                        nmiss += count
-                    ntok += max(1, len(item.glyphs), math_miss_count)
-
-                    if cur_y + item.size.height > max_page_y and cur_y > pf.content_top:
-                        new_page()
-
-                    math_x = self.x0 + max(0.0, (self.width - item.size.width) / 2.0)
-                    baseline_y = cur_y + item.size.ascent
-
-                    # 1. Stroke vector (gạch phân số, căn thức)
-                    for ps in item.strokes:
-                        pts = [(math_x + pt[0], baseline_y + pt[1]) for pt in ps.points]
-                        cur_page.append(xopp.stroke_xml(pts, self.bank.pen, self.opts.color, self.opts.wscale))
-                        total_strokes += 1
-
-                    # 2. Glyphs (ký hiệu có mẫu nét viết tay)
-                    for g in item.glyphs:
-                        for st in g.strokes:
-                            fin = []
-                            for idx in range(0, len(st), 2):
-                                px = st[idx] * g.scale + math_x + g.x
-                                py = st[idx + 1] * g.scale + baseline_y + g.y
-                                fin.append((px, py))
-                            cur_page.append(xopp.stroke_xml(fin, self.bank.pen, self.opts.color, self.opts.wscale))
-                            total_strokes += 1
-
-                    cur_y += item.size.height + self.line_h * 0.5
-                    total_lines += 1
-                    total_math_blocks += 1
+                    render_math_block(block)
 
             if cur_page or cur_y > pf.content_top or pb.n_pages == 0:
                 pb.append_page(cur_page, page_h=page_h, page_w=page_w, background=bg)

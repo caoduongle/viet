@@ -1,0 +1,184 @@
+\ge 45\text{ mm}
+< 5000\text{ g}
+< 45
+\ge 5000
+4500 > 4000 \rightarrow
+4450 > 4000 \rightarrow
+3500 \ngtr 4000 \rightarrow
+3900 \ngtr 4000 \rightarrow
+3650 \ngtr 4000 \rightarrow
+3525 \ngtr 4000 \rightarrow
+n
+\frac{1 + 1}{2} =
+\frac{13.2 + 14.1}{2} =
+\frac{0 + 0 + 0 + 0}{4} =
+\frac{17.9 + 19.5 + 19.2 + 18.7}{4} =
+1
+0
+N = 342
+\text{Mật độ} = \dfrac{\text{Phần trăm trong lớp}}{\text{Chiều rộng lớp (kg)}}
+w
+= \frac{n}{342} \times 100
+= \frac{\%}{w}
+[2.7, 3.5)
+3.5 - 2.7 = 0.8
+20.76 / 0.8 \approx
+[3.5, 4.0)
+4.0 - 3.5 = 0.5
+27.49 / 0.5 \approx
+[4.0, 5.0)
+5.0 - 4.0 = 1.0
+32.16 / 1.0 \approx
+[5.0, 6.4]
+6.4 - 5.0 = 1.4
+19.59 / 1.4 \approx
+x
+2.7
+3.5
+4.0
+5.0
+6.4
+y
+60
+5
+10
+\approx 25.95
+\approx 54.97
+\approx 32.16
+\approx 14.00
+\text{Diện tích} = \text{Chiều rộng} \times \text{Mật độ}
+\sum S = (0.8 \times 25.95) + (0.5 \times 54.97) + (1.0 \times 32.16) + (1.4 \times 14.00) = 20.76\% + 27.49\% + 32.16\% + 19.59\% = 100\%
+110
+32.16\%
+54.97\%/\text{kg}
+1.0\text{ kg}
+0.5\text{ kg}
+\text{chiều rộng} \times \text{chiều cao}
+1.0 > 0.5
+32.16\% > 27.49\%
+110 > 94
+[3000, 3500)
+[3500, 4000)
+[4000, 4500)
+[4500, 5000)
+5, 5, 1, 1
+3000, 3000, 3000, 3000, 3000
+3500, 3500, 3500, 3500, 3500
+4000
+4500
+\Rightarrow \text{Danh sách A} = [3000, 3000, 3000, 3000, 3000, 3500, 3500, 3500, 3500, 3500, 4000, 4500]
+3499, 3499, 3499, 3499, 3499
+3999, 3999, 3999, 3999, 3999
+4499
+4999
+\Rightarrow \text{Danh sách B} = [3499, 3499, 3499, 3499, 3499, 3999, 3999, 3999, 3999, 3999, 4499, 4999]
+3000
+3499
+3999\text{ g}
+3500\text{ g}
+N = 83
+\text{Phần trăm} = \dfrac{n}{83} \times 100\%
+\text{Mật độ} = \dfrac{\text{Phần trăm trong lớp}}{\text{Chiều rộng lớp (giờ)}}
+[1.9, 5)
+5 - 1.9 = 3.1
+13.25 / 3.1 \approx
+[5, 8)
+8 - 5 = 3.0
+12.05 / 3.0 \approx
+[8, 12)
+12 - 8 = 4.0
+37.35 / 4.0 \approx
+[12, 20]
+20 - 12 = 8.0
+37.35 / 8.0 \approx
+4\text{ giờ}
+8\text{ giờ}
+9.34
+4.67
+H = I(\text{body\_mass\_g} > 4000)
+p_A = \dfrac{35}{151} \approx 0.2318
+p_C = \dfrac{15}{68} \approx 0.2206
+p_G = \dfrac{122}{123} \approx 0.9919
+p_{\text{gộp}} = \dfrac{35 + 15 + 122}{151 + 68 + 123} = \dfrac{172}{342} \approx 0.5029
+w_i = \frac{N_i}{N_{\text{tổng}}}
+w_A = \frac{151}{342}, \quad w_C = \frac{68}{342}, \quad w_G = \frac{123}{342}
+\bar{p} = w_A \cdot p_A + w_C \cdot p_C + w_G \cdot p_G
+\bar{p} = \left(\frac{151}{342} \times \frac{35}{151}\right) + \left(\frac{68}{342} \times \frac{15}{68}\right) + \left(\frac{123}{342} \times \frac{122}{123}\right) = \frac{35 + 15 + 122}{342} = \frac{172}{342} \approx 50.29\% \approx \mathbf{50.3\%}
+w'_A = 0.10
+w'_C = 0.10
+w'_G = 0.80
+p'_{\text{biên}} = (0.10 \times 23.18\%) + (0.10 \times 22.06\%) + (0.80 \times 99.19\%) = 2.318\% + 2.206\% + 79.352\% \approx \mathbf{83.9\%}
+w''_A = 0.45
+w''_C = 0.45
+w''_G = 0.10
+p''_{\text{biên}} = (0.45 \times 23.18\%) + (0.45 \times 22.06\%) + (0.10 \times 99.19\%) = 10.431\% + 9.927\% + 9.919\% \approx \mathbf{30.3\%}
+6,88\%
+11,9\%
+20,9\%
+5,42\%
+10,3\%
+17,5\%
+52,0\%
+37,5\%
+5\%
+25\%
+9,79\% + 10,62\% =
+2/10
+[65, 70)
+[70, 75)
+[70, 71)
+[69, 70)
+\rightarrow
+P(\text{Tuổi mẹ} \mid \text{Sinh non})
+N
+[15, 20)
+[20, 25)
+[25, 30)
+[30, 35)
+[35, 40)
+[40, 45)
+[45, 50)
+\ge 35
+x \in [0,1]
+x \in (a;b] \cup [c;d)
+xy^2 + x^23 + 2^{10}
+\frac12 + \dfrac{a}{b} + \tfrac{1}{3}
+\sin x + \cos^2 x + \tan\frac{\pi}{4} + \log_a b + \ln x + \lg 100
+\lim_{x \to 0} \frac{\sin x}{x} = 1
+\lim\limits_{n \to \infty} \left(1 + \frac{1}{n}\right)^n = e
+\sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+\prod_{k=1}^{n} k = n!
+\int_a^b f(x)\,dx = F(b) - F(a)
+\iint_D f \, dA + \oint_C \vec{F} \cdot d\vec{r}
+\mathbb{R} \supset \mathbb{Q} \supset \mathbb{Z} \supset \mathbb{N}
+\overrightarrow{AB} + \overrightarrow{BC} = \overrightarrow{AC}
+\widehat{ABC} = 90^\circ \quad \triangle ABC \parallel \perp
+\vec{u} \cdot \vec{v} = |\vec{u}||\vec{v}|\cos\theta
+\overline{AB} = \underline{CD} + \hat{x} + \tilde{y} + \dot{z} + \ddot{z}
+\left\{ x \in \mathbb{R} \mid x > 0 \right\}
+\left. \frac{df}{dx} \right|_{x=0}
+\left\langle a, b \right\rangle + \left\lfloor x \right\rfloor + \left\lceil y \right\rceil + \left\| v \right\|
+\binom{n}{k} = \frac{n!}{k!(n-k)!} \quad \dbinom{5}{2} = 10
+\begin{cases} x + y = 1 \\ x - y = 3 \end{cases}
+f(x) = \begin{cases} x^2 & \text{nếu } x \ge 0 \\ -x & \text{nếu } x < 0 \end{cases}
+\begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix} \begin{bmatrix} a \\ b \end{bmatrix}
+\begin{vmatrix} a & b \\ c & d \end{vmatrix} = ad - bc
+\begin{aligned} a &= b + c \\ d + e &= f \end{aligned}
+\sqrt{x^2 + 1} + \sqrt[3]{y} + \sqrt{\frac{a}{b}}
+x_{1,2} = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}
+f'(x) + f''(x) + p'_{A}
+a \leq b \neq c \Leftrightarrow d \Rightarrow e \to f
+\% \quad 50\% \quad \$5 \quad \{1, 2\} \quad a\_b
+A \subset B \subseteq C \cap D \cup E \setminus F \emptyset
+\underbrace{a+b+c}_{n} + \overbrace{x+y}^{2}
+\overset{def}{=} \quad \underset{x}{\min} \quad A \stackrel{!}{=} B
+\boxed{x = 2}
+a \bmod b \quad a \equiv b \pmod{n}
+\operatorname{Var}(X) = E[X^2] - (E[X])^2
+\frac{a}{b} \over c
+{n \choose k}
+\mathrm{d}x + \mathbf{v} + \mathcal{L} + \mathfrak{g}
+\int_0^{\infty} e^{-x^2} dx = \frac{\sqrt{\pi}}{2}
+\mathbf{P}(A \mid B) = \frac{\mathbf{P}(A \cap B)}{\mathbf{P}(B)}
+x \not= y \quad x \not\in A
+\hat{\beta} = (X^\top X)^{-1} X^\top y

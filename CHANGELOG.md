@@ -1,5 +1,53 @@
 # Nhật ký thay đổi
 
+## Chưa phát hành — Sửa lỗi và mở rộng xử lý công thức toán (LaTeX / OMML / MathType)
+
+Kiểm chứng trên bài giải thật (`loi-giai-phan-A.md`, `loi-giai-phan-B.md`, 2 file `.docx`) bằng cách chạy đủ
+đường nạp → dàn trang → `.xopp`. Danh sách "ký hiệu thiếu mẫu" trước đây chứa các mục sai như `\dfrac`,
+`\\`, `\quad`, `\bar`, `\ngtr`, `body\_mass\_g`; nay chỉ còn ký hiệu thật sự thiếu mẫu.
+
+### Lỗi đã sửa
+- **MathType bị bỏ im lặng**: đối tượng OLE (`w:object`, ProgID `Equation.*`/`DSMT*`) trước đây biến mất không cảnh báo
+  (đoạn chỉ chứa công thức bị mất hẳn). Nay luôn thay bằng ô vuông `□` kèm cảnh báo có số lượng và hướng xử lý. Trường
+  `EQ` cũ của Word cũng được báo. *Chưa* đọc được nội dung MathType (xem README).
+- **OMML**: chuỗi `2x+3=0` trong một `m:r` từng thành MỘT ký hiệu (ô trống); dấu trừ U+2212 của Word không có trong
+  kho; `m:d` chỉ lấy phần tử đầu (`[a;b]` thành `[a]`); `m:nary` mất ∑/∫; `m:limLow` mất `x→0`; `m:acc` (vectơ) rơi mất;
+  `m:eqArr` (hệ phương trình) và `m:m` (ma trận) bị dàn thành một hàng; `m:oMathPara` nhiều dòng bị gộp.
+- **Parser LaTeX**: `]` ở ngoài cùng bị bỏ (`[0,1]` thành `[0,1`); `xy^2` hiểu là (xy)²; `x^23` mũ 23; `\frac12` hỏng;
+  thiếu `\sin \lim \log…`, `\{ \}`, `\%`, `\\`, `\mathbb`, `\dfrac`, `\binom`, vectơ/góc, môi trường `cases/aligned/matrix`;
+  `\left\{` hỏng; `\text{body\_mass\_g}` rò rỉ ký tự LaTeX; `^\circ` dùng ∘ thay vì °; `}` thừa bị nuốt không báo.
+- **Markdown**: `\(…\)`, `\[…\]` và `\begin{align}` trần bị coi là chữ thường; `$$…$$` trong mục danh sách bị bỏ;
+  `a<b và c>d` ngoài `$` bị bộ lọc HTML xoá thành `ad`; `5$ rồi 10$` bị nhận nhầm là công thức.
+- **Dàn trang**: danh sách lồng nhau bị **bỏ hoàn toàn** (mất nội dung); công thức trong mục danh sách bị bỏ; công thức
+  display/inline dài tràn khỏi trang; công thức cao không được tính vào chiều cao dòng; công thức trong ô bảng tràn ô.
+- **Fidelity**: bản làm trắng chỉ đổi màu `w:r`, không đụng tới công thức OMML (`m:r`, `m:ctrlPr`) nên công thức in vẫn
+  đen dưới chữ viết tay (đã tái hiện: dựng PDF bằng LibreOffice, công thức giữ nguyên 267 điểm ảnh đen sau khi "làm trắng").
+  Nay đặt màu trắng đúng lược đồ OOXML (`m:r/w:rPr/w:color`, `m:*Pr/m:ctrlPr/w:rPr`), giữ đúng thứ tự phần tử. Mới kiểm
+  chứng ở mức XML; xem "Giới hạn đã biết" về LibreOffice.
+
+### Mới
+- AST: `Delimited`, `NAry`, `OverUnder`, `Accent`, `Matrix`, `Boxed`, `SpaceNode`; `TextNode.kind`, `Fraction.bar`.
+- Dàn trang: khoảng cách giữa ký hiệu theo bảng của TeX (quan hệ/toán tử/dấu phẩy…), ngoặc co giãn, ∑ ∏ ∫ cỡ lớn, cận
+  trên/dưới ở công thức display, ma trận/`cases`/`aligned` thẳng cột, vectơ/góc/gạch ngang, ngắt dòng công thức dài.
+- Ký hiệu chưa có mẫu viết tay được vẽ tạm bằng nét vector (vẫn được báo là thiếu để dạy thêm); chữ cái biến và tên hàm
+  tự ghép từ `letters` khi kho chưa có mẫu nguyên từ.
+- Mô-đun `importer/omml.py` (README đã nhắc từ trước nhưng chưa tồn tại), `math/latex_writer.py` (AST → LaTeX).
+
+### Kiểm thử
+- Thêm hơn 550 test: hồi quy parser, vòng AST → LaTeX → AST trên 184 công thức (141 lấy từ bài giải thật), hình học dàn
+  trang, bộ chuyển OMML, nạp `.docx`/MathType/Markdown, tích hợp dàn trang, làm trắng Fidelity.
+- Test đối chiếu: cùng một công thức đi qua LaTeX và qua OMML thật do pandoc sinh phải ra cùng AST (tự bỏ qua nếu thiếu pandoc).
+- `tests/test_docx_omml_diagnostics.py`: cập nhật vì `m:nary`/`m:m` không còn là "chưa hỗ trợ".
+
+### Giới hạn đã biết
+- Chưa đọc nội dung MathType; chưa đọc nội dung trường `EQ` cũ (chỉ báo cáo).
+- Làm trắng công thức trong Fidelity chỉ có tác dụng với Word: LibreOffice bỏ qua màu chữ trong công thức OMML (đã thử
+  bằng màu đỏ: màu không đổi), nên nếu chuyển đổi Fidelity qua LibreOffice thì công thức in vẫn đen dưới chữ viết tay.
+  Phía Word chưa kiểm chứng được vì cần Windows + Word COM.
+- Code block và `---` trong Markdown vẫn chỉ được báo "chưa hỗ trợ" (đúng hợp đồng IR của spec 014).
+- Hai test Fidelity cần Word COM trên Windows (`test_cli_write_mode_fidelity_and_semantic`,
+  `test_controller_write_docx_fidelity_api`) thất bại trên Linux, cả ở bản gốc.
+
 ## 2.0.0 — Tái cấu trúc sang MVC
 
 **Mục tiêu:** dễ debug, dễ nâng cấp, tách lớp MVC, dễ bảo trì — **không đổi cách dùng và không đổi

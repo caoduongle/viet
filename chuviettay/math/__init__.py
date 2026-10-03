@@ -1,27 +1,48 @@
-"""Math package: Cây cú pháp toán học (Math AST) và phân tích biểu thức."""
+"""Math package: Cây cú pháp toán học (Math AST), bảng ký hiệu và phân tích biểu thức LaTeX."""
 from chuviettay.math.ast import (
+    Accent,
+    Boxed,
+    Delimited,
     Fraction,
+    Matrix,
     MathNode,
     MathRow,
+    NAry,
+    OverUnder,
     Root,
+    SpaceNode,
     Subscript,
     SubSuperscript,
     Superscript,
     SymbolNode,
     TextNode,
+    children,
+    walk,
 )
-from chuviettay.math.parser import LatexMathParser, parse_latex_math
+from chuviettay.math.latex_writer import to_latex
+from chuviettay.math.parser import LatexMathParser, parse_latex_math, parse_latex_math_with_warnings
 
 __all__ = [
+    "Accent",
+    "Boxed",
+    "Delimited",
     "Fraction",
     "LatexMathParser",
+    "Matrix",
     "MathNode",
     "MathRow",
+    "NAry",
+    "OverUnder",
     "Root",
+    "SpaceNode",
     "Subscript",
     "SubSuperscript",
     "Superscript",
     "SymbolNode",
     "TextNode",
+    "children",
     "parse_latex_math",
+    "parse_latex_math_with_warnings",
+    "to_latex",
+    "walk",
 ]

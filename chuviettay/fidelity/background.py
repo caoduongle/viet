@@ -1,7 +1,8 @@
 """Bộ tạo tệp nền tài liệu không chứa chữ in (Whiteout Background Generator).
 
 Thực hiện biến đổi Whiteout Run Transform trực tiếp ở cấp ZIP/OpenXML:
-chỉ sửa màu của text run (<w:r> và <a:r>) thành trắng (#FFFFFF),
+chỉ sửa màu của text run (<w:r>, <a:r>) và của công thức Office Math (<m:r> cùng ký tự cấu trúc
+trong <m:ctrlPr>: gạch phân số, dấu căn, ngoặc...) thành trắng (#FFFFFF),
 giữ nguyên 100% từng byte của các thành phần đồ họa (ảnh, biểu đồ,
 SmartArt, shapes, themes, relationships) mà không parse/save lại toàn bộ tài liệu
 bằng python-docx.
@@ -20,6 +21,7 @@ _log = logging.getLogger(__name__)
 # Standard OpenXML Namespaces
 W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+M_NS = "http://schemas.openxmlformats.org/officeDocument/2006/math"
 
 # QNames
 QN_W_R = f"{{{W_NS}}}r"
@@ -31,6 +33,20 @@ QN_W_THEME_TINT = f"{{{W_NS}}}themeTint"
 QN_W_THEME_SHADE = f"{{{W_NS}}}themeShade"
 QN_W_HIGHLIGHT = f"{{{W_NS}}}highlight"
 QN_W_SHD = f"{{{W_NS}}}shd"
+
+QN_M_RPR = f"{{{M_NS}}}rPr"
+QN_M_CTRLPR = f"{{{M_NS}}}ctrlPr"
+
+# Thẻ cấu trúc OMML có phần thuộc tính <m:{tên}Pr> (chứa <m:ctrlPr> định dạng ký tự cấu trúc)
+_MATH_STRUCTURES = (
+    "f", "d", "nary", "rad", "acc", "bar", "groupChr", "limLow", "limUpp", "m", "eqArr",
+    "sSup", "sSub", "sSubSup", "sPre", "box", "borderBox", "phant", "func",
+)
+# Phần tử đứng SAU <w:color> trong lược đồ CT_RPr: chèn màu trước chúng để giữ đúng thứ tự schema
+_RPR_AFTER_COLOR = frozenset({
+    "spacing", "w", "kern", "position", "sz", "szCs", "highlight", "u", "effect", "bdr", "shd",
+    "fitText", "vertAlign", "rtl", "cs", "em", "lang", "eastAsianLayout", "specVanish", "oMath",
+})
 
 QN_A_R = f"{{{A_NS}}}r"
 QN_A_RPR = f"{{{A_NS}}}rPr"
@@ -58,13 +74,69 @@ def is_target_xml_part(filename: str) -> bool:
     return False
 
 
+def _set_rpr_white(rpr) -> None:
+    """Đặt <w:color w:val="FFFFFF"> trong một <w:rPr>, giữ đúng thứ tự phần tử theo schema; bỏ highlight/shd."""
+    from lxml import etree
+
+    color = rpr.find(QN_W_COLOR)
+    if color is None:
+        color = etree.Element(QN_W_COLOR)
+        anchor = next((c for c in rpr
+                       if isinstance(c.tag, str) and c.tag.split("}")[-1] in _RPR_AFTER_COLOR), None)
+        if anchor is not None:
+            anchor.addprevious(color)
+        else:
+            rpr.append(color)
+    color.set(QN_W_VAL, "FFFFFF")
+    for attr in (QN_W_THEME_COLOR, QN_W_THEME_TINT, QN_W_THEME_SHADE):
+        if attr in color.attrib:
+            del color.attrib[attr]
+    for tag in (QN_W_HIGHLIGHT, QN_W_SHD):
+        child = rpr.find(tag)
+        if child is not None:
+            rpr.remove(child)
+
+
+def _whiten_math(root, ns) -> None:
+    """Làm trắng công thức OMML: chạy toán <m:r> (w:rPr nằm sau m:rPr, trước m:t) và <m:ctrlPr> của cấu trúc.
+
+    Theo lược đồ OOXML; Word áp màu này, còn LibreOffice bỏ qua màu chữ trong công thức (đã thử nghiệm)."""
+    from lxml import etree
+
+    for m_r in root.xpath(".//m:r", namespaces=ns):
+        w_rpr = m_r.find(QN_W_RPR)
+        if w_rpr is None:
+            w_rpr = etree.Element(QN_W_RPR)
+            m_rpr = m_r.find(QN_M_RPR)
+            if m_rpr is not None:
+                m_rpr.addnext(w_rpr)
+            else:
+                m_r.insert(0, w_rpr)
+        _set_rpr_white(w_rpr)
+
+    for name in _MATH_STRUCTURES:
+        for struct in root.xpath(f".//m:{name}", namespaces=ns):
+            pr_tag = f"{{{M_NS}}}{name}Pr"
+            pr = struct.find(pr_tag)
+            if pr is None:
+                pr = etree.Element(pr_tag)
+                struct.insert(0, pr)
+            ctrl = pr.find(QN_M_CTRLPR)
+            if ctrl is None:
+                ctrl = etree.SubElement(pr, QN_M_CTRLPR)      # ctrlPr luôn là phần tử cuối của *Pr
+            w_rpr = ctrl.find(QN_W_RPR)
+            if w_rpr is None:
+                w_rpr = etree.SubElement(ctrl, QN_W_RPR)
+            _set_rpr_white(w_rpr)
+
+
 def _whiten_xml_bytes(xml_bytes: bytes) -> bytes:
     """Phẫu thuật làm trắng các text run trong một XML part, bảo tồn tiền tố namespace và cấu trúc schema."""
     from lxml import etree
 
     parser = etree.XMLParser(remove_blank_text=False, resolve_entities=False, no_network=True)
     root = etree.fromstring(xml_bytes, parser=parser)
-    ns = {"w": W_NS, "a": A_NS}
+    ns = {"w": W_NS, "a": A_NS, "m": M_NS}
 
     # 1. Làm trắng toàn bộ WordprocessingML runs (<w:r>)
     for r in root.xpath(".//w:r", namespaces=ns):
@@ -112,6 +184,9 @@ def _whiten_xml_bytes(xml_bytes: bytes) -> bytes:
         srgb_clr.set("val", "FFFFFF")
         solid_fill.append(srgb_clr)
         a_rPr.append(solid_fill)
+
+    # 3. Làm trắng công thức Office Math (<m:r> và ký tự cấu trúc qua <m:ctrlPr>)
+    _whiten_math(root, ns)
 
     return etree.tostring(root, xml_declaration=True, encoding="utf-8", standalone="yes")
 

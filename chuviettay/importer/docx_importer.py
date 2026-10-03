@@ -1,6 +1,7 @@
-"""Bộ nạp tài liệu Microsoft Word (.docx) sang Document IR hỗ trợ OMML và chẩn đoán."""
+"""Bộ nạp tài liệu Microsoft Word (.docx) sang Document IR: công thức OMML, MathType (phát hiện) và chẩn đoán."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from chuviettay.document.ir import (
@@ -20,157 +21,34 @@ from chuviettay.document.ir import (
 )
 from chuviettay.importer.base import BaseImporter, ImportResult
 from chuviettay.importer.dependency import require_dependency
-from chuviettay.math.ast import (
-    Fraction,
-    MathNode,
-    MathRow,
-    Root,
-    Subscript,
-    SubSuperscript,
-    Superscript,
-    SymbolNode,
-    TextNode,
+from chuviettay.importer.omml import M_NS, iter_omath, omml_to_ast
+from chuviettay.math.ast import MathRow, SymbolNode
+from chuviettay.math.latex_writer import to_latex
+
+# ProgID của đối tượng OLE chứa công thức MathType / Equation Editor 3.0 (Equation.DSMT4, Equation.3, MathType...)
+_EQUATION_PROGID = re.compile(r"(?i)equation|mathtype|dsmt")
+
+MATHTYPE_WARNING = (
+    "Có {n} công thức MathType/Equation Editor (đối tượng OLE) mà ứng dụng chưa đọc được nên đã thay bằng ô vuông "
+    "trống (□). Cách khắc phục: trong Word dùng chức năng Convert Equations của MathType (nếu có) để đổi sang "
+    "công thức gốc của Word rồi lưu lại .docx, hoặc chép công thức sang Markdown/LaTeX."
+)
+EQ_FIELD_WARNING = (
+    "Có {n} công thức dạng trường EQ cũ của Word (mã \\EQ) chưa đọc được nên không có trong kết quả; hãy gõ lại "
+    "bằng Insert > Equation."
 )
 
 
-def _parse_omml_element(elem: Any) -> tuple[list[MathNode], str]:
-    """Phân tích một phần tử OMML đơn lẻ sang danh sách MathNode và chuỗi LaTeX tương ứng."""
-    tag = elem.tag.split("}")[-1] if "}" in elem.tag else elem.tag
-
-    if tag == "r":
-        # Chạy toán học (Math Run)
-        text = "".join(child.text or "" for child in elem if child.tag.endswith("t"))
-        if not text and elem.text:
-            text = elem.text
-        if not text:
-            return [], ""
-        nodes = [TextNode(text)] if text.isalnum() else [SymbolNode(text)]
-        return nodes, text
-
-    elif tag == "f":
-        # Phân số (Fraction)
-        num_el = next((c for c in elem if c.tag.endswith("num")), None)
-        den_el = next((c for c in elem if c.tag.endswith("den")), None)
-        num_ast, num_ltx = _parse_omml_children(num_el) if num_el is not None else ([TextNode("1")], "1")
-        den_ast, den_ltx = _parse_omml_children(den_el) if den_el is not None else ([TextNode("1")], "1")
-        ast = Fraction(num=MathRow(num_ast), den=MathRow(den_ast))
-        return [ast], f"\\frac{{{num_ltx}}}{{{den_ltx}}}"
-
-    elif tag == "sSup":
-        # Chỉ số trên (Superscript)
-        base_el = next((c for c in elem if c.tag.endswith("e")), None)
-        sup_el = next((c for c in elem if c.tag.endswith("sup")), None)
-        base_ast, base_ltx = _parse_omml_children(base_el) if base_el is not None else ([TextNode("")], "")
-        sup_ast, sup_ltx = _parse_omml_children(sup_el) if sup_el is not None else ([TextNode("")], "")
-        base_node = base_ast[0] if len(base_ast) == 1 else MathRow(base_ast)
-        ast = Superscript(base=base_node, exp=MathRow(sup_ast))
-        return [ast], f"{{{base_ltx}}}^{{{sup_ltx}}}"
-
-    elif tag == "sSub":
-        # Chỉ số dưới (Subscript)
-        base_el = next((c for c in elem if c.tag.endswith("e")), None)
-        sub_el = next((c for c in elem if c.tag.endswith("sub")), None)
-        base_ast, base_ltx = _parse_omml_children(base_el) if base_el is not None else ([TextNode("")], "")
-        sub_ast, sub_ltx = _parse_omml_children(sub_el) if sub_el is not None else ([TextNode("")], "")
-        base_node = base_ast[0] if len(base_ast) == 1 else MathRow(base_ast)
-        ast = Subscript(base=base_node, sub=MathRow(sub_ast))
-        return [ast], f"{{{base_ltx}}}_{{{sub_ltx}}}"
-
-    elif tag == "sSubSup":
-        # Cả chỉ số trên và dưới
-        base_el = next((c for c in elem if c.tag.endswith("e")), None)
-        sub_el = next((c for c in elem if c.tag.endswith("sub")), None)
-        sup_el = next((c for c in elem if c.tag.endswith("sup")), None)
-        base_ast, base_ltx = _parse_omml_children(base_el) if base_el is not None else ([TextNode("")], "")
-        sub_ast, sub_ltx = _parse_omml_children(sub_el) if sub_el is not None else ([TextNode("")], "")
-        sup_ast, sup_ltx = _parse_omml_children(sup_el) if sup_el is not None else ([TextNode("")], "")
-        base_node = base_ast[0] if len(base_ast) == 1 else MathRow(base_ast)
-        ast = SubSuperscript(base=base_node, sub=MathRow(sub_ast), exp=MathRow(sup_ast))
-        return [ast], f"{{{base_ltx}}}_{{{sub_ltx}}}^{{{sup_ltx}}}"
-
-    elif tag == "rad":
-        # Căn thức (Radical / Root)
-        rad_pr = next((c for c in elem if c.tag.endswith("radPr")), None)
-        deg_hide = False
-        if rad_pr is not None:
-            deg_hide_el = next((c for c in rad_pr if c.tag.endswith("degHide")), None)
-            if deg_hide_el is not None:
-                val = next((v for k, v in deg_hide_el.attrib.items() if k.endswith("val")), "")
-                if val in ("1", "true", "on"):
-                    deg_hide = True
-
-        deg_el = next((c for c in elem if c.tag.endswith("deg")), None)
-        e_el = next((c for c in elem if c.tag.endswith("e")), None)
-
-        deg_ast, deg_ltx = _parse_omml_children(deg_el) if (deg_el is not None and not deg_hide) else ([], "")
-        e_ast, e_ltx = _parse_omml_children(e_el) if e_el is not None else ([TextNode("")], "")
-
-        degree = MathRow(deg_ast) if deg_ast else None
-        ast = Root(radicand=MathRow(e_ast), degree=degree)
-        latex = f"\\sqrt[{deg_ltx}]{{{e_ltx}}}" if deg_ltx else f"\\sqrt{{{e_ltx}}}"
-        return [ast], latex
-
-    elif tag == "d":
-        # Dấu đóng/mở ngoặc phân cách (Delimiter)
-        beg_chr = "("
-        end_chr = ")"
-        d_pr = next((c for c in elem if c.tag.endswith("dPr")), None)
-        if d_pr is not None:
-            for c in d_pr:
-                if c.tag.endswith("begChr"):
-                    beg_chr = next((v for k, v in c.attrib.items() if k.endswith("val")), "(")
-                elif c.tag.endswith("endChr"):
-                    end_chr = next((v for k, v in c.attrib.items() if k.endswith("val")), ")")
-        e_el = next((c for c in elem if c.tag.endswith("e")), None)
-        e_ast, e_ltx = _parse_omml_children(e_el) if e_el is not None else ([], "")
-        nodes = [SymbolNode(beg_chr)] + e_ast + [SymbolNode(end_chr)]
-        return nodes, f"{beg_chr}{e_ltx}{end_chr}"
-
-    elif tag == "t":
-        txt = elem.text or ""
-        nodes = [TextNode(txt)] if txt.isalnum() else [SymbolNode(txt)]
-        return nodes, txt
-
-    # Các phần tử lồng con
-    return _parse_omml_children(elem)
+def _local(tag: Any) -> str:
+    return tag.split("}")[-1] if isinstance(tag, str) and "}" in tag else (tag if isinstance(tag, str) else "")
 
 
-UNSUPPORTED_OMML_TAGS = {
-    "m": "matrix",
-    "nary": "n-ary operator (integral/summation)",
-    "limLow": "lower limit",
-    "limUpp": "upper limit",
-    "func": "function apply",
-    "bar": "bar over/under",
-    "acc": "accent",
-    "groupChr": "group character",
-    "eqArr": "equation array",
-}
-
-
-def _parse_omml_children(elem: Any) -> tuple[list[MathNode], str]:
-    """Phân tích tập hợp phần tử con của OMML."""
-    if elem is None:
-        return [], ""
-    all_ast: list[MathNode] = []
-    all_ltx: list[str] = []
-    for child in elem:
-        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-        if tag in ("r", "f", "sSup", "sSub", "sSubSup", "rad", "d", "t"):
-            nodes, ltx = _parse_omml_element(child)
-            all_ast.extend(nodes)
-            if ltx:
-                all_ltx.append(ltx)
-        elif tag in (
-            "num", "den", "e", "sup", "sub", "deg", "oMath", "oMathPara",
-            "m", "nary", "limLow", "limUpp", "func", "bar", "acc", "groupChr", "eqArr", "mr", "fName",
-        ):
-            nodes, ltx = _parse_omml_children(child)
-            all_ast.extend(nodes)
-            if ltx:
-                all_ltx.append(ltx)
-
-    return all_ast, " ".join(all_ltx)
+def _only_one_math(inlines: list[Inline]) -> bool:
+    """Các inline chỉ gồm đúng một công thức (bỏ qua khoảng trắng / ngắt dòng)?"""
+    math = [i for i in inlines if isinstance(i, MathInline)]
+    others = [i for i in inlines if not isinstance(i, MathInline)
+              and not isinstance(i, LineBreak) and not (isinstance(i, Text) and not i.text.strip())]
+    return len(math) == 1 and not others
 
 
 class DocxImporter(BaseImporter):
@@ -178,6 +56,11 @@ class DocxImporter(BaseImporter):
 
     def __init__(self):
         require_dependency("docx", "tài liệu Word (.docx)", "docs")
+        self._reset_state()
+
+    def _reset_state(self) -> None:
+        self._mathtype_count = 0
+        self._eq_field_count = 0
 
     def import_file(self, path: str) -> ImportResult:
         import docx
@@ -197,6 +80,7 @@ class DocxImporter(BaseImporter):
         import docx.table
         import docx.text.paragraph
 
+        self._reset_state()
         blocks: list[Block] = []
         warnings: list[str] = []
         unsupported: list[str] = []
@@ -220,14 +104,37 @@ class DocxImporter(BaseImporter):
 
         for item in elements:
             if isinstance(item, docx.text.paragraph.Paragraph):
-                block = self._parse_paragraph(item, unsupported)
-                if block is not None:
-                    blocks.append(block)
+                blocks.extend(self._parse_paragraph_blocks(item, unsupported))
             elif isinstance(item, docx.table.Table):
                 table_block = self._parse_table(item, unsupported)
                 blocks.append(table_block)
 
+        if self._mathtype_count:
+            warnings.append(MATHTYPE_WARNING.format(n=self._mathtype_count))
+        if self._eq_field_count:
+            warnings.append(EQ_FIELD_WARNING.format(n=self._eq_field_count))
         return ImportResult(document=Document(blocks=blocks), warnings=warnings, unsupported=unsupported)
+
+    # ------------------------------------------------------------------ đối tượng OLE (MathType) và trường EQ
+    @staticmethod
+    def _ole_progid(elem: Any) -> str | None:
+        """ProgID của ``o:OLEObject`` nằm trong ``elem`` (None nếu không có đối tượng OLE)."""
+        for d in elem.iter():
+            if _local(d.tag) == "OLEObject":
+                return d.get("ProgID") or ""
+        return None
+
+    def _handle_ole(self, elem: Any, unsupported: list[str]) -> list[Inline]:
+        progid = self._ole_progid(elem)
+        if progid is not None and _EQUATION_PROGID.search(progid):
+            self._mathtype_count += 1
+            unsupported.append(f"mathtype: OLE equation object (ProgID={progid}) replaced by an empty box")
+            return [MathInline(latex="\\square", ast=MathRow([SymbolNode("□")]))]
+        if progid is not None:
+            unsupported.append(f"object: embedded OLE object (ProgID={progid or 'unknown'})")
+        else:
+            unsupported.append("object: embedded object")
+        return []
 
     def _extract_inlines_from_run(self, r_elem: Any, unsupported: list[str]) -> list[Inline]:
         """Trích xuất toàn bộ phần tử nội dòng từ một <w:r> (chữ, tab, ngắt dòng mềm), lọc delText/instrText."""
@@ -242,6 +149,8 @@ class DocxImporter(BaseImporter):
                 inlines.append(Text(text="    "))
             elif ctag in ("br", "cr"):
                 inlines.append(LineBreak())
+            elif ctag == "object" or (ctag == "pict" and self._ole_progid(c) is not None):
+                inlines.extend(self._handle_ole(c, unsupported))
             elif ctag in ("drawing", "pict"):
                 unsupported.append(f"{ctag}: embedded image or drawing shape")
             elif ctag == "delText":
@@ -249,11 +158,29 @@ class DocxImporter(BaseImporter):
                 pass
             elif ctag == "instrText":
                 # Mã lệnh trường Word - bỏ qua không in lộ text thô, ghi vào unsupported
-                if "field_instruction: Word field code" not in unsupported:
+                if (c.text or "").strip().upper().startswith("EQ"):
+                    self._eq_field_count += 1
+                    unsupported.append("field: Word EQ equation field (not read)")
+                elif "field_instruction: Word field code" not in unsupported:
                     unsupported.append("field_instruction: Word field code")
         return inlines
 
-    def _parse_paragraph(self, p: Any, unsupported: list[str]) -> Block | None:
+    # ------------------------------------------------------------------ công thức OMML
+    def _omml_math(self, container: Any, unsupported: list[str]) -> list[tuple[MathRow, str]]:
+        """Chuyển mọi ``m:oMath`` trong ``container`` sang (AST, LaTeX); công thức rỗng bị bỏ."""
+        out: list[tuple[MathRow, str]] = []
+        for om in iter_omath(container):
+            ast, unsup = omml_to_ast(om)
+            for tag in unsup:
+                msg = f"m:{tag}: unsupported OMML math element"
+                if msg not in unsupported:
+                    unsupported.append(msg)
+            if ast.items:
+                out.append((ast, to_latex(ast)))
+        return out
+
+    # ------------------------------------------------------------------ đoạn văn
+    def _parse_paragraph_blocks(self, p: Any, unsupported: list[str]) -> list[Block]:
         style_name = p.style.name if p.style else ""
         level: int | None = None
         if style_name.startswith("Heading"):
@@ -279,33 +206,37 @@ class DocxImporter(BaseImporter):
                 elif val in ("both", "distribute"):
                     align = "justify"
 
+        pieces: list[Any] = []              # xen kẽ: list[Inline] (chữ) và MathBlock (công thức display)
         inlines: list[Inline] = []
-        omml_blocks: list[MathBlock] = []
+        omml_blocks: list[MathBlock] = []   # công thức inline (m:oMath trực tiếp trong đoạn)
 
         def collect_runs(elem: Any) -> None:
+            nonlocal inlines
             for child in elem:
                 tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
-                if tag == "r":
+                if tag == "r" and not child.tag.startswith("{" + M_NS):
                     inlines.extend(self._extract_inlines_from_run(child, unsupported))
-                elif tag in ("ins", "smartTag"):
-                    collect_runs(child)
-                elif tag == "hyperlink":
+                elif tag in ("ins", "smartTag", "hyperlink", "fldSimple"):
+                    if tag == "fldSimple" and (child.get(f"{{{child.nsmap.get('w', '')}}}instr") or "").strip().upper().startswith("EQ"):
+                        self._eq_field_count += 1
+                        unsupported.append("field: Word EQ equation field (not read)")
                     collect_runs(child)
                 elif tag == "sdt":
                     sdt_content = next((c for c in child if c.tag.endswith("sdtContent")), None)
                     if sdt_content is not None:
                         collect_runs(sdt_content)
-                elif tag in ("oMath", "oMathPara"):
-                    for sub_el in child.iter():
-                        sub_tag = sub_el.tag.split("}")[-1] if "}" in sub_el.tag else sub_el.tag
-                        if sub_tag in UNSUPPORTED_OMML_TAGS:
-                            msg = f"m:{sub_tag}: unsupported OMML math element ({UNSUPPORTED_OMML_TAGS[sub_tag]})"
-                            if msg not in unsupported:
-                                unsupported.append(msg)
-                    ast_nodes, ltx = _parse_omml_children(child)
-                    math_ast = MathRow(ast_nodes) if len(ast_nodes) > 1 else (ast_nodes[0] if ast_nodes else MathRow([]))
-                    inlines.append(MathInline(latex=ltx, ast=math_ast))
-                    omml_blocks.append(MathBlock(latex=ltx, ast=math_ast))
+                elif tag == "oMathPara":
+                    maths = self._omml_math(child, unsupported)
+                    if maths:
+                        if any(not isinstance(i, LineBreak) and not (isinstance(i, Text) and not i.text.strip()) for i in inlines):
+                            pieces.append(inlines)
+                        inlines = []
+                        for ast, ltx in maths:
+                            pieces.append(MathBlock(latex=ltx, ast=ast))
+                elif tag == "oMath":
+                    for ast, ltx in self._omml_math(child, unsupported):
+                        inlines.append(MathInline(latex=ltx, ast=ast))
+                        omml_blocks.append(MathBlock(latex=ltx, ast=ast))
                 elif tag in ("drawing", "pict"):
                     unsupported.append(f"{tag}: embedded image or drawing shape")
                 elif tag == "del":
@@ -313,15 +244,8 @@ class DocxImporter(BaseImporter):
                     pass
 
         collect_runs(p._element)
-
-        # Gộp các Text inline liền kề để tránh chèn khoảng trắng giả tạo (L6)
-        merged_inlines: list[Inline] = []
-        for inl in inlines:
-            if isinstance(inl, Text) and merged_inlines and isinstance(merged_inlines[-1], Text):
-                merged_inlines[-1].text += inl.text
-            else:
-                merged_inlines.append(inl)
-        inlines = merged_inlines
+        if inlines or not pieces:
+            pieces.append(inlines)
 
         # Nhận diện danh sách có bullet hoặc numbering
         is_list = False
@@ -332,23 +256,38 @@ class DocxImporter(BaseImporter):
         if not is_list and style_name.lower().startswith("list"):
             is_list = True
 
-        if is_list and inlines:
-            first_txt = inlines[0].text if isinstance(inlines[0], Text) else ""
-            if not first_txt.startswith(("•", "-", "*", "1.", "2.", "3.", "4.", "5.")):
-                inlines.insert(0, Text(text="• "))
+        blocks: list[Block] = []
+        first_text_piece = True
+        for piece in pieces:
+            if isinstance(piece, MathBlock):
+                blocks.append(piece)
+                continue
+            piece_inlines: list[Inline] = []
+            for inl in piece:      # Gộp các Text inline liền kề để tránh chèn khoảng trắng giả tạo (L6)
+                if isinstance(inl, Text) and piece_inlines and isinstance(piece_inlines[-1], Text):
+                    piece_inlines[-1] = Text(text=piece_inlines[-1].text + inl.text)
+                else:
+                    piece_inlines.append(inl)
 
-        # Nếu đoạn văn trống hoàn toàn và không có inlines
-        if not inlines and not p.text.strip():
-            return None
+            if is_list and first_text_piece and piece_inlines:
+                first_txt = piece_inlines[0].text if isinstance(piece_inlines[0], Text) else ""
+                if not first_txt.startswith(("•", "-", "*", "1.", "2.", "3.", "4.", "5.")):
+                    piece_inlines.insert(0, Text(text="• "))
 
-        # Nếu toàn bộ đoạn văn chỉ là 1 khối công thức toán riêng biệt
-        if len(omml_blocks) == 1 and not p.text.strip():
-            return omml_blocks[0]
+            if not piece_inlines and (len(pieces) > 1 or not p.text.strip()):
+                continue      # đoạn trống (hoặc phần chữ rỗng kế bên công thức display)
 
-        if level is not None:
-            return Heading(level=level, inlines=inlines or [Text(text=p.text)])
-        else:
-            return Paragraph(inlines=inlines or [Text(text=p.text)], align=align)
+            # Toàn bộ đoạn văn chỉ là 1 khối công thức toán riêng biệt
+            if len(pieces) == 1 and len(omml_blocks) == 1 and not p.text.strip() and _only_one_math(piece_inlines):
+                blocks.append(omml_blocks[0])
+                continue
+
+            if level is not None and first_text_piece:
+                blocks.append(Heading(level=level, inlines=piece_inlines or [Text(text=p.text)]))
+            else:
+                blocks.append(Paragraph(inlines=piece_inlines or [Text(text=p.text)], align=align))
+            first_text_piece = False
+        return blocks
 
     def _parse_table(self, tbl: Any, unsupported: list[str]) -> Table:
         rows: list[TableRow] = []
@@ -361,10 +300,10 @@ class DocxImporter(BaseImporter):
                     continue
                 seen_tc.add(c._tc)
 
-                # Quét hình ảnh bên trong các ô bảng
+                # Quét hình ảnh bên trong các ô bảng (đối tượng OLE/MathType được báo riêng khi đọc đoạn văn)
                 for d in c._element.iter():
                     d_tag = d.tag.split("}")[-1] if "}" in d.tag else d.tag
-                    if d_tag in ("drawing", "pict"):
+                    if d_tag in ("drawing", "pict") and self._ole_progid(d) is None:
                         unsupported.append(f"{d_tag} in table cell: embedded image or drawing shape")
 
                 try:
@@ -376,9 +315,7 @@ class DocxImporter(BaseImporter):
 
                 cell_blocks: list[Block] = []
                 for p in c.paragraphs:
-                    blk = self._parse_paragraph(p, unsupported)
-                    if blk is not None:
-                        cell_blocks.append(blk)
+                    cell_blocks.extend(self._parse_paragraph_blocks(p, unsupported))
 
                 if not cell_blocks and c.text.strip():
                     cell_blocks.append(Paragraph(inlines=[Text(text=c.text.strip())]))
