@@ -94,8 +94,12 @@ def missing_letters_ranked(
     bank_letters: dict[str, list[dict]],
     bank_marks: dict[str, list[dict]],
     strict_case: bool = False,
+    bank_digits: dict[str, list[dict]] | None = None,
+    bank_punct: dict[str, list[dict]] | None = None,
+    bank_symbols: dict[str, list[dict]] | None = None,
+    bank_words: dict[str, list[dict]] | None = None,
 ) -> list[tuple[str, int, list[str]]]:
-    """Xác định các chữ cái và dấu thanh còn thiếu để viết các từ trong missing_words,
+    """Xác định các chữ cái, dấu thanh, chữ số, dấu câu và ký hiệu còn thiếu để viết các từ trong missing_words,
     sắp xếp theo tần suất xuất hiện và khả năng mở khoá từ (greedy coverage).
 
     Args:
@@ -103,17 +107,28 @@ def missing_letters_ranked(
         bank_letters: Từ điển chữ cái đã học trong kho.
         bank_marks: Từ điển dấu thanh đã có trong kho.
         strict_case: Nếu False, chữ hoa có thể dùng mẫu chữ thường nếu chưa có mẫu hoa.
+        bank_digits: Từ điển chữ số đã có trong kho.
+        bank_punct: Từ điển dấu câu đã có trong kho.
+        bank_symbols: Từ điển ký hiệu toán học / đặc biệt đã có trong kho.
+        bank_words: Từ điển từ nguyên khối đã có trong kho (hỗ trợ tra cứu fallback).
 
     Returns:
         [(ký_tự_hoặc_dấu, số_từ_mở_khoá, [danh_sách_từ_mở_khoá]), ...]
         được sắp xếp giảm dần theo số_từ_mở_khoá, rồi theo thứ tự bảng chữ cái.
     """
+    digits = bank_digits or {}
+    punct = bank_punct or {}
+    symbols = bank_symbols or {}
+    words_bank = bank_words or {}
     word_deps: dict[str, set[str]] = {}  # missing_char -> set of words needing it
 
     for w in missing_words:
         w_clean = w.strip()
         if not w_clean:
             continue
+        if w_clean in words_bank and words_bank[w_clean]:
+            continue
+
         letters, tone, _ = split_letters(w_clean)
         needed_in_word: set[str] = set()
 
@@ -123,14 +138,36 @@ def missing_letters_ranked(
                 has_sample = True
             elif not strict_case and ch.isupper() and ch.lower() in bank_letters and bank_letters[ch.lower()]:
                 has_sample = True
+            elif ch in digits and digits[ch]:
+                has_sample = True
+            elif ch in punct and punct[ch]:
+                has_sample = True
+            elif ch in symbols and symbols[ch]:
+                has_sample = True
+            elif ch in words_bank and words_bank[ch]:
+                has_sample = True
+            elif not strict_case and ch.isupper() and ch.lower() in words_bank and words_bank[ch.lower()]:
+                has_sample = True
 
             if not has_sample:
                 target_ch = ch if (strict_case or not ch.isupper()) else ch.lower()
                 needed_in_word.add(target_ch)
 
         if tone:
-            if not bank_marks.get(tone):
-                needed_in_word.add(tone)
+            has_precomposed = False
+            if w_clean in bank_letters and bank_letters[w_clean]:
+                has_precomposed = True
+            elif w_clean in words_bank and words_bank[w_clean]:
+                has_precomposed = True
+            elif len(letters) == 1:
+                if letters[0] in bank_letters and bank_letters[letters[0]]:
+                    has_precomposed = True
+                elif letters[0] in words_bank and words_bank[letters[0]]:
+                    has_precomposed = True
+
+            if not has_precomposed:
+                if not bank_marks.get(tone):
+                    needed_in_word.add(tone)
 
         for req in needed_in_word:
             word_deps.setdefault(req, set()).add(w_clean)
@@ -262,4 +299,178 @@ def sample_signature(strokes: list[Stroke]) -> str:
         parts.append(",".join(f"{round(coord, 2):.2f}" for coord in s))
     norm_repr = ";".join(parts)
     return hashlib.sha256(norm_repr.encode("utf-8")).hexdigest()
+
+
+# ------------------------------------------------------------------ Chỉ số hình học & Chuẩn hoá chữ cái
+
+CONTOUR_CURVED = "CURVED"
+CONTOUR_STRAIGHT = "STRAIGHT"
+CONTOUR_OPEN = "OPEN"
+
+_LEFT_CURVED = set("cdeopqCDEGOPQ0689ăâêôơư" + "àáảãạèéẻẽẹòóỏõọồốổỗộờớởỡợùúủũụừứửữự")
+_LEFT_STRAIGHT = set("bhijklmnruBHIJKLMNRU1" + "đĐìíỉĩị")
+
+_RIGHT_CURVED = set("obpOPBD038ôơ" + "òóỏõọồốổỗộờớởỡợ")
+_RIGHT_STRAIGHT = set("adhijlmnquHIMNU1" + "àáảãạìíỉĩịùúủũụ")
+
+
+def classify_char_category(char: str) -> str:
+    """Phân loại ký tự thành: 'x_height', 'ascender', 'descender', 'uppercase', 'digit', 'punct', 'symbol'."""
+    if not char:
+        return "x_height"
+    ch = unicodedata.normalize("NFC", char)
+    if len(ch) == 1 and ch.isdigit():
+        return "digit"
+    if ch in PUNCT_CHARS or (len(ch) == 1 and unicodedata.category(ch).startswith("P")):
+        return "punct"
+    if is_symbol_label(ch):
+        return "symbol"
+    if ch.isupper():
+        return "uppercase"
+
+    unaccented = strip_tone(ch).lower()
+    if unaccented in ("b", "d", "đ", "h", "k", "l", "t"):
+        return "ascender"
+    if unaccented in ("g", "p", "q", "y"):
+        return "descender"
+    return "x_height"
+
+
+def classify_left_contour(char: str) -> str:
+    """Phân loại hình dạng đường biên bên trái của chữ cái ('CURVED', 'STRAIGHT', 'OPEN')."""
+    ch = unicodedata.normalize("NFC", char)
+    if ch in _LEFT_CURVED:
+        return CONTOUR_CURVED
+    if ch in _LEFT_STRAIGHT:
+        return CONTOUR_STRAIGHT
+    return CONTOUR_OPEN
+
+
+def classify_right_contour(char: str) -> str:
+    """Phân loại hình dạng đường biên bên phải của chữ cái ('CURVED', 'STRAIGHT', 'OPEN')."""
+    ch = unicodedata.normalize("NFC", char)
+    if ch in _RIGHT_CURVED:
+        return CONTOUR_CURVED
+    if ch in _RIGHT_STRAIGHT:
+        return CONTOUR_STRAIGHT
+    return CONTOUR_OPEN
+
+
+def contour_pair_gap(left_c: str, right_c: str, xh: float = 7.94) -> float:
+    """Tính khoảng hở quang học tự nhiên giữa 2 đường biên tiếp giáp của cặp chữ cái."""
+    if left_c == CONTOUR_CURVED and right_c == CONTOUR_CURVED:
+        return round(0.08 * xh, 2)
+    if (left_c == CONTOUR_CURVED and right_c == CONTOUR_OPEN) or (left_c == CONTOUR_OPEN and right_c == CONTOUR_CURVED):
+        return round(0.10 * xh, 2)
+    if left_c == CONTOUR_OPEN and right_c == CONTOUR_OPEN:
+        return round(0.12 * xh, 2)
+    if (left_c == CONTOUR_STRAIGHT and right_c == CONTOUR_CURVED) or (left_c == CONTOUR_CURVED and right_c == CONTOUR_STRAIGHT):
+        return round(0.14 * xh, 2)
+    if (left_c == CONTOUR_STRAIGHT and right_c == CONTOUR_OPEN) or (left_c == CONTOUR_OPEN and right_c == CONTOUR_STRAIGHT):
+        return round(0.15 * xh, 2)
+    # STRAIGHT gặp STRAIGHT: khoảng cách lớn nhất để tránh dính nét
+    return round(0.18 * xh, 2)
+
+
+def compute_side_bearings(
+    char: str,
+    strokes: list[Stroke],
+    w: float,
+    xh: float = 7.94,
+) -> tuple[float, float, float]:
+    """Tính toán Left Side Bearing (lsb), Right Side Bearing (rsb) và Advance Width (adv)."""
+    lc = classify_left_contour(char)
+    rc = classify_right_contour(char)
+
+    lsb = 0.04 * xh if lc == CONTOUR_CURVED else (0.06 * xh if lc == CONTOUR_OPEN else 0.08 * xh)
+    rsb = 0.04 * xh if rc == CONTOUR_CURVED else (0.06 * xh if rc == CONTOUR_OPEN else 0.08 * xh)
+
+    lsb = round(lsb, 2)
+    rsb = round(rsb, 2)
+    adv = round(w + lsb + rsb, 2)
+    return lsb, rsb, adv
+
+
+def normalize_letter_sample(
+    char: str,
+    strokes: list[Stroke],
+    raw_w: float,
+    raw_xh: float,
+    target_xh: float = 7.94,
+) -> dict[str, Any]:
+    """Chuẩn hóa một mẫu chữ cái: co giãn đồng dạng theo x-height mục tiêu và neo chân chữ về y=0."""
+    cat = classify_char_category(char)
+    lc = classify_left_contour(char)
+    rc = classify_right_contour(char)
+
+    scale = target_xh / raw_xh if raw_xh > 0 else 1.0
+
+    scaled_strokes: list[Stroke] = []
+    all_ys: list[float] = []
+    all_xs: list[float] = []
+
+    for st in strokes:
+        sc_st: list[float] = []
+        for i in range(0, len(st) - 1, 2):
+            x_val = st[i] * scale
+            y_val = st[i + 1] * scale
+            sc_st.extend([x_val, y_val])
+            all_xs.append(x_val)
+            all_ys.append(y_val)
+        scaled_strokes.append(sc_st)
+
+    if not all_xs or not all_ys:
+        return {
+            "s": strokes,
+            "w": raw_w,
+            "h": 0.0,
+            "lsb": 0.0,
+            "rsb": 0.0,
+            "adv": raw_w,
+            "cat": cat,
+            "lc": lc,
+            "rc": rc,
+        }
+
+    # Neo chân chữ:
+    # Trong toạ độ .xopp/kho mẫu, y âm là hướng lên trên, y=0 là đường chân chữ (baseline)
+    # Đối với chữ không có đuôi xuống (descender), toạ độ y lớn nhất (thấp nhất thị giác) neo về 0
+    if cat != "descender":
+        shift_y = -max(all_ys)
+    else:
+        # Với descender (g, p, q, y), phần thân chữ nằm trên y <= 0, phần đuôi vượt qua y > 0
+        # Ước lượng đường chân chữ dựa trên đỉnh nét: baseline = min_y + target_xh
+        shift_y = -(min(all_ys) + target_xh)
+
+    # Shift to baseline y=0 và mép trái x=0
+    shift_x = -min(all_xs)
+
+    norm_strokes: list[Stroke] = []
+    for st in scaled_strokes:
+        norm_st: list[float] = []
+        for i in range(0, len(st) - 1, 2):
+            norm_st.append(round(st[i] + shift_x, 2))
+            norm_st.append(round(st[i + 1] + shift_y, 2))
+        norm_strokes.append(norm_st)
+
+    norm_xs = [norm_st[i] for norm_st in norm_strokes for i in range(0, len(norm_st) - 1, 2)]
+    norm_ys = [norm_st[i + 1] for norm_st in norm_strokes for i in range(0, len(norm_st) - 1, 2)]
+
+    norm_w = round(max(norm_xs) - min(norm_xs), 2)
+    norm_h = round(max(norm_ys) - min(norm_ys), 2)
+
+    lsb, rsb, adv = compute_side_bearings(char, norm_strokes, norm_w, xh=target_xh)
+
+    return {
+        "s": norm_strokes,
+        "w": norm_w,
+        "h": norm_h,
+        "lsb": lsb,
+        "rsb": rsb,
+        "adv": adv,
+        "cat": cat,
+        "lc": lc,
+        "rc": rc,
+    }
+
 

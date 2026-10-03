@@ -291,6 +291,10 @@ def compose_document(bank: Bank, text: str, opts: WriteOptions) -> tuple[list[st
             getattr(bank, "letters", {}),
             getattr(bank, "marks", {}),
             strict_case=opts.strict_case,
+            bank_digits=getattr(bank, "digits", {}),
+            bank_punct=getattr(bank, "punct", {}),
+            bank_symbols=getattr(bank, "symbols", {}),
+            bank_words=getattr(bank, "words", {}),
         )
         if wr.missing
         else []

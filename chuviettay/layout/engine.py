@@ -524,6 +524,10 @@ class DocumentLayoutEngine:
                 getattr(self.bank, "letters", {}),
                 getattr(self.bank, "marks", {}),
                 strict_case=self.opts.strict_case,
+                bank_digits=getattr(self.bank, "digits", {}),
+                bank_punct=getattr(self.bank, "punct", {}),
+                bank_symbols=getattr(self.bank, "symbols", {}),
+                bank_words=getattr(self.bank, "words", {}),
             )
             if self.wr.missing
             else []

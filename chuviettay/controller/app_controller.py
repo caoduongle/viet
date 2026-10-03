@@ -351,6 +351,10 @@ class AppController:
             getattr(bank, "letters", {}),
             getattr(bank, "marks", {}),
             strict_case=strict_case,
+            bank_digits=getattr(bank, "digits", {}),
+            bank_punct=getattr(bank, "punct", {}),
+            bank_symbols=getattr(bank, "symbols", {}),
+            bank_words=getattr(bank, "words", {}),
         )
 
     def export_seed_grid(self, n: int, out_path: str) -> SeedResult:
