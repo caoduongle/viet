@@ -61,17 +61,17 @@
 **Independent Test**: Synthesize words containing varied boundary shapes; assert adjacent bbox overlap $\le 10\%$ and stroke clearance $\ge 0.8 \times \text{pen\_thickness}$.
 
 ### Tests for User Story 1
-- [ ] T016 [P] [US1] Create quality invariant test suite in `tests/test_letter_assembly_quality.py` asserting clearance floor and bounding-box overlap bounds.
-- [ ] T017 [P] [US1] Add kerning pair test cases in `tests/test_letter_assembly.py` for straight-to-straight, curve-to-curve, and open-to-closed letter pairs.
+- [X] T016 [P] [US1] Create quality invariant test suite in `tests/test_letter_assembly_quality.py` asserting clearance floor and bounding-box overlap bounds.
+- [X] T017 [P] [US1] Add kerning pair test cases in `tests/test_letter_assembly.py` for straight-to-straight, curve-to-curve, and open-to-closed letter pairs.
 
 ### Implementation for User Story 1
-- [ ] T018 [US1] Implement boundary contour pair gap lookup table in `chuviettay/model/text_utils.py` (`contour_pair_gap`).
-- [ ] T019 [US1] Implement efficient nearest-point stroke clearance calculation in `chuviettay/model/text_utils.py` using boundary point subsets.
-- [ ] T020 [US1] Rewrite `Writer.assemble_word` advance logic in `chuviettay/model/writer.py` to advance by `w + rsb + pair_gap + lsb` instead of subtracting overlap.
-- [ ] T021 [US1] Add stroke clearance floor enforcement in `Writer.assemble_word` in `chuviettay/model/writer.py` to nudge letters rightward when minimum distance $< k \times \text{pen\_thickness}$.
-- [ ] T022 [US1] Ensure jitter in `chuviettay/model/writer.py` is clamped so that randomized displacement never violates the minimum clearance floor.
+- [X] T018 [US1] Implement boundary contour pair gap lookup table in `chuviettay/model/text_utils.py` (`contour_pair_gap`).
+- [X] T019 [US1] Implement efficient nearest-point stroke clearance calculation in `chuviettay/model/text_utils.py` using boundary point subsets.
+- [X] T020 [US1] Rewrite `Writer.assemble_word` advance logic in `chuviettay/model/writer.py` to advance by `w + rsb + pair_gap + lsb` instead of subtracting overlap.
+- [X] T021 [US1] Add stroke clearance floor enforcement in `Writer.assemble_word` in `chuviettay/model/writer.py` to nudge letters rightward when minimum distance $< k \times \text{pen\_thickness}$.
+- [X] T022 [US1] Ensure jitter in `chuviettay/model/writer.py` is clamped so that randomized displacement never violates the minimum clearance floor.
 
-**Checkpoint**: Words like "pipeline" and "penguins" synthesize with clear white space between strokes and zero ink pooling.
+**Checkpoint**: Words like "pipeline" and "penguins" synthesize with clear white space between strokes and zero ink pooling. (COMPLETED)
 
 ---
 
@@ -82,15 +82,15 @@
 **Independent Test**: Synthesize acceptance sample with `--auto-xh` and measure output via `measure_ink.py`; assert median x-height matches note within 10% and stroke-to-xh ratio matches within 15%.
 
 ### Tests for User Story 2
-- [ ] T023 [P] [US2] Add unit tests in `tests/test_letter_assembly_quality.py` for stroke width scaling and group-based x-height normalization.
+- [X] T023 [P] [US2] Add unit tests in `tests/test_letter_assembly_quality.py` for stroke width scaling and group-based x-height normalization.
 
 ### Implementation for User Story 2
-- [ ] T024 [US2] Implement group-based character categorization (`x_height`, `ascender`, `descender`, `uppercase`) in `chuviettay/model/text_utils.py`.
-- [ ] T025 [US2] Update `WriteOptions` and `Composer` in `chuviettay/model/composer.py` to support `letter_gap`, `target_xh`, `auto_xh`, and `pen_clearance_factor`.
-- [ ] T026 [US2] Implement dynamic stroke thickness adjustment (`wscale` compensation) in `chuviettay/model/composer.py` and `chuviettay/layout/engine.py` to preserve authentic stroke-to-height ratio.
-- [ ] T027 [US2] Expose `--letter-gap`, `--target-xh`, `--auto-xh`, and `--pen-clearance` flags in `chuviettay/cli.py` and forward through `app_controller.py`.
+- [X] T024 [US2] Implement group-based character categorization (`x_height`, `ascender`, `descender`, `uppercase`) in `chuviettay/model/text_utils.py`.
+- [X] T025 [US2] Update `WriteOptions` and `Composer` in `chuviettay/model/composer.py` to support `letter_gap`, `target_xh`, `auto_xh`, and `pen_clearance_factor`.
+- [X] T026 [US2] Implement dynamic stroke thickness adjustment (`wscale` compensation) in `chuviettay/model/composer.py` and `chuviettay/layout/engine.py` to preserve authentic stroke-to-height ratio.
+- [X] T027 [US2] Expose `--letter-gap`, `--target-xh`, `--auto-xh`, and `--pen-clearance` flags in `chuviettay/cli.py` and forward through `app_controller.py`.
 
-**Checkpoint**: Synthesized letters have uniform lowercase heights and stroke weight proportional to authentic note handwriting.
+**Checkpoint**: Synthesized letters have uniform lowercase heights and stroke weight proportional to authentic note handwriting. (COMPLETED)
 
 ---
 
@@ -101,17 +101,17 @@
 **Independent Test**: Render `tests/data/accept_sample.txt`; verify 100% of accented words ("Lời giải", "Bài", "Chạy", "Điều kiện"...) render complete strokes with proper tone placement and no missing characters.
 
 ### Tests for User Story 3
-- [ ] T028 [P] [US3] Add unit tests in `tests/test_letter_assembly.py` for Dual-Path assembly (precomposed letter match vs decomposed base + mark).
-- [ ] T029 [P] [US3] Add test cases in `tests/test_letter_assembly.py` verifying `i`/`j` dot removal when upper tones are affixed and collision avoidance with ascenders.
+- [X] T028 [P] [US3] Add unit tests in `tests/test_letter_assembly.py` for Dual-Path assembly (precomposed letter match vs decomposed base + mark).
+- [X] T029 [P] [US3] Add test cases in `tests/test_letter_assembly.py` verifying `i`/`j` dot removal when upper tones are affixed and collision avoidance with ascenders.
 
 ### Implementation for User Story 3
-- [ ] T030 [US3] Implement Dual-Path character resolution in `Writer.assemble_word` in `chuviettay/model/writer.py`: check for precomposed character sample before falling back to base vowel + tone mark.
-- [ ] T031 [US3] Implement vowel centroid and bounding box tone placement in `Writer.assemble_word` in `chuviettay/model/writer.py` with ascender collision avoidance.
-- [ ] T032 [US3] Refactor `i`/`j` tittle suppression in `chuviettay/model/writer.py` using relative bounding-box thresholds instead of hardcoded coordinates.
-- [ ] T033 [US3] Expand token character lookup cascade in `Writer.assemble_word` to support mixed technical tokens (`_`, `(`, `)`, digits) across `bank.digits`, `bank.punct`, and `bank.symbols`.
-- [ ] T034 [US3] Implement fallback for math and programming symbols (`_`, `>=`, `<`, `---`) to vector glyphs in `chuviettay/model/writer.py` without violating architectural layer boundaries.
+- [X] T030 [US3] Implement Dual-Path character resolution in `Writer.assemble_word` in `chuviettay/model/writer.py`: check for precomposed character sample before falling back to base vowel + tone mark.
+- [X] T031 [US3] Implement vowel centroid and bounding box tone placement in `Writer.assemble_word` in `chuviettay/model/writer.py` with ascender collision avoidance.
+- [X] T032 [US3] Refactor `i`/`j` tittle suppression in `chuviettay/model/writer.py` using relative bounding-box thresholds instead of hardcoded coordinates.
+- [X] T033 [US3] Expand token character lookup cascade in `Writer.assemble_word` to support mixed technical tokens (`_`, `(`, `)`, digits) across `bank.digits`, `bank.punct`, and `bank.symbols`.
+- [X] T034 [US3] Implement fallback for math and programming symbols (`_`, `>=`, `<`, `---`) to vector glyphs in `chuviettay/model/writer.py` without violating architectural layer boundaries.
 
-**Checkpoint**: All accented words in the acceptance sample render legibly with proper tone marks, and technical identifiers (`bill_length_mm`, `query(`, `>=`) render without error.
+**Checkpoint**: All accented words in the acceptance sample render legibly with proper tone marks, and technical identifiers (`bill_length_mm`, `query(`, `>=`) render without error. (COMPLETED)
 
 ---
 

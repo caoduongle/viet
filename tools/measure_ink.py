@@ -209,8 +209,13 @@ def measure_ink_metrics(
             s1 = line[i]
             s2 = line[i + 1]
 
-            # Bỏ qua nếu là nét dấu nằm phía trên/dưới nguyên âm
-            if abs((s1.min_x + s1.max_x) / 2 - (s2.min_x + s2.max_x) / 2) < 2.0:
+            # Bỏ qua nếu là các nét thuộc cùng một ký tự (nét dấu trên/dưới hoặc nét phụ chồng lên nhau)
+            is_vertical_diacritic = (
+                (s2.max_y <= s1.min_y + 3.0)
+                or (s1.max_y <= s2.min_y + 3.0)
+                or abs((s1.min_x + s1.max_x) / 2 - (s2.min_x + s2.max_x) / 2) < 4.5
+            )
+            if is_vertical_diacritic:
                 continue
 
             h_gap = s2.min_x - s1.max_x

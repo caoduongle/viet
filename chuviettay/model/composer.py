@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from chuviettay.config import MAXH
 from chuviettay.model import xopp
 from chuviettay.model.bank import Bank
-from chuviettay.model.text_utils import Stroke, fmt, normalize_text, place
+from chuviettay.model.text_utils import Stroke, fmt, place
 from chuviettay.model.writer import Writer
 
 if TYPE_CHECKING:
@@ -81,6 +81,12 @@ class WriteOptions:
     missing_grid: bool = True     # tự động tạo file _thieu.xopp khi thiếu mẫu (có thể tắt bằng --no-missing-grid)
     assemble_letters: bool = False  # tự động ghép từ các mẫu chữ cái khi thiếu từ nguyên khối
 
+    # Các tuỳ chọn chất lượng ghép chữ cái & độ đậm nét
+    letter_gap: float = 1.0       # hệ số nhân khoảng cách chữ cái
+    target_xh: float = 7.94       # x-height mục tiêu chuẩn (pt)
+    auto_xh: bool = False         # tự động chuẩn hóa x-height và bù trừ wscale theo tỉ lệ thực của note (17.8%)
+    pen_clearance_factor: float = 0.8  # hệ số sàn khe hở tối thiểu theo độ dày bút (clearance >= factor * pen)
+
     def validate(self) -> None:
         """Kiểm tra tính hợp lệ nghiệp vụ của các tùy chọn viết. Ném ValueError nếu sai."""
         from chuviettay.document.page_format import PAPER_SIZES, VALID_BACKGROUND_STYLES
@@ -101,6 +107,12 @@ class WriteOptions:
             raise ValueError(f"jitter phải là số không âm hữu hạn, nhận được: {self.jitter}")
         if not math.isfinite(self.wscale) or self.wscale <= 0:
             raise ValueError(f"wscale phải là số dương hữu hạn, nhận được: {self.wscale}")
+        if not math.isfinite(self.letter_gap) or self.letter_gap <= 0:
+            raise ValueError(f"letter_gap phải là số dương hữu hạn, nhận được: {self.letter_gap}")
+        if not math.isfinite(self.target_xh) or self.target_xh <= 0:
+            raise ValueError(f"target_xh phải là số dương hữu hạn, nhận được: {self.target_xh}")
+        if not math.isfinite(self.pen_clearance_factor) or self.pen_clearance_factor < 0:
+            raise ValueError(f"pen_clearance_factor phải là số không âm hữu hạn, nhận được: {self.pen_clearance_factor}")
         if self.color is not None:
             self.color = parse_color(self.color)
 
@@ -224,12 +236,29 @@ def compose_document(bank: Bank, text: str, opts: WriteOptions) -> tuple[list[st
     """
     rnd = random.Random(opts.seed)
     J = opts.jitter
-    text = normalize_text(text)
-    wr = Writer(bank, rnd, J, not opts.strict_case, opts.space, assemble_letters=opts.assemble_letters)
+    S = opts.scale
+    effective_wscale = opts.wscale
+    if opts.auto_xh:
+        current_xh = getattr(bank, "xh", 7.94) or 7.94
+        if current_xh > 0 and abs(current_xh - opts.target_xh) > 0.05:
+            S = opts.scale * (opts.target_xh / current_xh)
+        base_pen = float(bank.pen.get("width", 1.41)) if bank.pen else 1.41
+        desired_pen = 0.178 * opts.target_xh * (S / (opts.target_xh / current_xh if current_xh > 0 else 1.0))
+        effective_wscale = opts.wscale * (desired_pen / base_pen if base_pen > 0 else 1.0)
+
+    wr = Writer(
+        bank,
+        rnd,
+        J,
+        not opts.strict_case,
+        opts.space,
+        assemble_letters=opts.assemble_letters,
+        letter_gap=opts.letter_gap,
+        pen_clearance_factor=opts.pen_clearance_factor,
+    )
     line_h = opts.line or bank.d["line"]
     width = opts.width or bank.d["width"]
     x0 = bank.d["x0"]
-    S = opts.scale
     gaps = [g for g in bank.d["wgaps"] if 6.0 <= g <= 20.0] or [11.0]
 
     lines: list[list[tuple[float, list[Stroke], float]]] = []
@@ -279,7 +308,7 @@ def compose_document(bank: Bank, text: str, opts: WriteOptions) -> tuple[list[st
                     for x, y in pts:
                         X = start + x
                         fin.append((xo + X, base + dy + y + slope * X + amp * math.sin(6.283 * X / wl + ph)))
-                    o.append(xopp.stroke_xml(fin, bank.pen, opts.color, opts.wscale * (1 + rnd.gauss(0, 0.02 * J))))
+                    o.append(xopp.stroke_xml(fin, bank.pen, opts.color, effective_wscale * (1 + rnd.gauss(0, 0.02 * J))))
                     nstroke += 1
         o.append(xopp.PAGE_CLOSE)
     o.append("</xournal>")

@@ -23,13 +23,17 @@ class Writer:
 
     def __init__(self, bank: Bank, rnd: random.Random, jitter: float = 1.0,
                  loose_case: bool = True, space: float = 1.0,
-                 assemble_letters: bool = False):
+                 assemble_letters: bool = False,
+                 letter_gap: float = 1.0,
+                 pen_clearance_factor: float = 0.8):
         self.b = bank
         self.rnd = rnd
         self.J = jitter
         self.loose = loose_case
         self.space = space
         self.assemble_letters = assemble_letters
+        self.letter_gap = letter_gap
+        self.pen_clearance_factor = pen_clearance_factor
         self.last: dict[str, int] = {}       # tag -> chỉ số mẫu chọn lần trước (né lặp)
         self.missing: dict[str, int] = {}     # phần chưa có mẫu -> số lần gặp
         self.assembled: list[str] = []        # các từ đã ghép tự động từ chữ cái
@@ -69,72 +73,205 @@ class Writer:
                     return r
         return None
 
+    def get_letter_sample(self, char: str) -> dict | None:
+        """Tìm mẫu ký tự theo thứ tự ưu tiên đa tầng (cascade):
+        1. bank.letters[char]
+        2. bank.letters[char.lower()] (nếu loose và char viết hoa)
+        3. bank.words[char] (nếu len(char) == 1)
+        4. bank.words[char.lower()] (nếu loose, len(char) == 1 và char viết hoa)
+        5. bank.digits[char] (nếu là chữ số)
+        6. bank.punct[char] (nếu là dấu câu)
+        7. bank.symbols[char] (nếu là ký hiệu)
+        8. get_vector_glyph_fallback(char, xh) (nét vector dự phòng)
+        """
+        b = self.b
+        if getattr(b, "letters", None) and char in b.letters:
+            return self.pick(b.letters[char], "let:" + char)
+        if self.loose and char.isupper() and getattr(b, "letters", None) and char.lower() in b.letters:
+            return self.pick(b.letters[char.lower()], "let:" + char.lower())
+
+        if len(char) == 1 and char in b.words:
+            return self.pick(b.words[char], char)
+        if self.loose and char.isupper() and len(char) == 1 and char.lower() in b.words:
+            return self.pick(b.words[char.lower()], char.lower())
+
+        if getattr(b, "digits", None) and char in b.digits:
+            return self.pick(b.digits[char], "d" + char)
+
+        if getattr(b, "punct", None) and char in b.punct:
+            return self.pick(b.punct[char], "p" + char)
+
+        if getattr(b, "symbols", None) and char in b.symbols:
+            return self.pick(b.symbols[char], "sym:" + char)
+
+        xh = getattr(b, "xh", 7.94)
+        from chuviettay.model.text_utils import get_vector_glyph_fallback
+        fb = get_vector_glyph_fallback(char, xh=xh)
+        if fb:
+            return fb
+
+        return None
+
     def assemble_word(self, core: str) -> tuple[list[Stroke], float] | None:
-        """Ghép MỘT từ tiếng Việt từ các mẫu chữ cái đơn lẻ trong bank.letters và dấu thanh rời trong bank.marks."""
-        from chuviettay.model.text_utils import split_letters
+        """Ghép MỘT từ từ các mẫu chữ cái đơn lẻ, hỗ trợ Dual-Path (mẫu nguyên chữ hoặc phân rã dấu thanh),
+        tính khoảng cách quang học biên (contour kerning) và bảo đảm sàn khe hở vật lý (clearance floor)."""
+        import unicodedata
+        from chuviettay.model.text_utils import (
+            classify_left_contour,
+            classify_right_contour,
+            contour_pair_gap,
+            min_stroke_clearance,
+            split_letters,
+        )
 
-        letters, T, vi = split_letters(core)
-        if not letters:
+        core_clean = core.strip()
+        if not core_clean:
             return None
 
-        if T and not self.b.marks.get(T):
-            return None
+        xh = getattr(self.b, "xh", 7.94)
+        pen_w = float(self.b.pen.get("width", 1.41)) if self.b.pen else 1.41
+        clearance_floor = self.pen_clearance_factor * pen_w
 
-        xh = getattr(self.b, "xh", 7.0)
-        overlap = max(0.3, min(1.2, 0.08 * xh))
-        cur_x = 0.0
-        body_strokes: list[Stroke] = []
-        vowel_cx = 0.0
+        # --- DUAL-PATH RESOLUTION ---
+        # Path 1: Thử tìm mẫu cho tất cả các ký tự nguyên khối (kể cả ký tự có dấu như 'à', 'ế')
+        nfc_chars = list(unicodedata.normalize("NFC", core_clean))
+        path1_samples: list[dict] = []
+        path1_ok = True
+        for ch in nfc_chars:
+            s = self.get_letter_sample(ch)
+            if s:
+                path1_samples.append(s)
+            else:
+                path1_ok = False
+                break
 
-        for idx, ch in enumerate(letters):
-            lib = None
-            if getattr(self.b, "letters", None) and ch in self.b.letters:
-                lib = self.b.letters[ch]
-            elif self.loose and ch.isupper() and getattr(self.b, "letters", None) and ch.lower() in self.b.letters:
-                lib = self.b.letters[ch.lower()]
-            elif len(ch) == 1 and ch in self.b.words:
-                lib = self.b.words[ch]
-            elif self.loose and ch.isupper() and len(ch) == 1 and ch.lower() in self.b.words:
-                lib = self.b.words[ch.lower()]
+        use_path1 = path1_ok and len(path1_samples) == len(nfc_chars)
 
-            if not lib:
+        if use_path1:
+            chars_to_place = nfc_chars
+            samples_to_place = path1_samples
+            T, vi = "", -1
+        else:
+            # Path 2: Phân tách dấu thanh rời (decomposed)
+            letters, T, vi = split_letters(core_clean)
+            if not letters:
+                return None
+            if T and not self.b.marks.get(T):
                 return None
 
-            inst = self.pick(lib, "let:" + ch)
-            w = inst.get("w", 1.0 * xh)
-            ch_strokes = inst.get("s", [])
+            path2_samples = []
+            for ch in letters:
+                s = self.get_letter_sample(ch)
+                if not s:
+                    return None
+                path2_samples.append(s)
 
-            if idx == vi and ch == "i" and T and T != NANG:
+            chars_to_place = letters
+            samples_to_place = path2_samples
+
+        # --- GHÉP NÉT VÀ ĐỊNH VỊ (PLACEMENT & KERNING) ---
+        body_strokes: list[Stroke] = []
+        cur_x = 0.0
+        vowel_strokes_placed: list[Stroke] = []
+        vowel_cx = 0.0
+        prev_placed_strokes: list[Stroke] = []
+
+        for idx, (ch, inst) in enumerate(zip(chars_to_place, samples_to_place)):
+            w = inst.get("w", 1.0 * xh)
+            ch_strokes = list(inst.get("s", []))
+
+            # Dot suppression cho chữ i/j khi có dấu thanh phía trên (Path 2)
+            if not use_path1 and idx == vi and ch in ("i", "j") and T and T != NANG:
                 clean_strokes = []
                 for st in ch_strokes:
                     bb = bbox(st)
-                    is_dot = (bb[3] < -0.85 * xh and (bb[2] - bb[0]) < 0.6 * xh)
+                    st_h = bb[3] - bb[1]
+                    st_w = bb[2] - bb[0]
+                    is_dot = (bb[3] < -0.75 * xh and st_h < 0.45 * xh and st_w < 0.55 * xh)
                     if not is_dot:
                         clean_strokes.append(st)
                 ch_strokes = clean_strokes or ch_strokes
 
-            placed = [shift(st, cur_x, 0) for st in ch_strokes]
-            body_strokes.extend(placed)
+            # Ký tự đầu tiên
+            if idx == 0:
+                placed = [shift(st, cur_x, 0.0) for st in ch_strokes]
+                body_strokes.extend(placed)
+                prev_placed_strokes = placed
+                if idx == vi:
+                    vowel_strokes_placed = placed
+                    vowel_cx = cur_x + w / 2.0
+                continue
+
+            # Tính khoảng cách tiến (advance)
+            prev_ch = chars_to_place[idx - 1]
+            prev_inst = samples_to_place[idx - 1]
+            prev_w = prev_inst.get("w", 1.0 * xh)
+
+            rc_prev = prev_inst.get("rc") or classify_right_contour(prev_ch)
+            rsb_prev = prev_inst.get("rsb")
+            if rsb_prev is None:
+                rsb_prev = 0.04 * xh if rc_prev == "CURVED" else (0.06 * xh if rc_prev == "OPEN" else 0.08 * xh)
+
+            lc_curr = inst.get("lc") or classify_left_contour(ch)
+            lsb_curr = inst.get("lsb")
+            if lsb_curr is None:
+                lsb_curr = 0.04 * xh if lc_curr == "CURVED" else (0.06 * xh if lc_curr == "OPEN" else 0.08 * xh)
+
+            pair_gap = contour_pair_gap(rc_prev, lc_curr, xh=xh) * self.letter_gap
+            advance = prev_w + rsb_prev + pair_gap + lsb_curr
+
+            if self.J > 0 and self.rnd:
+                jitter_amt = self.rnd.uniform(-0.015 * self.J * xh, 0.015 * self.J * xh)
+                advance += jitter_amt
+
+            candidate_x = cur_x + advance
+            candidate_placed = [shift(st, candidate_x, 0.0) for st in ch_strokes]
+
+            # Cưỡng chế sàn khe hở vật lý (Clearance Floor)
+            if prev_placed_strokes and candidate_placed:
+                dist = min_stroke_clearance(prev_placed_strokes, candidate_placed)
+                if dist < clearance_floor:
+                    nudge = clearance_floor - dist
+                    candidate_x += nudge
+                    candidate_placed = [shift(st, candidate_x, 0.0) for st in ch_strokes]
+                    advance += nudge
+
+            body_strokes.extend(candidate_placed)
+            prev_placed_strokes = candidate_placed
+            cur_x = candidate_x
 
             if idx == vi:
+                vowel_strokes_placed = candidate_placed
                 vowel_cx = cur_x + w / 2.0
 
-            advance = max(0.2 * xh, w - overlap)
-            if self.J > 0 and self.rnd:
-                advance += self.rnd.uniform(-0.02 * self.J * xh, 0.02 * self.J * xh)
-            cur_x += advance
+        last_w = samples_to_place[-1].get("w", 1.0 * xh)
+        total_w = cur_x + last_w
 
-        total_w = cur_x + overlap
-
-        if T and vi >= 0:
+        # Gắn dấu thanh rời (Path 2)
+        if not use_path1 and T and vi >= 0:
             m = self.pick(self.b.marks[T], "m" + T)
             cx = vowel_cx + m.get("dx", 0.0)
+            target_strokes = vowel_strokes_placed or body_strokes
             if T == NANG:
-                cy = max(0.0, near_extreme(body_strokes, cx, max)) + m.get("dy", 0.0)
+                cy = max(0.0, near_extreme(target_strokes, cx, max)) + m.get("dy", 0.2 * xh)
+                if cy < 0.2 * xh:
+                    cy = 0.25 * xh
             else:
-                cy = near_extreme(body_strokes, cx, min) + m.get("dy", 0.0)
-            for st in m.get("s", []):
-                body_strokes.append(shift(st, cx, cy))
+                top_v = near_extreme(target_strokes, cx, min)
+                cy = top_v + m.get("dy", -0.25 * xh)
+                if cy > top_v - 0.2 * xh:
+                    cy = top_v - 0.25 * xh
+
+            m_strokes = m.get("s", [])
+            placed_mark = [shift(st, cx, cy) for st in m_strokes]
+
+            if body_strokes and placed_mark:
+                dist_mark = min_stroke_clearance(body_strokes, placed_mark)
+                if dist_mark < clearance_floor:
+                    cy -= (clearance_floor - dist_mark)
+                    placed_mark = [shift(st, cx, cy) for st in m_strokes]
+
+            body_strokes.extend(placed_mark)
 
         return body_strokes, total_w
 

@@ -53,7 +53,27 @@ class DocumentLayoutEngine:
         else:
             self.width = self.page_format.usable_width
         self.gaps = [g for g in bank.d["wgaps"] if 6.0 <= g <= 20.0] or [11.0]
-        self.wr = Writer(bank, self.rnd, self.J, not opts.strict_case, opts.space, assemble_letters=opts.assemble_letters)
+        self.S = opts.scale
+        self.effective_wscale = opts.wscale
+        if getattr(opts, "auto_xh", False):
+            current_xh = getattr(bank, "xh", 7.94) or 7.94
+            target_xh = getattr(opts, "target_xh", 7.94)
+            if current_xh > 0 and abs(current_xh - target_xh) > 0.05:
+                self.S = opts.scale * (target_xh / current_xh)
+            base_pen = float(bank.pen.get("width", 1.41)) if bank.pen else 1.41
+            desired_pen = 0.178 * target_xh * (self.S / (target_xh / current_xh if current_xh > 0 else 1.0))
+            self.effective_wscale = opts.wscale * (desired_pen / base_pen if base_pen > 0 else 1.0)
+
+        self.wr = Writer(
+            bank,
+            self.rnd,
+            self.J,
+            not opts.strict_case,
+            opts.space,
+            assemble_letters=opts.assemble_letters,
+            letter_gap=getattr(opts, "letter_gap", 1.0),
+            pen_clearance_factor=getattr(opts, "pen_clearance_factor", 0.8),
+        )
         # id(danh sách nét của mục công thức inline) -> (ascent, descent) theo toạ độ kho (S=1): để nới chiều cao dòng
         self._math_extent: dict[int, tuple[float, float]] = {}
 
@@ -85,7 +105,7 @@ class DocumentLayoutEngine:
                 for x, y in pts:
                     X = start + x
                     fin.append((xo + X, base_y + dy + y + slope * X + amp * math.sin(6.283 * X / wl + ph)))
-                out.append(xopp.stroke_xml(fin, self.bank.pen, self.opts.color, self.opts.wscale * (1 + self.rnd.gauss(0, 0.02 * self.J))))
+                out.append(xopp.stroke_xml(fin, self.bank.pen, self.opts.color, self.effective_wscale * (1 + self.rnd.gauss(0, 0.02 * self.J))))
 
         return out
 
@@ -288,7 +308,7 @@ class DocumentLayoutEngine:
                 # 1. Stroke vector (gạch phân số, căn thức, ngoặc co giãn, dấu trang trí)
                 for ps in item.strokes:
                     pts = [(math_x + pt[0], baseline_y + pt[1]) for pt in ps.points]
-                    cur_page.append(xopp.stroke_xml(pts, self.bank.pen, self.opts.color, self.opts.wscale))
+                    cur_page.append(xopp.stroke_xml(pts, self.bank.pen, self.opts.color, self.effective_wscale))
                     total_strokes += 1
 
                 # 2. Glyphs (ký hiệu có mẫu nét viết tay)
@@ -299,7 +319,7 @@ class DocumentLayoutEngine:
                             px = st[idx] * g.scale + math_x + g.x
                             py = st[idx + 1] * g.scale + baseline_y + g.y
                             fin.append((px, py))
-                        cur_page.append(xopp.stroke_xml(fin, self.bank.pen, self.opts.color, self.opts.wscale))
+                        cur_page.append(xopp.stroke_xml(fin, self.bank.pen, self.opts.color, self.effective_wscale))
                         total_strokes += 1
 
                 cur_y += item.size.height + (self.line_h * 0.25 if item is not lines[-1] else 0.0)
@@ -449,7 +469,7 @@ class DocumentLayoutEngine:
                             seed=self.rnd.randint(0, 1000000),
                         )
                         for bs in border_strokes:
-                            cur_page.append(xopp.stroke_xml(bs.points, self.bank.pen, self.opts.color, self.opts.wscale))
+                            cur_page.append(xopp.stroke_xml(bs.points, self.bank.pen, self.opts.color, self.effective_wscale))
                             total_strokes += 1
 
                         # 2. Sinh nét chữ bên trong các ô

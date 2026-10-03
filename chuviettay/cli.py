@@ -80,6 +80,10 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
         background_color=getattr(a, "background_color", "#ffffffff"),
         mode=getattr(a, "mode", "semantic"),
         assemble_letters=getattr(a, "assemble", False),
+        letter_gap=getattr(a, "letter_gap", 1.0),
+        target_xh=getattr(a, "target_xh", 7.94),
+        auto_xh=getattr(a, "auto_xh", False),
+        pen_clearance_factor=getattr(a, "pen_clearance", 0.8),
     )
 
     target_file = getattr(a, "file", None) or getattr(a, "file_pos", None)
@@ -199,6 +203,14 @@ def build_parser() -> argparse.ArgumentParser:
                    help="chế độ kết xuất: semantic (tái dàn trang) hoặc fidelity (khóa cố định bố cục & ảnh; mặc định: semantic)")
     w.add_argument("--assemble", action="store_true",
                    help="tự động ghép chữ cái thành từ khi thiếu mẫu nguyên từ")
+    w.add_argument("--letter-gap", type=float, default=1.0,
+                   help="hệ số khoảng cách giữa các chữ cái (mặc định: 1.0)")
+    w.add_argument("--target-xh", type=float, default=7.94,
+                   help="x-height mục tiêu (pt, mặc định: 7.94 pt theo note gốc)")
+    w.add_argument("--auto-xh", action="store_true",
+                   help="tự động chuẩn hóa cỡ chữ và độ dày nét theo bản note gốc (tỉ lệ 17.8%%)")
+    w.add_argument("--pen-clearance", type=float, default=0.8,
+                   help="hệ số sàn khe hở tối thiểu theo độ dày bút (mặc định: 0.8)")
     w.set_defaults(fn=_cmd_write)
 
 

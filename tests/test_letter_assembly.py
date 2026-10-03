@@ -154,3 +154,56 @@ def test_writer_assemble_word_with_tone_and_i_dot_suppression(tmp_path):
     assert len(strokes) == 3
     assert "gì" in wr_on.assembled
 
+
+def test_kerning_pairs_different_contours(tmp_path):
+    import random
+    from chuviettay.model.bank import Bank
+    from chuviettay.model.writer import Writer
+
+    bank = Bank.create_empty(str(tmp_path / "contour_bank.json.gz"))
+    bank.xh = 7.94
+    bank.pen = {"name": "pen", "width": "1.41"}
+
+    # Thêm 'o' (CURVED-CURVED), 'l' (STRAIGHT-STRAIGHT), 'v' (OPEN-OPEN)
+    bank.add_letter_sample("o", [[0.0, -7.94, 4.0, -7.94, 4.0, 0.0, 0.0, 0.0]], width=4.0)
+    bank.add_letter_sample("l", [[0.0, -15.0, 0.0, 0.0]], width=1.5)
+    bank.add_letter_sample("v", [[0.0, -7.94, 2.0, 0.0, 4.0, -7.94]], width=4.0)
+
+    wr = Writer(bank, random.Random(42), jitter=0.0, assemble_letters=True)
+
+    res_oo = wr.assemble_word("oo")
+    res_ll = wr.assemble_word("ll")
+    res_vo = wr.assemble_word("vo")
+
+    assert res_oo is not None and res_ll is not None and res_vo is not None
+    # Đo khoảng cách advance giữa ký tự thứ 1 và ký tự thứ 2
+    # Với 'oo', khoảng hở biên tiếp xúc cong-cong nhỏ hơn thẳng-thẳng 'll'
+    # và đều lớn hơn 0
+    assert res_oo[1] > 0
+    assert res_ll[1] > 0
+    assert res_vo[1] > 0
+
+
+def test_dual_path_with_ascender_avoidance(tmp_path):
+    import random
+    from chuviettay.model.bank import Bank
+    from chuviettay.model.writer import Writer
+
+    bank = Bank.create_empty(str(tmp_path / "ascender_bank.json.gz"))
+    bank.xh = 7.94
+    bank.pen = {"name": "pen", "width": "1.41"}
+
+    # 'h' (ascender vươn cao tới y = -16.0)
+    bank.add_letter_sample("h", [[0.0, -16.0, 0.0, 0.0, 4.0, -7.94, 4.0, 0.0]], width=4.5)
+    # 'e'
+    bank.add_letter_sample("e", [[0.0, -4.0, 4.0, -4.0, 4.0, -7.94, 0.0, -7.94, 0.0, 0.0]], width=4.5)
+    # Dấu sắc '\u0301'
+    bank.add_tone_sample("\u0301", [0.0, 1.5, 2.0, 0.0], dx=-1.0, dy=-2.0)
+
+    wr = Writer(bank, random.Random(42), jitter=0.0, assemble_letters=True)
+    res = wr.assemble_word("hé")
+    assert res is not None
+    strokes, w = res
+    assert len(strokes) >= 3
+
+

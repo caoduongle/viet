@@ -474,3 +474,139 @@ def normalize_letter_sample(
     }
 
 
+def min_stroke_clearance(
+    strokes_a: list[Stroke],
+    strokes_b: list[Stroke],
+    max_pts: int = 25,
+) -> float:
+    """Tính khoảng cách Euclid nhỏ nhất giữa 2 tập hợp nét vẽ phẳng [x0,y0, x1,y1...].
+
+    Tối ưu hóa: chỉ so sánh tập con điểm biên phải của `strokes_a` với tập con điểm biên trái
+    của `strokes_b` để đạt hiệu năng < 0.05ms trong pure Python mà không cần numpy.
+    """
+    pts_a: list[tuple[float, float]] = []
+    for st in strokes_a:
+        for i in range(0, len(st) - 1, 2):
+            pts_a.append((st[i], st[i + 1]))
+
+    pts_b: list[tuple[float, float]] = []
+    for st in strokes_b:
+        for i in range(0, len(st) - 1, 2):
+            pts_b.append((st[i], st[i + 1]))
+
+    if not pts_a or not pts_b:
+        return 999.0
+
+    max_xa = max(p[0] for p in pts_a)
+    subset_a = [p for p in pts_a if p[0] >= max_xa - 4.0]
+    if len(subset_a) > max_pts:
+        subset_a = sorted(subset_a, key=lambda p: -p[0])[:max_pts]
+
+    min_xb = min(p[0] for p in pts_b)
+    subset_b = [p for p in pts_b if p[0] <= min_xb + 4.0]
+    if len(subset_b) > max_pts:
+        subset_b = sorted(subset_b, key=lambda p: p[0])[:max_pts]
+
+    min_dist_sq = 1e9
+    for xa, ya in subset_a:
+        for xb, yb in subset_b:
+            dx = xb - xa
+            dy = yb - ya
+            d_sq = dx * dx + dy * dy
+            if d_sq < min_dist_sq:
+                min_dist_sq = d_sq
+
+    return round(math.sqrt(min_dist_sq), 2) if min_dist_sq < 1e8 else 999.0
+
+
+def get_vector_glyph_fallback(token: str, xh: float = 7.94) -> dict[str, Any] | None:
+    """Sinh nét vector dự phòng cho các ký hiệu lập trình / toán học phổ biến khi kho chưa có mẫu."""
+    t = token.strip()
+    if not t:
+        return None
+
+    if t == "_":
+        # Underscore: nét ngang sát chân chữ hoặc hơi dưới baseline
+        w = round(0.6 * xh, 2)
+        s = [[0.0, round(0.15 * xh, 2), w, round(0.15 * xh, 2)]]
+        return {"s": s, "w": w, "h": 0.5, "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == "-":
+        w = round(0.5 * xh, 2)
+        y = round(-0.5 * xh, 2)
+        s = [[0.0, y, w, y]]
+        return {"s": s, "w": w, "h": 0.5, "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t in ("--", "–"):
+        w = round(1.0 * xh, 2)
+        y = round(-0.5 * xh, 2)
+        s = [[0.0, y, w, y]]
+        return {"s": s, "w": w, "h": 0.5, "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t in ("---", "—"):
+        w = round(1.8 * xh, 2)
+        y = round(-0.5 * xh, 2)
+        s = [[0.0, y, w, y]]
+        return {"s": s, "w": w, "h": 0.5, "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == "<":
+        w = round(0.6 * xh, 2)
+        top_y = round(-0.85 * xh, 2)
+        mid_y = round(-0.5 * xh, 2)
+        bot_y = round(-0.15 * xh, 2)
+        s = [[w, top_y, 0.0, mid_y, w, bot_y]]
+        return {"s": s, "w": w, "h": round(0.7 * xh, 2), "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == ">":
+        w = round(0.6 * xh, 2)
+        top_y = round(-0.85 * xh, 2)
+        mid_y = round(-0.5 * xh, 2)
+        bot_y = round(-0.15 * xh, 2)
+        s = [[0.0, top_y, w, mid_y, 0.0, bot_y]]
+        return {"s": s, "w": w, "h": round(0.7 * xh, 2), "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == "<=":
+        w = round(0.6 * xh, 2)
+        top_y = round(-0.95 * xh, 2)
+        mid_y = round(-0.6 * xh, 2)
+        bot_y = round(-0.25 * xh, 2)
+        bar_y = round(-0.05 * xh, 2)
+        s = [[w, top_y, 0.0, mid_y, w, bot_y], [0.0, bar_y, w, bar_y]]
+        return {"s": s, "w": w, "h": round(0.9 * xh, 2), "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == ">=":
+        w = round(0.6 * xh, 2)
+        top_y = round(-0.95 * xh, 2)
+        mid_y = round(-0.6 * xh, 2)
+        bot_y = round(-0.25 * xh, 2)
+        bar_y = round(-0.05 * xh, 2)
+        s = [[0.0, top_y, w, mid_y, 0.0, bot_y], [0.0, bar_y, w, bar_y]]
+        return {"s": s, "w": w, "h": round(0.9 * xh, 2), "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == "=":
+        w = round(0.6 * xh, 2)
+        y1 = round(-0.65 * xh, 2)
+        y2 = round(-0.35 * xh, 2)
+        s = [[0.0, y1, w, y1], [0.0, y2, w, y2]]
+        return {"s": s, "w": w, "h": round(0.3 * xh, 2), "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == "(":
+        w = round(0.35 * xh, 2)
+        top_y = round(-1.2 * xh, 2)
+        mid_y = round(-0.5 * xh, 2)
+        bot_y = round(0.2 * xh, 2)
+        s = [[w, top_y, 0.05 * xh, mid_y, w, bot_y]]
+        return {"s": s, "w": w, "h": round(1.4 * xh, 2), "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "punct", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == ")":
+        w = round(0.35 * xh, 2)
+        top_y = round(-1.2 * xh, 2)
+        mid_y = round(-0.5 * xh, 2)
+        bot_y = round(0.2 * xh, 2)
+        s = [[0.0, top_y, 0.3 * xh, mid_y, 0.0, bot_y]]
+        return {"s": s, "w": w, "h": round(1.4 * xh, 2), "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "punct", "lc": "OPEN", "rc": "OPEN"}
+
+    return None
+
+
+

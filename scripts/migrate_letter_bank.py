@@ -11,6 +11,7 @@ import copy
 import gzip
 import json
 from pathlib import Path
+import statistics
 from typing import Any
 
 from chuviettay.config import NANG, TONES
@@ -106,13 +107,25 @@ def migrate_bank_dict_letters(
     """
     out = copy.deepcopy(bank_dict)
 
-    raw_xh = float(out.get("xh", 3.85))
+    words = out.get("words", {})
+
+    # Ước tính raw_xh thực tế từ phân vị chiều cao các chữ cái thường không đuôi
+    sample_hs: list[float] = []
+    for ch in "acemnorstuvx":
+        for inst in words.get(ch, []):
+            st = inst.get("s", [])
+            ys = [pt for s in st for pt in s[1::2]]
+            if ys:
+                sample_hs.append(max(ys) - min(ys))
+
+    if sample_hs:
+        raw_xh = float(statistics.median(sample_hs))
+    else:
+        raw_xh = float(out.get("xh", 3.85))
     if raw_xh <= 0:
         raw_xh = 3.85
 
     scale = target_xh / raw_xh
-
-    words = out.get("words", {})
     letters = out.setdefault("letters", {})
     marks = out.setdefault("marks", {t: [] for t in TONES})
     for t in TONES:
