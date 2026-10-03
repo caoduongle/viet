@@ -144,15 +144,15 @@
 **Independent Test**: Generate `hw3` grid with standalone tone cells; verify ghost `o` guide strokes are rendered in `#e8e8e8`; simulate user hand-drawn accents; verify ingestion filters ghost `o`, calculates $(dx, dy)$ relative to vowel centroid, and stores marks into `bank.marks`.
 
 ### Tests for Standalone Tone Mark Cells
-- [ ] T049 [P] [US4] Add unit tests in `tests/test_grid_hw3.py` for generating `hw3` grid with standalone tone cells (ghost vowel `o` in `#e8e8e8`) and parsing user strokes into `bank.marks` with proper $(dx, dy)$ offsets.
+- [X] T049 [P] [US4] Add unit tests in `tests/test_grid_hw3.py` for generating `hw3` grid with standalone tone cells (ghost vowel `o` in `#e8e8e8`) and parsing user strokes into `bank.marks` with proper $(dx, dy)$ offsets.
 
 ### Implementation for Standalone Tone Mark Cells
-- [ ] T050 [US4] Add `#e8e8e8` to `HW3_GUIDE_COLORS` in `chuviettay/model/xopp.py` so ghost vowel strokes are recognized as guidelines and filtered out during learning.
-- [ ] T051 [US4] Refactor `Bank.add_tone_sample` in `chuviettay/model/bank.py` to support `strokes: list[Stroke] | Stroke`, compute collective centroid $(cx, cy)$ across all constituent strokes, and deduplicate identical marks.
-- [ ] T052 [US4] Define `HW3_TONE_LABELS` and implement ghost vowel `o` rendering helper in `make_letter_grid` in `chuviettay/model/xopp.py` for standalone tone mark cells.
-- [ ] T053 [US4] Implement tone cell routing and size validation guard in `learning.learn_from_files` in `chuviettay/model/learning.py` to extract $(dx, dy)$ relative to ghost vowel centroid/baseline and save into `bank.marks`.
-- [ ] T054 [P] [US4] Update `app_controller.py` default grid export to append the 5 standalone tone cells (`dấu sắc`, `dấu huyền`, `dấu hỏi`, `dấu ngã`, `dấu nặng`).
-- [ ] T055 Run full regression suite `pytest --timeout=30`, `pytest tests/test_architecture.py`, and `pytest tests/test_golden_master.py` to ensure zero regressions.
+- [X] T050 [US4] Add `#e8e8e8` to `HW3_GUIDE_COLORS` in `chuviettay/model/xopp.py` so ghost vowel strokes are recognized as guidelines and filtered out during learning.
+- [X] T051 [US4] Refactor `Bank.add_tone_sample` in `chuviettay/model/bank.py` to support `strokes: list[Stroke] | Stroke`, compute collective centroid $(cx, cy)$ across all constituent strokes, and deduplicate identical marks.
+- [X] T052 [US4] Define `HW3_TONE_LABELS` and implement ghost vowel `o` rendering helper in `make_letter_grid` in `chuviettay/model/xopp.py` for standalone tone mark cells.
+- [X] T053 [US4] Implement tone cell routing and size validation guard in `learning.learn_from_files` in `chuviettay/model/learning.py` to extract $(dx, dy)$ relative to ghost vowel centroid/baseline and save into `bank.marks`.
+- [X] T054 [P] [US4] Update `app_controller.py` default grid export to append the 5 standalone tone cells (`dấu sắc`, `dấu huyền`, `dấu hỏi`, `dấu ngã`, `dấu nặng`).
+- [X] T055 Run full regression suite `pytest --timeout=30`, `pytest tests/test_architecture.py`, and `pytest tests/test_golden_master.py` to ensure zero regressions.
 
 ---
 

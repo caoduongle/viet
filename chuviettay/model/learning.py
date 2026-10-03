@@ -78,6 +78,37 @@ def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
             rel = [[round((v - (r.left if i % 2 == 0 else r.base)) * scale, 2)
                     for i, v in enumerate(s)] for s in r.strokes]
             width = round((r.right - r.left) * scale, 2)
+
+            # Xử lý ô dấu thanh rời hw3 (sắc, huyền, hỏi, ngã, nặng)
+            tone_code = xopp.HW3_TONE_MAP.get(r.label.strip().lower())
+            if tone_code and getattr(r, "is_hw3", False):
+                # Guard kiểm tra kích thước nét: loại bỏ nét nếu quá lớn (vẽ đè lên chữ o mốc)
+                st_h = (max(max(s[1::2]) for s in r.strokes) - min(min(s[1::2]) for s in r.strokes)) * scale
+                st_w = width
+                xh = getattr(bank, "xh", 7.94) or 7.94
+                if st_h > 0.75 * xh or st_w > 0.95 * xh:
+                    _log.warning("Ô dấu thanh %r có kích thước bất thường (h=%.1f, w=%.1f), bỏ qua để bảo vệ kho marks.", r.label, st_h, st_w)
+                    continue
+
+                all_xs = [v for s in r.strokes for v in s[0::2]]
+                all_ys = [v for s in r.strokes for v in s[1::2]]
+                mark_cx = sum(all_xs) / len(all_xs) if all_xs else r.left
+                mark_cy = sum(all_ys) / len(all_ys) if all_ys else r.base
+
+                ghost_cx = getattr(r, "cell_x0", 0.0) + xopp.CW / 2.0
+                ghost_top = r.base - xh
+                dx = (mark_cx - ghost_cx) * scale
+                if tone_code == "\u0323":  # Nặng: toạ độ tương đối so với đường chân chữ (dưới baseline)
+                    dy = (mark_cy - r.base) * scale
+                else:  # Sắc, huyền, hỏi, ngã: toạ độ tương đối so với đỉnh x-height (trên x-height)
+                    dy = (mark_cy - ghost_top) * scale
+
+                scaled_strokes = [[round(coord * scale, 2) for coord in s] for s in r.strokes]
+                bank.add_tone_sample(tone_code, scaled_strokes, dx=dx, dy=dy, dedup=False)
+                added += 1
+                file_added += 1
+                continue
+
             cat = classify_token(r.label, bank)
             if cat == "symbols":
                 bank.add_symbol_sample(r.label, rel, width)

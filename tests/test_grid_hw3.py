@@ -117,3 +117,113 @@ def test_parse_learn_file_hw2_backward_compatibility(tmp_path):
     raw_cell = cells[(0, 0, 0)]
     assert raw_cell.label == "ba"
     assert len(raw_cell.strokes) == 1
+
+
+def test_make_letter_grid_standalone_tone_marks(tmp_path):
+    bank = Bank.create_empty(str(tmp_path / "test_bank_tone.json.gz"))
+    bank.xh = 7.94
+    grid_path = str(tmp_path / "hw3_tone_grid.xopp")
+
+    labels = ["a", "dấu sắc", "dấu nặng"]
+    make_letter_grid(grid_path, labels, bank, target_xh=7.94)
+
+    assert Path(grid_path).exists()
+    root = read_xopp(grid_path)
+
+    # Kiểm tra stroke mốc chữ o mờ màu #e8e8e8 xuất hiện trong các ô dấu thanh
+    strokes = list(root.iter("stroke"))
+    ghost_strokes = [st for st in strokes if (st.get("color") or "").lower()[:7] == "#e8e8e8"]
+    assert len(ghost_strokes) >= 2  # ô dấu sắc và ô dấu nặng đều có chữ o mờ
+
+
+def test_learn_standalone_tone_marks_into_bank(tmp_path):
+    bank_path = str(tmp_path / "test_bank_learn.json.gz")
+    bank = Bank.create_empty(bank_path)
+    bank.xh = 7.94
+    grid_path = str(tmp_path / "hw3_tone_to_learn.xopp")
+
+    labels = ["dấu sắc", "dấu nặng"]
+    make_letter_grid(grid_path, labels, bank, target_xh=7.94)
+
+    root = read_xopp(grid_path)
+    page = root.find("page")
+    layer = page.find("layer")
+
+    # Ô (0, 0) là "dấu sắc": cell_x0 = 32, center x = 32 + 64 = 96
+    # Baseline = 50 + 34 = 84. Vạch x-height = 84 - 7.94 = 76.06. Dấu sắc nằm phía trên: y khoảng [70, 74]
+    sac_stroke = ET.Element("stroke", {
+        "tool": "pen",
+        "color": "#000000",
+        "width": "1.41",
+    })
+    sac_stroke.text = "97.0 70.0 95.0 74.0"
+    layer.append(sac_stroke)
+
+    # Ô (1, 0) là "dấu nặng": col 1, cell_x0 = 32 + 128 = 160, center x = 160 + 64 = 224
+    # Baseline = 50 + 34 = 84. Dấu nặng nằm dưới baseline: y khoảng [86, 87]
+    nang_stroke = ET.Element("stroke", {
+        "tool": "pen",
+        "color": "#000000",
+        "width": "1.41",
+    })
+    nang_stroke.text = "224.0 86.0 224.5 87.0"
+    layer.append(nang_stroke)
+
+    from chuviettay.model import xopp
+    xopp.save_xopp(grid_path, [ET.tostring(root, encoding="unicode")])
+
+    # Học mẫu từ file
+    from chuviettay.model.learning import learn_from_files
+    res = learn_from_files(bank, [grid_path])
+    assert res.n_added == 2
+
+    # bank.words không bị ô nhiễm bởi nhãn "dấu sắc" hay "dấu nặng"
+    assert "dấu sắc" not in bank.words
+    assert "dấu nặng" not in bank.words
+
+    # bank.marks có mẫu dấu thanh rời
+    sac_code = "\u0301"
+    nang_code = "\u0323"
+    assert len(bank.marks[sac_code]) >= 1
+    assert len(bank.marks[nang_code]) >= 1
+
+    sample_sac = bank.marks[sac_code][0]
+    assert sample_sac.get("_src") == "standalone"
+    # Dấu sắc có dy âm (nằm phía trên x-height)
+    assert sample_sac["dy"] < 0
+    # Dấu nặng có dy dương (nằm phía dưới baseline)
+    sample_nang = bank.marks[nang_code][0]
+    assert sample_nang["dy"] > 0
+
+
+def test_learn_standalone_tone_rejects_traced_vowel(tmp_path):
+    bank_path = str(tmp_path / "test_bank_guard.json.gz")
+    bank = Bank.create_empty(bank_path)
+    bank.xh = 7.94
+    grid_path = str(tmp_path / "hw3_tone_guard.xopp")
+
+    labels = ["dấu hỏi"]
+    make_letter_grid(grid_path, labels, bank, target_xh=7.94)
+
+    root = read_xopp(grid_path)
+    page = root.find("page")
+    layer = page.find("layer")
+
+    # Giả lập người dùng vẽ đè một chữ o lớn (cao 8.0 pt) vào ô dấu hỏi
+    traced_stroke = ET.Element("stroke", {
+        "tool": "pen",
+        "color": "#000000",
+        "width": "1.41",
+    })
+    traced_stroke.text = "96.0 76.0 92.0 80.0 96.0 84.0 100.0 80.0 96.0 76.0"
+    layer.append(traced_stroke)
+
+    from chuviettay.model import xopp
+    xopp.save_xopp(grid_path, [ET.tostring(root, encoding="unicode")])
+
+    from chuviettay.model.learning import learn_from_files
+    res = learn_from_files(bank, [grid_path])
+    assert res.n_added == 0
+    hoi_code = "\u0309"
+    assert len(bank.marks[hoi_code]) == 0
+

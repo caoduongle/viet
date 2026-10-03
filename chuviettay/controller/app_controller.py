@@ -373,6 +373,7 @@ class AppController:
         out_path: str,
         target_xh: float = 7.94,
         include_digraphs: bool = True,
+        include_tones: bool = True,
     ) -> str:
         """Tạo file lưới ô chuẩn hw3 để người dùng viết mẫu từng chữ cái & digraph tiếng Việt."""
         bank = self._require_bank()
@@ -388,6 +389,7 @@ class AppController:
             bank,
             target_xh=target_xh,
             include_digraphs=include_digraphs,
+            include_tones=include_tones,
         )
         _log.info("Xuất lưới chữ cái hw3 vào %s", out_path)
         return out_path

@@ -28,11 +28,34 @@ HW3_ASCENDER_Y = 20.0
 HW3_DESCENDER_Y = 44.0
 HW3_LEFT_MARGIN_X = 12.0
 HW3_RIGHT_MARGIN_X = 116.0
-HW3_GUIDE_COLORS = {GUIDE.lower()[:7], "#c8c8c8", "#a0a0a0", "#d8d8d8", "#e0e0e0"}
+HW3_GUIDE_COLORS = {GUIDE.lower()[:7], "#c8c8c8", "#a0a0a0", "#d8d8d8", "#e0e0e0", "#e8e8e8"}
 
 VIETNAMESE_DIGRAPHS = [
     "ng", "nh", "ch", "tr", "ph", "th", "kh", "gi", "qu", "ươ", "ưa", "uy", "ay", "oa"
 ]
+
+HW3_TONE_MAP = {
+    "dấu sắc": "\u0301",
+    "dấu huyền": "\u0300",
+    "dấu hỏi": "\u0309",
+    "dấu ngã": "\u0303",
+    "dấu nặng": "\u0323",
+    "sắc": "\u0301",
+    "huyền": "\u0300",
+    "hỏi": "\u0309",
+    "ngã": "\u0303",
+    "nặng": "\u0323",
+}
+
+
+def _ghost_vowel_o_points(cx: float, cy: float, rx: float, ry: float, n_pts: int = 16) -> list[tuple[float, float]]:
+    """Tạo toạ độ điểm vẽ nét mốc chữ o mờ làm tham chiếu cho ô tập viết dấu thanh."""
+    import math
+    pts = []
+    for i in range(n_pts + 1):
+        angle = 2 * math.pi * i / n_pts
+        pts.append((round(cx + rx * math.sin(angle), 2), round(cy - ry * math.cos(angle), 2)))
+    return pts
 
 if TYPE_CHECKING:
     from chuviettay.model.bank import Bank
@@ -173,12 +196,18 @@ def make_grid(path: str, labels: list[str], bank: "Bank", header: str,
     save_xopp(path, o)
 
 
+STANDALONE_TONE_LABELS = [
+    "dấu sắc", "dấu huyền", "dấu hỏi", "dấu ngã", "dấu nặng"
+]
+
+
 def make_letter_grid(
     path: str,
     labels: list[str],
     bank: "Bank",
     target_xh: float = 7.94,
     include_digraphs: bool = True,
+    include_tones: bool = True,
 ) -> None:
     """Tạo file .xopp lưới ô ký tự mẫu chuẩn hw3 với 4 đường kẻ mốc và 2 vạch giới hạn lề."""
     lbls = list(labels)
@@ -186,6 +215,10 @@ def make_letter_grid(
         for dg in VIETNAMESE_DIGRAPHS:
             if dg not in lbls:
                 lbls.append(dg)
+    if include_tones:
+        for tone_lbl in STANDALONE_TONE_LABELS:
+            if tone_lbl not in lbls:
+                lbls.append(tone_lbl)
 
     per = COLS * ROWS
     npages = max(1, -(-len(lbls) // per))
@@ -217,6 +250,13 @@ def make_letter_grid(
             o.append(guide([(x0 + HW3_RIGHT_MARGIN_X, y0 + 10), (x0 + HW3_RIGHT_MARGIN_X, y0 + CH - 4)], 0.5, color="#d8d8d8"))
             # Nhãn mẫu
             o.append(text_xml(x0 + 2, y0 + 1, lbls[k]))
+            # Nét chữ mờ tham chiếu (ghost vowel o) cho ô tập viết dấu thanh
+            if lbls[k].strip().lower() in HW3_TONE_MAP:
+                ghost_cx = x0 + CW / 2.0
+                ghost_ry = target_xh / 2.0
+                ghost_rx = target_xh * 0.42
+                ghost_cy = y0 + HW3_BASELINE_Y - ghost_ry
+                o.append(guide(_ghost_vowel_o_points(ghost_cx, ghost_cy, ghost_rx, ghost_ry), 0.5, color="#e8e8e8"))
 
         o.append(PAGE_CLOSE)
     o.append("</xournal>")
@@ -236,6 +276,7 @@ class RawCell:
     lsb: float = 0.0
     rsb: float = 0.0
     is_hw3: bool = False
+    cell_x0: float = 0.0
 
 
 def parse_learn_file(path: str) -> tuple[dict[tuple[int, int, int], RawCell], bool]:
@@ -300,5 +341,6 @@ def parse_learn_file(path: str) -> tuple[dict[tuple[int, int, int], RawCell], bo
                 lsb=round(lsb, 2),
                 rsb=round(rsb, 2),
                 is_hw3=is_hw3,
+                cell_x0=cell_x0,
             )
     return raw, has_calib

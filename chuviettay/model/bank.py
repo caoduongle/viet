@@ -639,14 +639,48 @@ class Bank:
             self._dirty = True
         return len(removed)
 
-    def add_tone_sample(self, tone: str, stroke: Stroke, dx: float = 0.0, dy: float = 0.0) -> dict:
-        """Thêm MỘT mẫu dấu thanh rời trực tiếp vào kho marks."""
+    def add_tone_sample(
+        self,
+        tone: str,
+        strokes: list[Stroke] | Stroke,
+        dx: float = 0.0,
+        dy: float = 0.0,
+        dedup: bool = True,
+    ) -> dict:
+        """Thêm MỘT mẫu dấu thanh rời trực tiếp vào kho marks (hỗ trợ dấu đơn nét hoặc đa nét)."""
         if tone not in TONES:
             raise ValueError(f"Dấu thanh không hợp lệ: {tone!r}. Chỉ chấp nhận các dấu trong TONES.")
-        xs, ys = stroke[0::2], stroke[1::2]
-        cx = sum(xs) / len(xs) if xs else 0.0
-        cy = sum(ys) / len(ys) if ys else 0.0
-        mark = {"s": [shift(stroke, -cx, -cy)], "dx": dx, "dy": dy, "_src": "standalone"}
+
+        if strokes and isinstance(strokes[0], (int, float)):
+            st_list: list[Stroke] = [strokes]  # type: ignore[list-item]
+        else:
+            st_list = list(strokes)  # type: ignore[arg-type]
+
+        all_xs = [v for s in st_list for v in s[0::2]]
+        all_ys = [v for s in st_list for v in s[1::2]]
+        cx = sum(all_xs) / len(all_xs) if all_xs else 0.0
+        cy = sum(all_ys) / len(all_ys) if all_ys else 0.0
+
+        shifted_strokes = [shift(s, -cx, -cy) for s in st_list]
+        mark = {
+            "s": shifted_strokes,
+            "dx": round(dx, 2),
+            "dy": round(dy, 2),
+            "_src": "standalone",
+        }
+
+        if dedup:
+            sig = sample_signature(shifted_strokes)
+            existing = self._raw_marks.setdefault(tone, [])
+            for ex in existing:
+                ex_sig = ex.get("_sig")
+                if ex_sig is None:
+                    ex_sig = sample_signature(ex.get("s", []))
+                    ex["_sig"] = ex_sig
+                if ex_sig == sig and abs(ex.get("dx", 0.0) - mark["dx"]) < 0.1 and abs(ex.get("dy", 0.0) - mark["dy"]) < 0.1:
+                    return ex
+            mark["_sig"] = sig
+
         marks_dict = self.d.setdefault("marks", {t: [] for t in TONES})
         marks_dict.setdefault(tone, []).append(mark)
         self._raw_marks.setdefault(tone, []).append(mark)
