@@ -94,7 +94,7 @@ def test_parse_learn_file_hw2_backward_compatibility(tmp_path):
 
     from chuviettay.model.xopp import make_grid
     labels = ["ba", "ma"]
-    make_grid(grid_path, labels, bank, header="Lưới cũ hw2", calib=False)
+    make_grid(grid_path, labels, bank, header="Lưới cũ hw2", calib=False, grid_version="hw2")
 
     root = read_xopp(grid_path)
     page = root.find("page")
@@ -226,4 +226,27 @@ def test_learn_standalone_tone_rejects_traced_vowel(tmp_path):
     assert res.n_added == 0
     hoi_code = "\u0309"
     assert len(bank.marks[hoi_code]) == 0
+
+
+def test_make_grid_generates_hw3_by_default(tmp_path):
+    """Kiểm tra hàm make_grid mặc định sinh định dạng hw3 (4 đường kẻ mốc + 2 lề)."""
+    bank = Bank.create_empty(str(tmp_path / "test_bank_default.json.gz"))
+    bank.xh = 7.94
+    grid_path = str(tmp_path / "default_hw3.xopp")
+
+    from chuviettay.model.xopp import make_grid
+    labels = ["từ_mới", "đoạn_văn"]
+    make_grid(grid_path, labels, bank, header="Từ thiếu cần học", calib=False)
+
+    root = read_xopp(grid_path)
+    all_texts = [t.text for t in root.iter("text") if t.text]
+    assert any(TAG_HW3 in t for t in all_texts)
+
+    strokes = list(root.iter("stroke"))
+    colors = set((st.get("color") or "").lower()[:7] for st in strokes)
+    # Phải có màu các vạch kẻ chuẩn: mốc viền (#c8c8c8), chân chữ (#a0a0a0), vạch cao/thấp (#e0e0e0), lề (#d8d8d8)
+    assert "#c8c8c8" in colors
+    assert "#a0a0a0" in colors
+    assert "#e0e0e0" in colors
+    assert "#d8d8d8" in colors
 

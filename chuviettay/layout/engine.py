@@ -575,8 +575,9 @@ class DocumentLayoutEngine:
                 grid_path,
                 [k for k, _ in items],
                 self.bank,
-                "Từ/ký hiệu CHƯA có mẫu: viết mỗi từ/ký hiệu vào ô, giữa hai đường kẻ, rồi Ctrl+S và chạy: python hw_note.py learn %s"
+                "Từ/ký hiệu CHƯA có mẫu: viết mỗi từ/ký hiệu vào ô theo 4 vạch kẻ mốc (chuẩn hw3), rồi Ctrl+S và chạy: python hw_note.py learn %s"
                 % os.path.basename(grid_path),
+                grid_version="hw3",
             )
             result.missing_grid_path = grid_path
 

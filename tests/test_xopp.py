@@ -3,7 +3,10 @@ import gzip
 
 import pytest
 
-from chuviettay.config import BASE, CH, COLS, CW, MXT, MYT, ROWS, TAG_CALIB, TAG_PLAIN
+from chuviettay.config import (
+    BASE, CH, COLS, CW, MXT, MYT, ROWS,
+    TAG_CALIB, TAG_HW3, TAG_HW3_CALIB, TAG_PLAIN,
+)
 from chuviettay.model import xopp
 
 
@@ -51,18 +54,33 @@ def test_pick_calib_word_du_phong_khi_khong_tu_nao_du_5_mau(tiny_bank):
 
 
 def test_make_grid_co_o_do_co_tay_o_dau_tien(tiny_bank, tmp_path):
+    # hw3 mặc định: sinh TAG_HW3_CALIB ("hw3c")
     p = str(tmp_path / "g.xopp")
     xopp.make_grid(p, ["ba", "chào"], tiny_bank, "tiêu đề thử")
     ts = texts(p)
-    assert TAG_CALIB in ts and TAG_PLAIN not in ts
+    assert TAG_HW3_CALIB in ts and TAG_HW3 not in ts
     assert ts.count("xin") == 1 and "ba" in ts and "chào" in ts and "tiêu đề thử" in ts
+
+    # hw2 legacy: sinh TAG_CALIB ("hw2c")
+    p2 = str(tmp_path / "g2.xopp")
+    xopp.make_grid(p2, ["ba", "chào"], tiny_bank, "tiêu đề thử", grid_version="hw2")
+    ts2 = texts(p2)
+    assert TAG_CALIB in ts2 and TAG_PLAIN not in ts2
+    assert ts2.count("xin") == 1 and "ba" in ts2 and "chào" in ts2 and "tiêu đề thử" in ts2
 
 
 def test_make_grid_khong_calib(tiny_bank, tmp_path):
+    # hw3 mặc định: sinh TAG_HW3 ("hw3")
     p = str(tmp_path / "g.xopp")
     xopp.make_grid(p, ["ba"], tiny_bank, "h", calib=False)
     ts = texts(p)
-    assert TAG_PLAIN in ts and TAG_CALIB not in ts and "xin" not in ts
+    assert TAG_HW3 in ts and TAG_HW3_CALIB not in ts and "xin" not in ts
+
+    # hw2 legacy: sinh TAG_PLAIN ("hw2")
+    p2 = str(tmp_path / "g2.xopp")
+    xopp.make_grid(p2, ["ba"], tiny_bank, "h", calib=False, grid_version="hw2")
+    ts2 = texts(p2)
+    assert TAG_PLAIN in ts2 and TAG_CALIB not in ts2 and "xin" not in ts2
 
 
 def test_make_grid_nhieu_trang(tiny_bank, tmp_path):

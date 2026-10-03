@@ -18,11 +18,11 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 from xml.sax.saxutils import escape
 
-from chuviettay.config import BASE, CH, COLS, CW, GUIDE, MXT, MYT, PAGE_H, PAGE_W, ROWS, TAG_CALIB, TAG_PLAIN
+from chuviettay.config import (
+    BASE, CH, COLS, CW, GUIDE, MXT, MYT, PAGE_H, PAGE_W, ROWS,
+    TAG_CALIB, TAG_HW3, TAG_HW3_CALIB, TAG_PLAIN,
+)
 from chuviettay.model.text_utils import Stroke, fmt
-
-TAG_HW3 = "hw3"
-TAG_HW3_CALIB = "hw3c"
 HW3_BASELINE_Y = 34.0
 HW3_ASCENDER_Y = 20.0
 HW3_DESCENDER_Y = 44.0
@@ -155,42 +155,110 @@ def pick_calib_word(bank: "Bank") -> str | None:
     return best or next(iter(bank.words), None)
 
 
-def make_grid(path: str, labels: list[str], bank: "Bank", header: str,
-              samples: dict[str, list[Stroke]] | None = None, calib: bool = True) -> None:
-    """Tạo file .xopp dạng lưới ô, mỗi ô có sẵn chữ in mờ + 2 đường kẻ mốc, để người
-    dùng viết tay từng từ trong `labels` vào (dùng cho seed/check/từ còn thiếu).
+def make_grid(
+    path: str,
+    labels: list[str],
+    bank: "Bank",
+    header: str,
+    samples: dict[str, list[Stroke]] | None = None,
+    calib: bool = True,
+    grid_version: str = "hw3",
+    target_xh: float | None = None,
+) -> None:
+    """Tạo file .xopp dạng lưới ô, mỗi ô có sẵn chữ in mờ + các đường kẻ mốc.
 
+    grid_version: "hw3" (mặc định) có 4 vạch kẻ mốc (ascender, xh, baseline, descender)
+                  và 2 vạch mốc lề trái/phải, hỗ trợ chữ cái, dấu thanh rời và từ.
+                  "hw2" (tương thích ngược) có 2 đường kẻ mốc kế thừa từ bản gốc.
     samples: {nhãn: danh sách nét} nếu muốn hiện SẴN chữ viết tay đã học trong ô (lệnh
              check -- xem lại kho mẫu).
     calib:   có chèn thêm một ô "đo cỡ tay" ở đầu hay không (một từ đã biết sẵn, không
              đánh dấu gì đặc biệt trên chữ, chỉ nhận ra qua VỊ TRÍ ô đầu tiên + thẻ ẩn
-             hw2c) để công cụ tự chỉnh cỡ chữ mới học cho khớp cỡ tay đã học trước đó.
+             hw3c hoặc hw2c) để công cụ tự chỉnh cỡ chữ mới học cho khớp cỡ tay đã học trước đó.
     """
+    if grid_version == "hw2":
+        cw = pick_calib_word(bank) if calib else None
+        if cw:
+            labels = [cw] + list(labels)
+        per = COLS * ROWS
+        npages = max(1, -(-len(labels) // per))
+        o = [HEAD]
+        xh = bank.xh
+        for p in range(npages):
+            o.append(PAGE_OPEN % (PAGE_W, PAGE_H))
+            if p == 0:
+                o.append(text_xml(MXT, 6, header, 8))
+                o.append(text_xml(MXT, 20, "Viết nhỏ như chữ hằng ngày, ĐỪNG lấp đầy ô: chữ cao khoảng bằng đoạn kẻ ngắn phía trên, đặt trên đường kẻ dài.", 8))
+                if cw:
+                    o.append(text_xml(MXT, 34, "Ô đầu tiên ('%s') dùng để đo cỡ tay bạn: viết lại đúng từ đó, thế thôi — cỡ nào cũng được, tool tự chỉnh các từ khác cho khớp." % cw, 8))
+                o.append(text_xml(MXT, 46 if cw else 34, TAG_CALIB if cw else TAG_PLAIN, 6))
+            for k in range(p * per, min(len(labels), (p + 1) * per)):
+                _, x0, y0 = cell_xy(k)
+                o.append(guide([(x0, y0), (x0 + CW, y0), (x0 + CW, y0 + CH), (x0, y0 + CH), (x0, y0)], 0.4))
+                o.append(guide([(x0 + 3, y0 + BASE), (x0 + CW - 3, y0 + BASE)], 0.8))
+                o.append(guide([(x0 + 3, y0 + BASE - xh), (x0 + 22, y0 + BASE - xh)], 0.5))
+                o.append(text_xml(x0 + 2, y0 + 1, labels[k]))
+                if samples and labels[k] in samples:
+                    for st in samples[labels[k]]:
+                        pts = [(x0 + 8 + st[i], y0 + BASE + st[i + 1]) for i in range(0, len(st), 2)]
+                        o.append(stroke_xml(pts, bank.pen))
+            o.append(PAGE_CLOSE)
+        o.append("</xournal>")
+        save_xopp(path, o)
+        return
+
+    # Chuẩn hw3 (4 đường kẻ mốc + 2 vạch giới hạn lề)
     cw = pick_calib_word(bank) if calib else None
     if cw:
         labels = [cw] + list(labels)
     per = COLS * ROWS
     npages = max(1, -(-len(labels) // per))
     o = [HEAD]
-    xh = bank.xh
+    xh = target_xh if target_xh is not None else (getattr(bank, "xh", 7.94) or 7.94)
     for p in range(npages):
         o.append(PAGE_OPEN % (PAGE_W, PAGE_H))
         if p == 0:
-            o.append(text_xml(MXT, 6, header, 8))
-            o.append(text_xml(MXT, 20, "Viết nhỏ như chữ hằng ngày, ĐỪNG lấp đầy ô: chữ cao khoảng bằng đoạn kẻ ngắn phía trên, đặt trên đường kẻ dài.", 8))
+            o.append(text_xml(MXT, 6, header, 10 if "HƯỚNG DẪN" in header else 9))
+            o.append(text_xml(MXT, 18, "1. Chiều cao: Viết chữ thường nằm gọn giữa đường Chân chữ (đậm) và vạch x-height (nét vừa, ~8pt).", 7))
+            o.append(text_xml(MXT, 28, "2. Chữ cao & chữ hoa: Đỉnh chữ b, d, h, k, l và chữ hoa chạm vạch Ascender phía trên.", 7))
+            o.append(text_xml(MXT, 38, "3. Đuôi chữ & lề ngang: Đuôi chữ g, p, q, y chạm vạch Descender dưới. Viết nằm trong 2 vạch mốc lề trái/phải.", 7))
             if cw:
-                o.append(text_xml(MXT, 34, "Ô đầu tiên ('%s') dùng để đo cỡ tay bạn: viết lại đúng từ đó, thế thôi — cỡ nào cũng được, tool tự chỉnh các từ khác cho khớp." % cw, 8))
-            o.append(text_xml(MXT, 46 if cw else 34, TAG_CALIB if cw else TAG_PLAIN, 6))
+                o.append(text_xml(MXT, 48, "Ô đầu tiên ('%s') để đo cỡ tay bạn: viết lại đúng từ đó, tool tự chuẩn hoá cỡ chữ cho khớp kho mẫu." % cw, 7))
+                o.append(text_xml(MXT, 58, TAG_HW3_CALIB, 6))
+            else:
+                o.append(text_xml(MXT, 48, TAG_HW3, 6))
+
         for k in range(p * per, min(len(labels), (p + 1) * per)):
             _, x0, y0 = cell_xy(k)
-            o.append(guide([(x0, y0), (x0 + CW, y0), (x0 + CW, y0 + CH), (x0, y0 + CH), (x0, y0)], 0.4))
-            o.append(guide([(x0 + 3, y0 + BASE), (x0 + CW - 3, y0 + BASE)], 0.8))
-            o.append(guide([(x0 + 3, y0 + BASE - xh), (x0 + 22, y0 + BASE - xh)], 0.5))
+            # Khung viền ô
+            o.append(guide([(x0, y0), (x0 + CW, y0), (x0 + CW, y0 + CH), (x0, y0 + CH), (x0, y0)], 0.4, color="#c8c8c8"))
+            # Vạch Ascender (nét mảnh trên cùng)
+            o.append(guide([(x0 + 12, y0 + HW3_ASCENDER_Y), (x0 + CW - 12, y0 + HW3_ASCENDER_Y)], 0.5, color="#e0e0e0"))
+            # Vạch x-height (nét vừa)
+            xh_y = y0 + HW3_BASELINE_Y - xh
+            o.append(guide([(x0 + 12, xh_y), (x0 + CW - 12, xh_y)], 0.75, color="#c8c8c8"))
+            # Đường chân chữ Baseline (nét đậm)
+            o.append(guide([(x0 + 6, y0 + HW3_BASELINE_Y), (x0 + CW - 6, y0 + HW3_BASELINE_Y)], 1.0, color="#a0a0a0"))
+            # Vạch Descender (nét mảnh dưới cùng)
+            o.append(guide([(x0 + 12, y0 + HW3_DESCENDER_Y), (x0 + CW - 12, y0 + HW3_DESCENDER_Y)], 0.5, color="#e0e0e0"))
+            # Giới hạn lề trái & lề phải
+            o.append(guide([(x0 + HW3_LEFT_MARGIN_X, y0 + 10), (x0 + HW3_LEFT_MARGIN_X, y0 + CH - 4)], 0.5, color="#d8d8d8"))
+            o.append(guide([(x0 + HW3_RIGHT_MARGIN_X, y0 + 10), (x0 + HW3_RIGHT_MARGIN_X, y0 + CH - 4)], 0.5, color="#d8d8d8"))
+            # Nhãn mẫu
             o.append(text_xml(x0 + 2, y0 + 1, labels[k]))
+            # Nét chữ mờ tham chiếu (ghost vowel o) cho ô tập viết dấu thanh
+            if labels[k].strip().lower() in HW3_TONE_MAP:
+                ghost_cx = x0 + CW / 2.0
+                ghost_ry = xh / 2.0
+                ghost_rx = xh * 0.42
+                ghost_cy = y0 + HW3_BASELINE_Y - ghost_ry
+                o.append(guide(_ghost_vowel_o_points(ghost_cx, ghost_cy, ghost_rx, ghost_ry), 0.5, color="#e8e8e8"))
+            # Nét mẫu viết tay (nếu có - dùng cho lệnh check)
             if samples and labels[k] in samples:
                 for st in samples[labels[k]]:
-                    pts = [(x0 + 8 + st[i], y0 + BASE + st[i + 1]) for i in range(0, len(st), 2)]
+                    pts = [(x0 + 8 + st[i], y0 + HW3_BASELINE_Y + st[i + 1]) for i in range(0, len(st), 2)]
                     o.append(stroke_xml(pts, bank.pen))
+
         o.append(PAGE_CLOSE)
     o.append("</xournal>")
     save_xopp(path, o)
@@ -220,47 +288,16 @@ def make_letter_grid(
             if tone_lbl not in lbls:
                 lbls.append(tone_lbl)
 
-    per = COLS * ROWS
-    npages = max(1, -(-len(lbls) // per))
-    o = [HEAD]
-    for p in range(npages):
-        o.append(PAGE_OPEN % (PAGE_W, PAGE_H))
-        if p == 0:
-            o.append(text_xml(MXT, 6, "HƯỚNG DẪN VIẾT TỜ LƯỚI KÝ TỰ MẪU (Chuẩn hw3)", 10))
-            o.append(text_xml(MXT, 18, "1. Chiều cao: Viết chữ thường nằm gọn giữa đường Chân chữ (đậm) và vạch x-height (nét vừa, ~8pt).", 7))
-            o.append(text_xml(MXT, 28, "2. Chữ cao & chữ hoa: Đỉnh chữ b, d, h, k, l và chữ hoa chạm vạch Ascender phía trên.", 7))
-            o.append(text_xml(MXT, 38, "3. Đuôi chữ & lề ngang: Đuôi chữ g, p, q, y chạm vạch Descender dưới. Viết nằm trong 2 vạch mốc lề trái/phải.", 7))
-            o.append(text_xml(MXT, 48, TAG_HW3, 6))
+    make_grid(
+        path,
+        lbls,
+        bank,
+        header="HƯỚNG DẪN VIẾT TỜ LƯỚI KÝ TỰ MẪU (Chuẩn hw3)",
+        calib=False,
+        grid_version="hw3",
+        target_xh=target_xh,
+    )
 
-        for k in range(p * per, min(len(lbls), (p + 1) * per)):
-            _, x0, y0 = cell_xy(k)
-            # Khung viền ô
-            o.append(guide([(x0, y0), (x0 + CW, y0), (x0 + CW, y0 + CH), (x0, y0 + CH), (x0, y0)], 0.4, color="#c8c8c8"))
-            # Vạch Ascender (nét mảnh trên cùng)
-            o.append(guide([(x0 + 12, y0 + HW3_ASCENDER_Y), (x0 + CW - 12, y0 + HW3_ASCENDER_Y)], 0.5, color="#e0e0e0"))
-            # Vạch x-height (nét vừa)
-            xh_y = y0 + HW3_BASELINE_Y - target_xh
-            o.append(guide([(x0 + 12, xh_y), (x0 + CW - 12, xh_y)], 0.75, color="#c8c8c8"))
-            # Đường chân chữ Baseline (nét đậm)
-            o.append(guide([(x0 + 6, y0 + HW3_BASELINE_Y), (x0 + CW - 6, y0 + HW3_BASELINE_Y)], 1.0, color="#a0a0a0"))
-            # Vạch Descender (nét mảnh dưới cùng)
-            o.append(guide([(x0 + 12, y0 + HW3_DESCENDER_Y), (x0 + CW - 12, y0 + HW3_DESCENDER_Y)], 0.5, color="#e0e0e0"))
-            # Giới hạn lề trái & lề phải
-            o.append(guide([(x0 + HW3_LEFT_MARGIN_X, y0 + 10), (x0 + HW3_LEFT_MARGIN_X, y0 + CH - 4)], 0.5, color="#d8d8d8"))
-            o.append(guide([(x0 + HW3_RIGHT_MARGIN_X, y0 + 10), (x0 + HW3_RIGHT_MARGIN_X, y0 + CH - 4)], 0.5, color="#d8d8d8"))
-            # Nhãn mẫu
-            o.append(text_xml(x0 + 2, y0 + 1, lbls[k]))
-            # Nét chữ mờ tham chiếu (ghost vowel o) cho ô tập viết dấu thanh
-            if lbls[k].strip().lower() in HW3_TONE_MAP:
-                ghost_cx = x0 + CW / 2.0
-                ghost_ry = target_xh / 2.0
-                ghost_rx = target_xh * 0.42
-                ghost_cy = y0 + HW3_BASELINE_Y - ghost_ry
-                o.append(guide(_ghost_vowel_o_points(ghost_cx, ghost_cy, ghost_rx, ghost_ry), 0.5, color="#e8e8e8"))
-
-        o.append(PAGE_CLOSE)
-    o.append("</xournal>")
-    save_xopp(path, o)
 
 
 # ---------------------------------------------------------------- đọc ngược file đã viết tay (learn)

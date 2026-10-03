@@ -154,6 +154,7 @@ class FidelityLayoutEngine:
                 f"Các từ thiếu mẫu khi viết {os.path.basename(out_path)}",
                 samples,
                 calib=False,
+                grid_version="hw3",
             )
             missing_grid_path = grid_path
             _log.info("Đã tạo file lưới ô từ còn thiếu: %s (%d từ)", grid_path, len(miss_keys))

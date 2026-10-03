@@ -363,8 +363,10 @@ class AppController:
         todo = self.missing_seed_words(n)
         xopp.make_grid(
             out_path, todo, bank,
-            "Từ tiếng Việt thông dụng còn thiếu: viết mỗi từ vào ô rồi Ctrl+S và chạy: "
-            "python hw_note.py learn %s" % out_path)
+            "Từ tiếng Việt thông dụng còn thiếu: viết mỗi từ vào ô theo 4 vạch kẻ mốc (chuẩn hw3), rồi Ctrl+S và chạy: "
+            "python hw_note.py learn %s" % out_path,
+            grid_version="hw3",
+        )
         _log.info("Xuất %s với %d từ thông dụng còn thiếu", out_path, len(todo))
         return SeedResult(out_path=out_path, words=todo)
 
@@ -439,6 +441,6 @@ class AppController:
             out_path, keys, bank,
             "Kiểm tra kho mẫu: chữ gõ ở góc ô phải khớp chữ viết tay. "
             "Sai thì: python hw_note.py drop <từ>",
-            samples, calib=False)
+            samples, calib=False, grid_version="hw3")
         _log.info("Xuất file kiểm tra %s (%d từ)", out_path, len(keys))
         return CheckResult(out_path=out_path, n_words=len(keys))

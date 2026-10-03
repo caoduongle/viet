@@ -355,7 +355,9 @@ def write_document(bank: Bank, text: str, opts: WriteOptions, out_path: str,
         xopp.make_grid(
             grid_path, [k for k, _ in items], bank,
             "Từ CHƯA có mẫu: viết mỗi từ vào ô, giữa hai đường kẻ, rồi Ctrl+S và chạy: python hw_note.py learn %s"
-            % os.path.basename(grid_path))
+            % os.path.basename(grid_path),
+            grid_version="hw2",
+        )
         result.missing_grid_path = grid_path
 
     return result

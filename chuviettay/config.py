@@ -17,9 +17,11 @@ NANG = "\u0323"  # dấu nặng -- xử lý riêng vì nằm DƯỚI chữ thay 
 GUIDE = "#c8c8c8"      # màu các đường kẻ mốc (không phải nét chữ thật)
 MAXH = 3000.0          # chiều cao tối đa một trang .xopp khi viết văn bản dài, quá thì sang trang mới
 
-# thẻ nhận dạng ẩn trong file .xopp, phân biệt "ô đầu tiên là ô đo cỡ tay" hay không
+# thẻ nhận dạng ẩn trong file .xopp, phân biệt chuẩn hw2 (cũ) hay hw3 (mới) và "ô đầu tiên là ô đo cỡ tay"
 TAG_PLAIN = "hw2"
 TAG_CALIB = "hw2c"
+TAG_HW3 = "hw3"
+TAG_HW3_CALIB = "hw3c"
 
 # ---------------------------------------------------------------- regex tách token khi viết văn bản
 NUMRE = re.compile(r"^-?\d+(?:[.,]\d+)*%?$")

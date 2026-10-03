@@ -44,7 +44,7 @@ class LearnResult:
 
 def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
     """Đọc từng file trong `paths`, học mọi ô đã viết tay vào kho mẫu `bank`. Nếu ô đầu
-    tiên (0,0,0) của một file là ô "đo cỡ tay" (file có thẻ hw2c), tự tính hệ số cỡ tay
+    tiên (0,0,0) của một file là ô "đo cỡ tay" (file có thẻ hw3c hoặc hw2c), tự tính hệ số cỡ tay
     cho riêng file đó trước khi thêm mẫu, để các từ mới học khớp cỡ với chữ đã học
     trước đây. Rebuild + lưu kho mẫu MỘT LẦN ở cuối (sau khi đã học hết mọi file)."""
     import hashlib
@@ -65,7 +65,7 @@ def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
 
         raw, has_calib = xopp.parse_learn_file(path)
 
-        # ô đầu tiên (trang 0, hàng 0, cột 0) là ô "đo cỡ tay" khi file có thẻ hw2c:
+        # ô đầu tiên (trang 0, hàng 0, cột 0) là ô "đo cỡ tay" khi file có thẻ hw3c/hw2c:
         # một từ đã biết sẵn, không đánh dấu gì trên chữ, chỉ nhận ra qua vị trí này.
         scale = 1.0
         cal = raw.get((0, 0, 0))
