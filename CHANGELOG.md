@@ -1,5 +1,27 @@
 # Nhật ký thay đổi
 
+## Chưa phát hành — Sửa & cải tiến cơ chế ghép chữ viết tay (spec 017)
+
+Khắc phục triệt để hiện tượng chữ dính/nhoè ("cục mực"), khôi phục khả năng ghép chữ tiếng Việt có dấu thanh từ kho mẫu ký tự đơn, chuẩn hoá tỉ lệ nét/cỡ chữ tương đồng với chữ viết tay thực tế trong sổ ghi chú, và bổ sung định dạng lưới tập viết 4 dòng kẻ `hw3`.
+
+### Sửa lỗi & Cải tiến chất lượng ghép chữ
+- **Khắc phục dính/nhoè nét (cục mực)**: Thay thế công thức tiến con trỏ cũ `advance = max(0.2*xh, w - overlap)` bằng cơ chế tiến con trỏ tự nhiên theo cặp đường bao biên (contour pair gap) và lsb/rsb. Bổ sung sàn khe hở tối thiểu `pen_clearance_factor * pen_thickness` (mặc định 0,8x nét bút), triệt tiêu hoàn toàn hiện tượng mép chữ sau đè lên nét chữ trước (chồng bbox giảm từ 51,7% - 74,5% về 0,0%).
+- **Ghép chữ có dấu thanh (Dual-Path Assembly)**: Giải quyết dứt điểm lỗi kho mẫu chữ cái đơn không ghép được từ có dấu khiến các từ như "Lời", "Bài", "Chạy", "Phần", "giải", "Điều kiện"... bị bỏ trống. Ưu tiên 1 sử dụng trực tiếp mẫu nguyên âm có sẵn dấu trong `bank.letters`/`bank.words`; Ưu tiên 2 ghép nguyên âm cơ sở với dấu thanh trong `bank.marks`.
+- **Tự động tránh va chạm dấu & triệt tiêu chấm `i`/`j`**: Tự động tính trọng tâm nguyên âm để đặt dấu thanh cân đối; phát hiện và né tránh va chạm với nét vươn cao (ascender); tự động ẩn chấm chữ `i`/`j` khi có dấu thanh phía trên bằng ngưỡng tỉ lệ bounding box.
+- **Hỗ trợ định danh kỹ thuật & ký tự hỗn hợp**: Token kỹ thuật chứa dấu gạch dưới (`bill_length_mm`), ngoặc đơn, toán tử (`>=`, `<=`, `<`, `>`, `=`) và đường phân cách (`---`) tự động bóc tách và tra cứu qua `letters` -> `words` -> `digits` -> `punct` -> `symbols` -> nét vector dự phòng.
+- **Chuẩn hoá x-height & tỉ lệ nét mực**: Bổ sung tuỳ chọn `--auto-xh` (tự động chuẩn hoá cỡ chữ trong kho về x-height mục tiêu 7,94 pt của sổ tay) và `--target-xh <pt>`, đưa tỉ lệ nét bút / x-height từ 36,6% về 18,0% (chuẩn ghi chú 17,8%).
+
+### Mới
+- **Tờ lưới tập viết 4 dòng kẻ (`hw3`)**:
+  - Lệnh CLI `python3 hw_note.py grid -o luoi.xopp` xuất tờ lưới mẫu 4 dòng kẻ (chân chữ, x-height, ascender, descender) kèm 2 vạch lề biên độ rộng và hướng dẫn viết tay bằng tiếng Việt rõ ràng.
+  - Bổ sung 14 cụm phụ âm/nguyên âm đôi tiếng Việt thông dụng (`ng, nh, ch, tr, ph, th, kh, gi, qu, ươ, ưa, uy, ay, oa`) giúp thu thập nét nối liền tự nhiên.
+  - Bộ nạp `learn` tự động nhận diện thẻ `hw3`, lọc màu nét kẻ mẫu và trích xuất khoảng đệm biên `lsb`/`rsb` vào `bank.letters`.
+- **Công cụ di trú kho mẫu (`scripts/migrate_letter_bank.py`)**:
+  - Tự động di trú kho mẫu từ `words` sang `letters` (chuẩn schema v4), chuẩn hoá toạ độ baseline, phân tách dấu thanh rời thông minh, trích xuất `lsb`/`rsb` và tính đường bao biên dạng hình học.
+- **Bộ công cụ đo lường & kiểm thử**:
+  - `tools/measure_ink.py`: Đo đạc định lượng khách quan (x-height thực tế, tỉ lệ nét/xh, khoảng cách trong từ, khoảng cách giữa các từ, độ chồng bbox, khe hở nét nhỏ nhất, độ lệch chuẩn xh).
+  - `tools/render_xopp.py`: Kết xuất trực tiếp các trang của tệp `.xopp` ra ảnh PNG không phụ thuộc Xournal++.
+
 ## Chưa phát hành — Sửa lỗi và mở rộng xử lý công thức toán (LaTeX / OMML / MathType)
 
 Kiểm chứng trên bài giải thật (`loi-giai-phan-A.md`, `loi-giai-phan-B.md`, 2 file `.docx`) bằng cách chạy đủ

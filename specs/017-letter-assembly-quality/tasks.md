@@ -141,17 +141,17 @@
 
 **Purpose**: Run full regression suite, enforce golden-master byte parity, update documentation, and produce final visual acceptance report.
 
-- [ ] T043 Verify 100% byte-for-byte SHA-256 parity on `tests/test_golden_master.py` with `assemble_letters=False`.
-- [ ] T044 [P] Run full test suite `pytest --timeout=30` and ensure zero newly failing tests.
-- [ ] T045 [P] Run architecture boundary verification via `pytest tests/test_architecture.py`.
-- [ ] T046 Run `tools/measure_ink.py` on the final synthesized output of `tests/data/accept_sample.txt` and verify all acceptance metrics in `docs/do_luong_ban_goc.md`:
+- [X] T043 Verify 100% byte-for-byte SHA-256 parity on `tests/test_golden_master.py` with `assemble_letters=False`.
+- [X] T044 [P] Run full test suite `pytest --timeout=30` and ensure zero newly failing tests.
+- [X] T045 [P] Run architecture boundary verification via `pytest tests/test_architecture.py`.
+- [X] T046 Run `tools/measure_ink.py` on the final synthesized output of `tests/data/accept_sample.txt` and verify all acceptance metrics in `docs/do_luong_ban_goc.md`:
   - Adjacent bbox overlap $\le 10\%$
   - Min stroke clearance $\ge 0.8 \times \text{pen\_thickness}$
   - Median x-height within $10\%$ of note
   - Stroke-to-xh ratio within $15\%$ of note
   - Lowercase x-height standard deviation reduced by $\ge 50\%$
-- [ ] T047 Render final before/after comparison PNGs using synthetic test bank into `docs/img/` (no private user data committed).
-- [ ] T048 [P] Update `README.md` and `CHANGELOG.md` with letter assembly quality options, `hw3` grid instructions, and migration guide.
+- [X] T047 Render final before/after comparison PNGs using synthetic test bank into `docs/img/` (no private user data committed).
+- [X] T048 [P] Update `README.md` and `CHANGELOG.md` with letter assembly quality options, `hw3` grid instructions, and migration guide.
 
 ---
 

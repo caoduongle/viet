@@ -75,13 +75,37 @@ mẫu mới..."** (chọn file đã có thì app chỉ mở nó ra, **không bao
 |---|---|
 | `write -f/-t ... -o ra.xopp` | Tab **Viết chữ** |
 | `learn ra_thieu.xopp` | Tab **Dạy từ mới** (vẽ trực tiếp, không cần file trung gian) |
+| `grid -o luoi.xopp` | Xuất tờ lưới tập viết ký tự 4 dòng kẻ (`hw3`) |
 | `seed 200` | Nút **"Nạp từ thông dụng còn thiếu..."** trong tab Dạy từ mới |
 | `check` | Nút **"Xuất file kiểm tra lại (.xopp)..."** trong tab Kho mẫu |
 | `drop từ` | Chọn từ trong tab Kho mẫu → **"Xoá từ đã chọn"** |
 | `stats` | Ô thống kê ở đầu tab Kho mẫu |
 
 Xem `python3 hw_note.py --help` (và `python3 hw_note.py write --help`) để biết đủ tuỳ chọn:
-`--format {auto,txt,md,docx}`, `--scale`, `--line`, `--width`, `--space`, `--jitter`, `--wscale`, `--color`, `--seed`, `--strict-case`.
+`--format {auto,txt,md,docx}`, `--scale`, `--line`, `--width`, `--space`, `--jitter`, `--wscale`, `--color`, `--seed`, `--strict-case`, `--assemble`, `--auto-xh`, `--target-xh`, `--letter-gap`, `--pen-clearance`.
+
+### Cơ chế ghép chữ từ ký tự đơn (`--assemble`)
+
+Khi bật cờ `--assemble`, các từ chưa có mẫu nguyên từ trong kho sẽ được tự động ghép từ các ký tự đơn (`letters`), chữ số (`digits`), dấu câu (`punct`) và ký hiệu (`symbols`):
+- **Khoảng cách tự nhiên & chống dính chữ**: Sử dụng đường bao biên hình học (contour pair gap) và khoảng đệm biên `lsb`/`rsb` thay cho việc chồng nét cứng. Sàn khe hở tối thiểu `--pen-clearance 0.8` (mặc định 0,8 lần nét bút) đảm bảo các chữ cái liền kề không bao giờ bị bết mực vào nhau.
+- **Ghép chữ có dấu thanh (Dual-Path Assembly)**: Ưu tiên sử dụng trực tiếp mẫu nguyên âm có sẵn dấu tiếng Việt trong kho; tự động fallback ghép nguyên âm cơ sở với dấu thanh trong `bank.marks` kèm thuật toán đặt dấu theo trọng tâm và né tránh nét vươn cao (ascender).
+- **Chuẩn hoá cỡ chữ (`--auto-xh`)**: Tự động chuẩn hoá các ký tự trong kho về cùng cỡ x-height chuẩn (mặc định 7,94 pt, có thể tinh chỉnh bằng `--target-xh`) giúp nét bút thanh mảnh tự nhiên và đúng tỉ lệ ghi chú thực tế.
+- **Hỗ trợ từ mã / kỹ thuật**: Tự động nhận diện và ghép các token chứa dấu gạch dưới (`body_mass_g`), ngoặc và toán tử (`>=`, `<=`, `<`, `>`, `=`).
+
+### Xuất tờ lưới tập viết ký tự 4 dòng kẻ (`hw3`)
+
+```bash
+python3 hw_note.py grid -o luoi_ky_tu.xopp
+```
+Tờ lưới `hw3` gồm 4 dòng kẻ mốc (chân chữ baseline, x-height, ascender, descender) kèm vạch lề trái/phải và hướng dẫn viết tay chi tiết bằng tiếng Việt. Ngoài bảng chữ cái và chữ số, lưới bao gồm 14 cụm phụ âm/nguyên âm đôi tiếng Việt thông dụng (`ng, nh, ch, tr, ph, th, kh, gi, qu, ươ, ưa, uy, ay, oa`) giúp nét nối giữa các chữ cái mượt mà hơn. Nạp tờ lưới đã viết bằng lệnh `python3 hw_note.py learn luoi_ky_tu.xopp`.
+
+### Di trú kho mẫu ký tự (`scripts/migrate_letter_bank.py`)
+
+Nếu bạn có kho mẫu ký tự đơn cũ (chỉ chứa các ký tự trong `words` dạng v3):
+```bash
+python3 scripts/migrate_letter_bank.py --in kho_mau_cu.json.gz --out kho_mau_moi.json.gz
+```
+Công cụ sẽ tự động chuẩn hoá toạ độ chân chữ baseline, bóc tách dấu thanh rời chính xác, tính toán khoảng đệm `lsb`/`rsb` và đưa về chuẩn `letters` (schema v4) với đầy đủ siêu dữ liệu x-height thực nghiệm.
 
 Định dạng đầu vào tự động nhận diện theo đuôi mở rộng (`.txt`, `.md`, `.markdown`, `.docx`), hỗ trợ bảng dữ liệu (GFM / Word) và công thức toán học (LaTeX / OMML) căn chỉnh theo baseline nét viết tay.
 
@@ -245,7 +269,7 @@ python3 -m pytest -vv -s --timeout=30             # chạy tất cả kèm watch
 xvfb-run -a python3 -m pytest -vv -s --timeout=30 # Linux không màn hình: chạy cả test giao diện thật
 ```
 
-Hơn 470 ca kiểm thử tự động, chia nhóm:
+Hơn 1.020 ca kiểm thử tự động, chia nhóm:
 
 - **Đơn vị** cho từng hàm/lớp Model (`test_text_utils`, `test_bank`, `test_writer`, `test_xopp`, ...) và
   cho `AppController`; kho mẫu thử là một kho **nhỏ tự dựng** (`tests/conftest.py`) nên tự tính tay được đáp án.
