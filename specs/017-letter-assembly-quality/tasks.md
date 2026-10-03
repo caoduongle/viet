@@ -137,6 +137,25 @@
 
 ---
 
+## Phase 7b: User Story 4 Extension - Standalone Tone Mark Cells on `hw3` Grid (Priority: P2)
+
+**Goal**: Provide dedicated standalone cells for 5 Vietnamese tone marks (sắc, huyền, hỏi, ngã, nặng) on the `hw3` collection grid featuring a faint ghost vowel `o` (`#e8e8e8`) for reference positioning, and ingest them directly into `bank.marks`.
+
+**Independent Test**: Generate `hw3` grid with standalone tone cells; verify ghost `o` guide strokes are rendered in `#e8e8e8`; simulate user hand-drawn accents; verify ingestion filters ghost `o`, calculates $(dx, dy)$ relative to vowel centroid, and stores marks into `bank.marks`.
+
+### Tests for Standalone Tone Mark Cells
+- [ ] T049 [P] [US4] Add unit tests in `tests/test_grid_hw3.py` for generating `hw3` grid with standalone tone cells (ghost vowel `o` in `#e8e8e8`) and parsing user strokes into `bank.marks` with proper $(dx, dy)$ offsets.
+
+### Implementation for Standalone Tone Mark Cells
+- [ ] T050 [US4] Add `#e8e8e8` to `HW3_GUIDE_COLORS` in `chuviettay/model/xopp.py` so ghost vowel strokes are recognized as guidelines and filtered out during learning.
+- [ ] T051 [US4] Refactor `Bank.add_tone_sample` in `chuviettay/model/bank.py` to support `strokes: list[Stroke] | Stroke`, compute collective centroid $(cx, cy)$ across all constituent strokes, and deduplicate identical marks.
+- [ ] T052 [US4] Define `HW3_TONE_LABELS` and implement ghost vowel `o` rendering helper in `make_letter_grid` in `chuviettay/model/xopp.py` for standalone tone mark cells.
+- [ ] T053 [US4] Implement tone cell routing and size validation guard in `learning.learn_from_files` in `chuviettay/model/learning.py` to extract $(dx, dy)$ relative to ghost vowel centroid/baseline and save into `bank.marks`.
+- [ ] T054 [P] [US4] Update `app_controller.py` default grid export to append the 5 standalone tone cells (`dấu sắc`, `dấu huyền`, `dấu hỏi`, `dấu ngã`, `dấu nặng`).
+- [ ] T055 Run full regression suite `pytest --timeout=30`, `pytest tests/test_architecture.py`, and `pytest tests/test_golden_master.py` to ensure zero regressions.
+
+---
+
 ## Phase 8: Polish, Golden Master Verification & Final Acceptance (Phase 5)
 
 **Purpose**: Run full regression suite, enforce golden-master byte parity, update documentation, and produce final visual acceptance report.
@@ -255,6 +274,23 @@ flowchart TD
         T041 --> T042
     end
 
+    subgraph Phase_3b_Tones ["Phase 7b: US4 - Standalone Tone Cells"]
+        T049["T049: Tone grid & ingestion tests"]
+        T050["T050: Guide colors whitelist #e8e8e8"]
+        T051["T051: Bank.add_tone_sample multi-stroke"]
+        T052["T052: HW3_TONE_LABELS & ghost vowel"]
+        T053["T053: Tone routing & size guard"]
+        T054["T054: app_controller grid export"]
+        T055["T055: Full regression validation"]
+        T042 --> T049
+        T049 --> T050
+        T050 --> T051
+        T051 --> T052
+        T052 --> T053
+        T053 --> T054
+        T054 --> T055
+    end
+
     subgraph Final_Phase ["Phase 8: Polish & Acceptance"]
         T043["T043: Golden Master parity"]
         T044["T044: Full pytest suite"]
@@ -262,7 +298,7 @@ flowchart TD
         T046["T046: Final measurement validation"]
         T047["T047: Synthetic before/after PNGs"]
         T048["T048: Docs & CHANGELOG"]
-        T042 --> T043
+        T055 --> T043
         T043 --> T044
         T044 --> T045
         T045 --> T046
