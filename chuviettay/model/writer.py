@@ -344,6 +344,15 @@ class Writer:
         fallback_w = 0.8 * getattr(b, "xh", 10.0)
         return [], fallback_w, [sym]
 
+    def _punct_w(self, inst: dict) -> float:
+        w = inst.get("w")
+        if w is not None:
+            return float(w)
+        sts = inst.get("s", [])
+        if sts:
+            return max((st[i] for st in sts for i in range(0, len(st), 2)), default=0.0) + 0.3
+        return 0.3
+
     # -- một token (đã tách khoảng trắng)
     def token(self, tok: str) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một token (đã tách theo khoảng trắng, có thể còn kèm dấu ngoặc/dấu câu
@@ -361,7 +370,7 @@ class Writer:
             return list(inst["s"]), inst["w"], []
         if getattr(b, "punct", None) and tok in b.punct:
             inst = self.pick(b.punct[tok], "p" + tok)
-            return list(inst["s"]), inst["w"], []
+            return list(inst["s"]), self._punct_w(inst), []
         if getattr(b, "symbols", None) and tok in b.symbols:
             inst = self.pick(b.symbols[tok], "sym:" + tok)
             return list(inst["s"]), inst["w"], []
@@ -376,7 +385,7 @@ class Writer:
             elif getattr(b, "punct", None) and ch in b.punct:
                 inst = self.pick(b.punct[ch], "p" + ch)
                 strokes += [shift(st, x, 0) for st in inst["s"]]
-                x += inst["w"] + 0.15 * b.xh
+                x += self._punct_w(inst) + 0.15 * b.xh
             elif getattr(b, "symbols", None) and ch in b.symbols:
                 inst = self.pick(b.symbols[ch], "sym:" + ch)
                 strokes += [shift(st, x, 0) for st in inst["s"]]

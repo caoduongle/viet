@@ -75,3 +75,14 @@ def test_khong_thay_doi_du_lieu_kho_khi_ghep(tiny_bank):
     for t in ("xin", "bà", "12", "xin.", "(xin)"):
         W(tiny_bank).token(t)
     assert repr(tiny_bank.words) == before           # shift() luôn tạo nét mới, không sửa mẫu gốc
+
+
+def test_standalone_punctuation_without_w_in_bank(tiny_bank):
+    # Punctuation sample in legacy bank does not have 'w' attribute
+    tiny_bank.punct[","] = [{"s": [[0.0, 0.0, 1.0, 2.0]]}]
+    wr = W(tiny_bank)
+    strokes, w, miss = wr.token(",")
+    assert len(strokes) == 1
+    assert w > 0
+    assert miss == []
+
