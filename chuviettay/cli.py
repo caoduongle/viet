@@ -161,6 +161,12 @@ def _cmd_stats(ctl: AppController, a: argparse.Namespace) -> None:
             " ".join("%s:%d" % kv for kv in s.letter_counts.items())))
 
 
+def _cmd_grid(ctl: AppController, a: argparse.Namespace) -> None:
+    path = ctl.export_letter_grid(a.out, target_xh=a.target_xh, include_digraphs=not a.no_digraphs)
+    print(f"Đã tạo tờ lưới chữ cái chuẩn hw3 tại: {path}")
+    print("Mở file bằng Xournal++ -> viết từng chữ cái vào ô -> lưu lại -> chạy lệnh: python hw_note.py learn %s" % path)
+
+
 # ---------------------------------------------------------------- bộ đọc tham số
 def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description="Gõ chữ, ra nét viết tay của bạn cho Xournal++.")
@@ -233,6 +239,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     t = sub.add_parser("stats", help="thống kê kho mẫu")
     t.set_defaults(fn=_cmd_stats)
+
+    g = sub.add_parser("grid", help="tạo file lưới ô chuẩn hw3 để viết mẫu chữ cái")
+    g.add_argument("-o", "--out", default="luoi_chu_cai.xopp", help="đường dẫn file .xopp xuất ra (mặc định: luoi_chu_cai.xopp)")
+    g.add_argument("--target-xh", type=float, default=7.94, help="x-height mục tiêu (pt, mặc định: 7.94 pt)")
+    g.add_argument("--no-digraphs", action="store_true", help="không bao gồm các cụm phụ âm đôi (ng, nh, ch...)")
+    g.set_defaults(fn=_cmd_grid)
     return ap
 
 

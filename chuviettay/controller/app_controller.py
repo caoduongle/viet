@@ -368,6 +368,30 @@ class AppController:
         _log.info("Xuất %s với %d từ thông dụng còn thiếu", out_path, len(todo))
         return SeedResult(out_path=out_path, words=todo)
 
+    def export_letter_grid(
+        self,
+        out_path: str,
+        target_xh: float = 7.94,
+        include_digraphs: bool = True,
+    ) -> str:
+        """Tạo file lưới ô chuẩn hw3 để người dùng viết mẫu từng chữ cái & digraph tiếng Việt."""
+        bank = self._require_bank()
+        standard_letters = [
+            "a", "ă", "â", "b", "c", "d", "đ", "e", "ê", "g", "h", "i", "k", "l", "m",
+            "n", "o", "ô", "ơ", "p", "q", "r", "s", "t", "u", "ư", "v", "x", "y",
+            "A", "Ă", "Â", "B", "C", "D", "Đ", "E", "Ê", "G", "H", "I", "K", "L", "M",
+            "N", "O", "Ô", "Ơ", "P", "Q", "R", "S", "T", "U", "Ư", "V", "X", "Y",
+        ]
+        xopp.make_letter_grid(
+            out_path,
+            standard_letters,
+            bank,
+            target_xh=target_xh,
+            include_digraphs=include_digraphs,
+        )
+        _log.info("Xuất lưới chữ cái hw3 vào %s", out_path)
+        return out_path
+
     # ------------------------------------------------------------------ quản lý kho
     def get_stats(self) -> BankStats:
         bank = self._require_bank()

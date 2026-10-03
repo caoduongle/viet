@@ -590,7 +590,15 @@ class Bank:
             self._dirty = True
         return len(removed)
 
-    def add_letter_sample(self, letter: str, rel_strokes: list[Stroke], width: float, dedup: bool = True) -> dict:
+    def add_letter_sample(
+        self,
+        letter: str,
+        rel_strokes: list[Stroke],
+        width: float,
+        dedup: bool = True,
+        lsb: float | None = None,
+        rsb: float | None = None,
+    ) -> dict:
         """Thêm MỘT mẫu chữ cái mới vào self.letters."""
         sig = sample_signature(rel_strokes)
         existing = self.letters.setdefault(letter, [])
@@ -602,7 +610,12 @@ class Bank:
                     ex["_sig"] = ex_sig
                 if ex_sig == sig:
                     return ex
-        inst = {"w": round(width, 2), "s": rel_strokes, "_sig": sig}
+        inst: dict[str, Any] = {"w": round(width, 2), "s": rel_strokes, "_sig": sig}
+        if lsb is not None:
+            inst["lsb"] = round(lsb, 2)
+        if rsb is not None:
+            inst["rsb"] = round(rsb, 2)
+        inst["adv"] = round(width + (inst.get("lsb") or 0.0) + (inst.get("rsb") or 0.0), 2)
         existing.append(inst)
         self._dirty = True
 

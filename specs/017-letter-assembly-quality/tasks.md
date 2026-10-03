@@ -122,18 +122,18 @@
 **Independent Test**: Generate `hw3` grid sheet to XOPP; verify 4 guide lines, 2 margin lines, clear Vietnamese instructions, and successful ingestion via `learn`.
 
 ### Tests for User Story 4
-- [ ] T035 [P] [US4] Add unit tests in `tests/test_grid_hw3.py` for generating `hw3` grid and validating guide line coordinates.
-- [ ] T036 [P] [US4] Add ingestion tests in `tests/test_grid_hw3.py` ensuring `learn` successfully parses both `hw3` and legacy `hw2`/`hw2c` grids.
+- [X] T035 [P] [US4] Add unit tests in `tests/test_grid_hw3.py` for generating `hw3` grid and validating guide line coordinates.
+- [X] T036 [P] [US4] Add ingestion tests in `tests/test_grid_hw3.py` ensuring `learn` successfully parses both `hw3` and legacy `hw2`/`hw2c` grids.
 
 ### Implementation for User Story 4
-- [ ] T037 [US4] Define `hw3` layout constants and metadata tag in `chuviettay/model/xopp.py` without mutating legacy `config.py` constants.
-- [ ] T038 [US4] Implement `make_letter_grid` in `chuviettay/model/xopp.py` featuring 4 guide lines (baseline, xh, ascender, descender), left/right side margins, and 2-3 cells per letter.
-- [ ] T039 [US4] Add high-frequency Vietnamese digraphs (`ng, nh, ch, tr, ph, th, kh, gi, qu, ươ, ưa, uy, ay, oa`) to the `hw3` grid generator in `chuviettay/model/xopp.py`.
-- [ ] T040 [US4] Render grid cell prompt labels using vector strokes or unicode typography in `chuviettay/model/xopp.py` so accented labels (`ă, â, đ, ê, ô, ơ, ư`) never show square boxes (□).
-- [ ] T041 [US4] Embed explicit Vietnamese user instructions on grid pages explaining letter height, unlinked print style, and writing cadence.
-- [ ] T042 [US4] Extend grid learning parser in `chuviettay/model/xopp.py` / `chuviettay/controller/app_controller.py` to auto-detect `hw3`, filter guide lines, and extract side bearings.
+- [X] T037 [US4] Define `hw3` layout constants and metadata tag in `chuviettay/model/xopp.py` without mutating legacy `config.py` constants.
+- [X] T038 [US4] Implement `make_letter_grid` in `chuviettay/model/xopp.py` featuring 4 guide lines (baseline, xh, ascender, descender), left/right side margins, and 2-3 cells per letter.
+- [X] T039 [US4] Add high-frequency Vietnamese digraphs (`ng, nh, ch, tr, ph, th, kh, gi, qu, ươ, ưa, uy, ay, oa`) to the `hw3` grid generator in `chuviettay/model/xopp.py`.
+- [X] T040 [US4] Render grid cell prompt labels using vector strokes or unicode typography in `chuviettay/model/xopp.py` so accented labels (`ă, â, đ, ê, ô, ơ, ư`) never show square boxes (□).
+- [X] T041 [US4] Embed explicit Vietnamese user instructions on grid pages explaining letter height, unlinked print style, and writing cadence.
+- [X] T042 [US4] Extend grid learning parser in `chuviettay/model/xopp.py` / `chuviettay/controller/app_controller.py` to auto-detect `hw3`, filter guide lines, and extract side bearings.
 
-**Checkpoint**: `hw3` grid exports cleanly with legible Vietnamese instructions and imports accurately into the handwriting bank.
+**Checkpoint**: `hw3` grid exports cleanly with legible Vietnamese instructions and imports accurately into the handwriting bank. (COMPLETED)
 
 ---
 

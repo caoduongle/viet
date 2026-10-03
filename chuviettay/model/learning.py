@@ -82,6 +82,8 @@ def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
             if cat == "symbols":
                 bank.add_symbol_sample(r.label, rel, width)
             else:
+                if getattr(r, "is_hw3", False) and (len(r.label) == 1 or r.label in ("ng", "nh", "ch", "tr", "ph", "th", "kh", "gi", "qu", "ươ", "ưa", "uy", "ay", "oa")):
+                    bank.add_letter_sample(r.label, rel, width, dedup=False, lsb=r.lsb, rsb=r.rsb)
                 bank.add_sample(r.label, rel, width, dedup=False)
             added += 1
             file_added += 1

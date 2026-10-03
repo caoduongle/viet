@@ -21,6 +21,19 @@ from xml.sax.saxutils import escape
 from chuviettay.config import BASE, CH, COLS, CW, GUIDE, MXT, MYT, PAGE_H, PAGE_W, ROWS, TAG_CALIB, TAG_PLAIN
 from chuviettay.model.text_utils import Stroke, fmt
 
+TAG_HW3 = "hw3"
+TAG_HW3_CALIB = "hw3c"
+HW3_BASELINE_Y = 34.0
+HW3_ASCENDER_Y = 20.0
+HW3_DESCENDER_Y = 44.0
+HW3_LEFT_MARGIN_X = 12.0
+HW3_RIGHT_MARGIN_X = 116.0
+HW3_GUIDE_COLORS = {GUIDE.lower()[:7], "#c8c8c8", "#a0a0a0", "#d8d8d8", "#e0e0e0"}
+
+VIETNAMESE_DIGRAPHS = [
+    "ng", "nh", "ch", "tr", "ph", "th", "kh", "gi", "qu", "ươ", "ưa", "uy", "ay", "oa"
+]
+
 if TYPE_CHECKING:
     from chuviettay.model.bank import Bank
 
@@ -76,9 +89,12 @@ def text_xml(x: float, y: float, s: str, size: int = 9) -> str:
             % (size, fmt(x), fmt(y), escape(s)))
 
 
-def guide(pts: list[tuple[float, float]], w: float) -> str:
+def guide(pts: list[tuple[float, float]], w: float, color: str | None = None) -> str:
     """Một nét kẻ MỐC (đường kẻ dòng, khung ô...) -- không phải nét chữ thật, để mờ."""
-    return '<stroke tool="pen" color="%sff" width="%s">%s</stroke>' % (GUIDE, w, pts_xml(pts))
+    c = (color or GUIDE).lower()
+    if not c.endswith("ff") and len(c) == 7:
+        c += "ff"
+    return '<stroke tool="pen" color="%s" width="%s">%s</stroke>' % (c, w, pts_xml(pts))
 
 
 def stroke_xml(pts: list[tuple[float, float]], pen: dict, color: str | None = None, wscale: float = 1.0) -> str:
@@ -157,6 +173,56 @@ def make_grid(path: str, labels: list[str], bank: "Bank", header: str,
     save_xopp(path, o)
 
 
+def make_letter_grid(
+    path: str,
+    labels: list[str],
+    bank: "Bank",
+    target_xh: float = 7.94,
+    include_digraphs: bool = True,
+) -> None:
+    """Tạo file .xopp lưới ô ký tự mẫu chuẩn hw3 với 4 đường kẻ mốc và 2 vạch giới hạn lề."""
+    lbls = list(labels)
+    if include_digraphs:
+        for dg in VIETNAMESE_DIGRAPHS:
+            if dg not in lbls:
+                lbls.append(dg)
+
+    per = COLS * ROWS
+    npages = max(1, -(-len(lbls) // per))
+    o = [HEAD]
+    for p in range(npages):
+        o.append(PAGE_OPEN % (PAGE_W, PAGE_H))
+        if p == 0:
+            o.append(text_xml(MXT, 6, "HƯỚNG DẪN VIẾT TỜ LƯỚI KÝ TỰ MẪU (Chuẩn hw3)", 10))
+            o.append(text_xml(MXT, 18, "1. Chiều cao: Viết chữ thường nằm gọn giữa đường Chân chữ (đậm) và vạch x-height (nét vừa, ~8pt).", 7))
+            o.append(text_xml(MXT, 28, "2. Chữ cao & chữ hoa: Đỉnh chữ b, d, h, k, l và chữ hoa chạm vạch Ascender phía trên.", 7))
+            o.append(text_xml(MXT, 38, "3. Đuôi chữ & lề ngang: Đuôi chữ g, p, q, y chạm vạch Descender dưới. Viết nằm trong 2 vạch mốc lề trái/phải.", 7))
+            o.append(text_xml(MXT, 48, TAG_HW3, 6))
+
+        for k in range(p * per, min(len(lbls), (p + 1) * per)):
+            _, x0, y0 = cell_xy(k)
+            # Khung viền ô
+            o.append(guide([(x0, y0), (x0 + CW, y0), (x0 + CW, y0 + CH), (x0, y0 + CH), (x0, y0)], 0.4, color="#c8c8c8"))
+            # Vạch Ascender (nét mảnh trên cùng)
+            o.append(guide([(x0 + 12, y0 + HW3_ASCENDER_Y), (x0 + CW - 12, y0 + HW3_ASCENDER_Y)], 0.5, color="#e0e0e0"))
+            # Vạch x-height (nét vừa)
+            xh_y = y0 + HW3_BASELINE_Y - target_xh
+            o.append(guide([(x0 + 12, xh_y), (x0 + CW - 12, xh_y)], 0.75, color="#c8c8c8"))
+            # Đường chân chữ Baseline (nét đậm)
+            o.append(guide([(x0 + 6, y0 + HW3_BASELINE_Y), (x0 + CW - 6, y0 + HW3_BASELINE_Y)], 1.0, color="#a0a0a0"))
+            # Vạch Descender (nét mảnh dưới cùng)
+            o.append(guide([(x0 + 12, y0 + HW3_DESCENDER_Y), (x0 + CW - 12, y0 + HW3_DESCENDER_Y)], 0.5, color="#e0e0e0"))
+            # Giới hạn lề trái & lề phải
+            o.append(guide([(x0 + HW3_LEFT_MARGIN_X, y0 + 10), (x0 + HW3_LEFT_MARGIN_X, y0 + CH - 4)], 0.5, color="#d8d8d8"))
+            o.append(guide([(x0 + HW3_RIGHT_MARGIN_X, y0 + 10), (x0 + HW3_RIGHT_MARGIN_X, y0 + CH - 4)], 0.5, color="#d8d8d8"))
+            # Nhãn mẫu
+            o.append(text_xml(x0 + 2, y0 + 1, lbls[k]))
+
+        o.append(PAGE_CLOSE)
+    o.append("</xournal>")
+    save_xopp(path, o)
+
+
 # ---------------------------------------------------------------- đọc ngược file đã viết tay (learn)
 @dataclass
 class RawCell:
@@ -167,6 +233,9 @@ class RawCell:
     left: float                 # x nhỏ nhất trong các nét đã viết ở ô này
     right: float                # x lớn nhất
     strokes: list[Stroke] = field(default_factory=list)   # nét thô, toạ độ tuyệt đối trong trang
+    lsb: float = 0.0
+    rsb: float = 0.0
+    is_hw3: bool = False
 
 
 def parse_learn_file(path: str) -> tuple[dict[tuple[int, int, int], RawCell], bool]:
@@ -181,12 +250,15 @@ def parse_learn_file(path: str) -> tuple[dict[tuple[int, int, int], RawCell], bo
     root = read_xopp(path)
     raw: dict[tuple[int, int, int], RawCell] = {}
     has_calib = False
+    is_hw3 = False
     for pi, page in enumerate(root.findall("page")):
         cells: dict[tuple[int, int], str] = {}
         for t in page.iter("text"):
             s = (t.text or "").strip()
-            if s in (TAG_PLAIN, TAG_CALIB):
-                has_calib = has_calib or (s == TAG_CALIB)
+            if s in (TAG_PLAIN, TAG_CALIB, TAG_HW3, TAG_HW3_CALIB):
+                has_calib = has_calib or (s in (TAG_CALIB, TAG_HW3_CALIB))
+                if s in (TAG_HW3, TAG_HW3_CALIB):
+                    is_hw3 = True
                 continue
             try:
                 x, y = float(t.get("x")), float(t.get("y"))
@@ -198,7 +270,10 @@ def parse_learn_file(path: str) -> tuple[dict[tuple[int, int, int], RawCell], bo
 
         strokes_by_cell: dict[tuple[int, int], list[Stroke]] = {}
         for st in page.iter("stroke"):
-            if st.get("tool", "pen") != "pen" or (st.get("color") or "").lower()[:7] == GUIDE:
+            if st.get("tool", "pen") != "pen":
+                continue
+            color_hex = (st.get("color") or "").lower()[:7]
+            if color_hex in HW3_GUIDE_COLORS:
                 continue
             n = [float(v) for v in (st.text or "").split()]
             if len(n) < 2:
@@ -213,5 +288,17 @@ def parse_learn_file(path: str) -> tuple[dict[tuple[int, int, int], RawCell], bo
             base = MYT + cell[1] * CH + BASE
             left = min(min(s[0::2]) for s in sts)
             right = max(max(s[0::2]) for s in sts)
-            raw[(pi,) + cell] = RawCell(label=label, base=base, left=left, right=right, strokes=sts)
+            cell_x0 = MXT + cell[0] * CW
+            lsb = max(0.0, left - (cell_x0 + HW3_LEFT_MARGIN_X))
+            rsb = max(0.0, (cell_x0 + HW3_RIGHT_MARGIN_X) - right)
+            raw[(pi,) + cell] = RawCell(
+                label=label,
+                base=base,
+                left=left,
+                right=right,
+                strokes=sts,
+                lsb=round(lsb, 2),
+                rsb=round(rsb, 2),
+                is_hw3=is_hw3,
+            )
     return raw, has_calib
