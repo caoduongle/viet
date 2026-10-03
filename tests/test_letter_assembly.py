@@ -207,3 +207,35 @@ def test_dual_path_with_ascender_avoidance(tmp_path):
     assert len(strokes) >= 3
 
 
+def test_assemble_word_path1_nang_baseline_alignment(tmp_path):
+    import random
+    from chuviettay.model.bank import Bank
+    from chuviettay.model.writer import Writer
+
+    bank = Bank.create_empty(str(tmp_path / "nang_bank.json.gz"))
+    bank.xh = 7.94
+    bank.pen = {"name": "pen", "width": "1.41"}
+
+    # 't': baseline at 0.0
+    bank.add_letter_sample("t", [[0.0, -8.0, 0.0, 0.0, 2.0, 0.0]], width=3.0)
+    # 'p': baseline at 0.0
+    bank.add_letter_sample("p", [[0.0, -8.0, 0.0, 4.0]], width=3.0)
+    # 'ậ': precomposed sample where body is at y in [-14, -6] and dot at y in [-1, 0] (unaligned)
+    body_st = [0.0, -14.0, 4.0, -6.0]
+    nang_st = [2.0, -1.0, 2.0, 0.0]
+    bank.add_letter_sample("ậ", [body_st, nang_st], width=4.0)
+
+    wr = Writer(bank, random.Random(42), jitter=0.0, assemble_letters=True)
+    res = wr.assemble_word("tập")
+    assert res is not None
+    strokes, total_w = res
+
+    # The body of 'ậ' (stroke 1) must be pulled down to baseline near y = 0.0
+    placed_body_ys = strokes[1][1::2]
+    assert pytest.approx(max(placed_body_ys), abs=0.1) == 0.0
+    # The dot of 'ậ' (stroke 2) must be below baseline (y > 0)
+    placed_dot_ys = strokes[2][1::2]
+    assert min(placed_dot_ys) > 0.0
+
+
+

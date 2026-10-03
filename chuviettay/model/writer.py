@@ -180,6 +180,17 @@ class Writer:
             w = inst.get("w", 1.0 * xh)
             ch_strokes = list(inst.get("s", []))
 
+            # Hiệu chỉnh chân chữ cho ký tự có dấu nặng ở Path 1 (nếu kho mẫu bị neo nhầm dấu nặng về baseline y=0)
+            if use_path1 and len(ch_strokes) >= 2:
+                ch_T, _, _, _ = tone_info(ch)
+                if ch_T == NANG:
+                    bbs = [bbox(st) for st in ch_strokes]
+                    ti = max(range(len(ch_strokes)), key=lambda k: bbs[k][3])
+                    body_max_y = max((pt for k, st in enumerate(ch_strokes) if k != ti for pt in st[1::2]), default=0.0)
+                    if body_max_y < -0.2 * xh:
+                        dy_align = -body_max_y
+                        ch_strokes = [shift(st, 0.0, dy_align) for st in ch_strokes]
+
             # Dot suppression cho chữ i/j khi có dấu thanh phía trên (Path 2)
             if not use_path1 and idx == vi and ch in ("i", "j") and T and T != NANG:
                 clean_strokes = []

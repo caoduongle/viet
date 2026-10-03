@@ -434,8 +434,23 @@ def normalize_letter_sample(
 
     # Neo chân chữ:
     # Trong toạ độ .xopp/kho mẫu, y âm là hướng lên trên, y=0 là đường chân chữ (baseline)
-    # Đối với chữ không có đuôi xuống (descender), toạ độ y lớn nhất (thấp nhất thị giác) neo về 0
-    if cat != "descender":
+    # Nếu chữ có dấu nặng (T == NANG), nét dấu nặng nằm dưới đường chân chữ (y > 0),
+    # do đó đường chân chữ phải tính theo phần thân chữ (loại trừ nét dấu nặng).
+    T, vi, hats, letters = tone_info(char)
+    if T == NANG and len(scaled_strokes) >= 2:
+        bbs = [bbox(s) for s in scaled_strokes]
+        ti = max(range(len(scaled_strokes)), key=lambda k: bbs[k][3])
+        body_ys = [pt for k, s in enumerate(scaled_strokes) if k != ti for pt in s[1::2]]
+        if body_ys:
+            if cat != "descender":
+                shift_y = -max(body_ys)
+            else:
+                shift_y = -(min(body_ys) + target_xh)
+        elif cat != "descender":
+            shift_y = -max(all_ys)
+        else:
+            shift_y = -(min(all_ys) + target_xh)
+    elif cat != "descender":
         shift_y = -max(all_ys)
     else:
         # Với descender (g, p, q, y), phần thân chữ nằm trên y <= 0, phần đuôi vượt qua y > 0

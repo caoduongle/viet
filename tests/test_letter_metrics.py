@@ -119,6 +119,28 @@ def test_normalize_letter_sample():
     assert pytest.approx(max(ys), abs=0.05) == 0.0
 
 
+def test_normalize_letter_sample_nang_baseline():
+    # Chữ 'ậ' gồm thân chữ (y in [-3.85, 0.0]) và dấu nặng nằm dưới (y in [1.5, 2.0])
+    body_stroke = [0.0, -3.85, 4.0, 0.0]
+    nang_stroke = [2.0, 1.5, 2.5, 2.0]
+    norm_sample = normalize_letter_sample(
+        char="ậ",
+        strokes=[body_stroke, nang_stroke],
+        raw_w=4.0,
+        raw_xh=3.85,
+        target_xh=7.94,
+    )
+
+    norm_st = norm_sample["s"]
+    # Thân chữ (stroke 0) phải có chân chữ neo đúng tại y = 0.0
+    body_ys = norm_st[0][1::2]
+    assert pytest.approx(max(body_ys), abs=0.05) == 0.0
+    # Dấu nặng (stroke 1) phải nằm dưới baseline (y > 0)
+    nang_ys = norm_st[1][1::2]
+    assert min(nang_ys) > 0.0
+
+
+
 def test_missing_letters_ranked_with_digits_symbols():
     from chuviettay.model.text_utils import missing_letters_ranked
 
