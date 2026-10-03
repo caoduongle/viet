@@ -38,3 +38,30 @@ When the learning command processes an `hw3` cell:
 3. Calculate Right Side Bearing: $\text{rsb} = \max(0.0, (x_0 + 116.0) - \max(x))$.
 4. Calculate Baseline Alignment: $\Delta y = y_{\text{baseline}} - \text{base\_point}$.
 5. Warn if strokes cross outer cell boundaries or if stroke count is 0.
+
+---
+
+## 4. Standalone Tone Mark Cells Contract (`sắc, huyền, hỏi, ngã, nặng`)
+
+To allow users to teach tone marks independently from whole words or accented characters, `hw3` includes dedicated standalone tone cells:
+
+### 4.1 Visual Representation
+- **Cell Labels**: Rendered in prompt area: `dấu sắc (/)`, `dấu huyền (\)`, `dấu hỏi (?)`, `dấu ngã (~)`, `dấu nặng (.)`.
+- **Ghost Reference Vowel**: A faint guide stroke representing a standard vowel `o` rendered in `#e8e8e8` (width 0.5pt):
+  - Placed horizontally centered between left margin ($x_0 + 12.0$) and right margin ($x_0 + 116.0$).
+  - Bounded vertically between baseline ($y_{\text{base}} = y_0 + 34.0$) and x-height ($y_{\text{xh}} = y_0 + 26.06$).
+- **Writing Area**:
+  - Upper tones (`sắc, huyền, hỏi, ngã`): Written above the ghost `o` (between $y_{\text{xh}}$ and ascender line $y_{\text{asc}}$).
+  - Lower tone (`nặng`): Written below the baseline under the ghost `o`.
+
+### 4.2 Ingestion & Offset Extraction
+1. Ghost vowel strokes with color `#e8e8e8` (matching `HW3_GUIDE_COLORS`) are recognized as reference guides and filtered out from user ink.
+2. Remaining user stroke(s) are identified as the isolated tone mark.
+3. Compute reference centroid: $cx_{\text{ref}} = x_0 + 64.0$ (cell center), $cy_{\text{ref}} = y_{\text{base}} - \frac{xh}{2}$.
+4. Compute mark centroid: $(cx_{\text{mark}}, cy_{\text{mark}})$.
+5. Calculate relative displacement:
+   - $dx = cx_{\text{mark}} - cx_{\text{ref}}$
+   - For upper tones: $dy = cy_{\text{mark}} - y_{\text{xh}}$ (offset from top of vowel)
+   - For lower tone (`nặng`): $dy = cy_{\text{mark}} - y_{\text{base}}$ (offset from baseline of vowel)
+6. Tone sample stored directly into `bank.marks[tone]` via `bank.add_tone_sample(tone, stroke, dx, dy)`.
+

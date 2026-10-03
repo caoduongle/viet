@@ -99,3 +99,24 @@ pytest --timeout=30
 **Expected Outcome**:
 - All golden master tests pass with 0 byte change.
 - New invariant unit tests verify stroke clearance floor $\ge 0.8 \times \text{pen\_thickness}$ and bounding box overlap $\le 10\%$.
+
+---
+
+## Validation Scenario 6: Collection Grid `hw3` with Standalone Tone Cells & Ingestion
+
+Export the `hw3` 4-line collection template and verify standalone tone mark cells:
+
+```bash
+python hw_note.py grid -o /tmp/luoi_hw3.xopp
+pytest tests/test_grid_hw3.py -v
+```
+
+**Expected Outcome**:
+- Generates `hw3` grid template containing:
+  - 4 guide lines (baseline, x-height, ascender, descender) and left/right margin rules.
+  - Clear Vietnamese writing instructions.
+  - 14 Vietnamese digraphs (`ng, nh, ch...`).
+  - Standalone tone mark cells for 5 Vietnamese tones (`sắc, huyền, hỏi, ngã, nặng`) with ghost reference vowel `o` rendered in `#e8e8e8`.
+- Ingestion via `learn` filters the ghost `o` guide stroke and records isolated tone marks into `bank.marks` with proper $(dx, dy)$ offsets.
+
+

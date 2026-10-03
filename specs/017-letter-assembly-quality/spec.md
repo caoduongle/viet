@@ -25,6 +25,14 @@ This specification defines the functional requirements and acceptance criteria t
 
 ---
 
+## Clarifications
+
+### Session 2026-10-03
+- Q: Repo đã có cơ chế điền/gắn dấu thanh chưa và có cần bổ sung ô tập viết dấu thanh độc lập không? → A: Repo đã có cơ chế ghép dấu thanh (Dual-Path & harvesting từ từ/chữ có dấu), và người dùng chọn bổ sung thêm hàng ô riêng trên tờ lưới `hw3` để tập viết trực tiếp 5 dấu thanh rời (sắc, huyền, hỏi, ngã, nặng) độc lập.
+- Q: Ô tập viết dấu thanh rời trên lưới `hw3` nên hiển thị hình chữ mờ làm mốc (ghost vowel) hay chỉ hiển thị nhãn tên dấu? → A: Sử dụng chữ mờ làm mốc (Ghost vowel: chữ `o` mờ màu `#e8e8e8`); người dùng viết nét dấu thanh tương đối với chữ mờ này để parser tính toán toạ độ (dx, dy) chuẩn xác.
+
+---
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Natural Spacing & Non-Overlapping Letter Assembly (Priority: P1)
@@ -89,6 +97,7 @@ A user preparing to teach their handwriting generates a printable/digital handwr
 2. **Given** Vietnamese character labels (such as `ă, â, đ, ê, ô, ơ, ư`), **When** displayed on the grid sheet, **Then** labels are rendered clearly with full Vietnamese unicode typography without placeholder square boxes (□).
 3. **Given** the generated grid sheet, **When** inspected by a user, **Then** clear Vietnamese instructions are prominently visible explaining target height, unlinked print style, tone mark placement, and normal writing cadence.
 4. **Given** a completed grid sheet in either the new format (`hw3`) or legacy format (`hw2`), **When** ingested by the learning command, **Then** the system successfully extracts character samples and computes side bearings while providing warnings for empty or malformed cells.
+5. **Given** a generated `hw3` grid sheet, **When** inspected, **Then** it provides dedicated standalone cells for 5 Vietnamese tone marks (sắc, huyền, hỏi, ngã, nặng) with a ghost reference vowel (`o` rendered in faint guide color `#e8e8e8`), allowing users to naturally position accents while `learn` calculates relative $(dx, dy)$ offsets and ingests them directly into `bank.marks`.
 
 ---
 

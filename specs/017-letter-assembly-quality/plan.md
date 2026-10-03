@@ -14,7 +14,7 @@ The technical approach introduces:
 1. Boundary contour kerning with explicit side bearings (`lsb`, `rsb`) and an invariant physical stroke clearance floor ($k \times \text{pen\_thickness}$) to replace the flawed `advance = w - overlap` logic.
 2. Group-based x-height normalization and dynamic stroke width scaling matching reference metrics from `2026-09-20-Note-17-02.xopp`.
 3. Dual-path Vietnamese diacritic synthesis: direct support for precomposed accented glyphs and grid-aware tone mark extraction, with collision-free placement.
-4. Redesigned collection grid template (`hw3`) with 4-line guides, inner margin boundaries, and explicit Vietnamese instructions.
+4. Redesigned collection grid template (`hw3`) with 4-line guides, inner margin boundaries, explicit Vietnamese instructions, and dedicated standalone tone mark cells (`sắc, huyền, hỏi, ngã, nặng`) featuring a ghost reference vowel (`o`).
 5. Non-destructive migration utilities (`scripts/migrate_letter_bank.py`) and objective quality measurement tools (`tools/measure_ink.py`, `tools/render_xopp.py`).
 6. 100% byte invariance for legacy whole-word synthesis on golden-master benchmarks and zero core dependencies outside the Python standard library.
 

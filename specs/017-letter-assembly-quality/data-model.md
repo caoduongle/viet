@@ -61,16 +61,17 @@ class BankLetterSample:
 
 ### 1.2 Bank Tone Mark Sample (`BankMarkSample`)
 
-Represents an isolated Vietnamese tone mark stored in `bank.marks[tone_key]`.
+Represents an isolated Vietnamese tone mark stored in `bank.marks[tone_key]`. May originate from automatic word harvesting (`_src: word`) or directly from `hw3` standalone tone mark cells (`_src: "standalone"`).
 
 ```python
 @dataclass(frozen=True)
 class BankMarkSample:
-    s: list[list[tuple[float, float]]]  # Stroke(s) forming the tone mark
+    s: list[list[tuple[float, float]]]  # Stroke(s) forming the tone mark (centered at origin)
     dx: float                           # Horizontal offset relative to vowel centroid
     dy: float                           # Vertical offset relative to vowel top/bottom
-    zone: Literal["ABOVE", "BELOW"]     # Vertical placement zone
-    tone_key: str                       # One of "/", "\\", "?", "~", "."
+    zone: Literal["ABOVE", "BELOW"]     # Vertical placement zone (ABOVE for sắc/huyền/hỏi/ngã, BELOW for nặng)
+    tone_key: str                       # Unicode combining tone mark (config.TONES)
+    src: str = "standalone"             # Origin: "standalone" (from hw3 grid) or source word
 ```
 
 ---
