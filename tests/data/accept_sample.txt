@@ -1,0 +1,9 @@
+Lời giải Phần A
+
+---
+
+Bài 1 Chạy một pipeline bằng tay penguins
+
+1. ID các hàng còn lại sau query(bill_length_mm >= 45 and body_mass_g < 5000
+
+Điều kiện lọc chiều dài mỏ >= 45mm và khối lượng < 5000g.

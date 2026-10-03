@@ -22,3 +22,5 @@ hw_gui.exe
 
 # Dữ liệu kho mẫu cá nhân (không commit vào repo):
 chu_cua_ban.json.gz
+local_data/
+local data/
