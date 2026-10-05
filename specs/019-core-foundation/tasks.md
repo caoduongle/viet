@@ -142,17 +142,17 @@ Bất biến không được vi phạm: không sửa `chuviettay/config.py`, ng�
 
 ### Tests (phải ĐỎ)
 
-- [ ] T038 [P] [US5] Thêm test trong `tests/test_paths_logging.py`, dùng `monkeypatch` cho `sys.platform`, `APPDATA`, `XDG_DATA_HOME`, `HOME`, và `paths.app_base_dir`: (a) không có file cục bộ → Windows `%APPDATA%\chuviettay\chu_cua_ban.json.gz`, macOS `~/Library/Application Support/chuviettay/…`, Linux `$XDG_DATA_HOME/chuviettay/…` và fallback `~/.local/share/chuviettay/…`; (b) có file cục bộ → file cục bộ; (c) `sys.frozen=True` không có file → vẫn cạnh `.exe` (giữ test hiện có)
-- [ ] T039 [P] [US5] Thêm test: `default_bank_path()` **không** tạo thư mục (hàm thuần, không side effect); thư mục chỉ được tạo khi lưu kho; thông báo lỗi CLI khi thiếu kho nêu đường dẫn OS thực tế, trong `tests/test_paths_logging.py` (CLI dùng `capsys`)
-- [ ] T040 [US5] Điều chỉnh `test_duong_dan_mac_dinh_khi_chay_tu_ma_nguon` trong `tests/test_paths_logging.py`: kết quả phụ thuộc file cục bộ có tồn tại hay không — monkeypatch `app_base_dir` sang `tmp_path` để test tất định (không phụ thuộc `chu_cua_ban.json.gz` thật của dev); chạy, lưu output ĐỎ
+- [X] T038 [P] [US5] Thêm test trong `tests/test_paths_logging.py`, dùng `monkeypatch` cho `sys.platform`, `APPDATA`, `XDG_DATA_HOME`, `HOME`, và `paths.app_base_dir`: (a) không có file cục bộ → Windows `%APPDATA%\chuviettay\chu_cua_ban.json.gz`, macOS `~/Library/Application Support/chuviettay/…`, Linux `$XDG_DATA_HOME/chuviettay/…` và fallback `~/.local/share/chuviettay/…`; (b) có file cục bộ → file cục bộ; (c) `sys.frozen=True` không có file → vẫn cạnh `.exe` (giữ test hiện có)
+- [X] T039 [P] [US5] Thêm test: `default_bank_path()` **không** tạo thư mục (hàm thuần, không side effect); thư mục chỉ được tạo khi lưu kho; thông báo lỗi CLI khi thiếu kho nêu đường dẫn OS thực tế, trong `tests/test_paths_logging.py` (CLI dùng `capsys`)
+- [X] T040 [US5] Điều chỉnh `test_duong_dan_mac_dinh_khi_chay_tu_ma_nguon` trong `tests/test_paths_logging.py`: kết quả phụ thuộc file cục bộ có tồn tại hay không — monkeypatch `app_base_dir` sang `tmp_path` để test tất định (không phụ thuộc `chu_cua_ban.json.gz` thật của dev); chạy, lưu output ĐỎ
 
 ### Implementation
 
-- [ ] T041 [US5] Thêm `user_data_dir()` và sửa `default_bank_path()` theo thứ tự 4 tầng trong `chuviettay/paths.py` (chỉ thư viện chuẩn; chuỗi rỗng trong biến môi trường coi như không đặt); cập nhật docstring module
-- [ ] T042 [US5] Xác nhận đường lưu kho (`Bank.save` / ghi nguyên tử) tạo thư mục cha nếu chưa có — nếu chưa, thêm `os.makedirs(..., exist_ok=True)` tại điểm ghi trong `chuviettay/model/bank.py`; lỗi quyền ghi phải nổi lên với đường dẫn cụ thể
-- [ ] T043 [US5] Sửa thông báo thiếu kho trong `chuviettay/cli.py` để in đường dẫn đã phân giải và gợi ý `--bank`
-- [ ] T044 [US5] Đối chiếu `chuviettay/logging_setup.py`: khi `app_base_dir()` không ghi được (site-packages) log rơi về `paths.user_log_dir()`; thêm test nếu chưa có trong `tests/test_paths_logging.py`
-- [ ] T045 [US5] Chạy `python repro_viet_baseline.py --repo . --with-pip --only F4` (kỳ vọng `ĐÃ SỬA`), ghi output; GATE; commit `fix(paths): định vị kho mẫu và log chuẩn theo hệ điều hành khi cài bằng pip [F4]`
+- [X] T041 [US5] Thêm `user_data_dir()` và sửa `default_bank_path()` theo thứ tự 4 tầng trong `chuviettay/paths.py` (chỉ thư viện chuẩn; chuỗi rỗng trong biến môi trường coi như không đặt); cập nhật docstring module
+- [X] T042 [US5] Xác nhận đường lưu kho (`Bank.save` / ghi nguyên tử) tạo thư mục cha nếu chưa có — nếu chưa, thêm `os.makedirs(..., exist_ok=True)` tại điểm ghi trong `chuviettay/model/bank.py`; lỗi quyền ghi phải nổi lên với đường dẫn cụ thể
+- [X] T043 [US5] Sửa thông báo thiếu kho trong `chuviettay/cli.py` để in đường dẫn đã phân giải và gợi ý `--bank`
+- [X] T044 [US5] Đối chiếu `chuviettay/logging_setup.py`: khi `app_base_dir()` không ghi được (site-packages) log rơi về `paths.user_log_dir()`; thêm test nếu chưa có trong `tests/test_paths_logging.py`
+- [X] T045 [US5] Chạy `python repro_viet_baseline.py --repo . --with-pip --only F4` (kỳ vọng `ĐÃ SỬA`), ghi output; GATE; commit `fix(paths): định vị kho mẫu và log chuẩn theo hệ điều hành khi cài bằng pip [F4]`
 
 **Checkpoint**: `pip install` dùng thư mục dữ liệu người dùng; bản portable/mã nguồn không đổi hành vi.
 

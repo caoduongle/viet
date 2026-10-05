@@ -73,3 +73,40 @@ def test_thu_muc_chi_doc_thi_van_chay_duoc(monkeypatch, tmp_path):
         for h in root.handlers[:]:
             if h not in saved:
                 root.removeHandler(h)
+
+
+def test_user_data_dir_windows(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setenv("APPDATA", r"C:\Users\Test\AppData\Roaming")
+    assert paths.user_data_dir() == os.path.join(r"C:\Users\Test\AppData\Roaming", "chuviettay")
+
+
+def test_user_data_dir_macos(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setenv("HOME", "/Users/testuser")
+    expected = os.path.expanduser("~/Library/Application Support/chuviettay")
+    assert paths.user_data_dir() == expected
+
+
+def test_user_data_dir_linux_xdg(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", "/custom/share")
+    assert paths.user_data_dir() == os.path.join("/custom/share", "chuviettay")
+
+
+def test_user_data_dir_linux_default(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    monkeypatch.setenv("HOME", "/home/testuser")
+    assert paths.user_data_dir() == os.path.join(os.path.expanduser("~/.local/share"), "chuviettay")
+
+
+def test_default_bank_path_fallback_to_user_data_dir(monkeypatch, tmp_path):
+    empty_dir = tmp_path / "site_packages"
+    empty_dir.mkdir()
+    monkeypatch.setattr(paths, "app_base_dir", lambda: str(empty_dir))
+    monkeypatch.setattr(sys, "platform", "linux")
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
+    expected = str(tmp_path / "share" / "chuviettay" / "chu_cua_ban.json.gz")
+    assert paths.default_bank_path() == expected
+

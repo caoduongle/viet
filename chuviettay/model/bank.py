@@ -451,6 +451,9 @@ class Bank:
         4. flush + fsync dữ liệu xuống đĩa vật lý, đóng sạch handle trước khi replace.
         5. os.replace nguyên tử đè lên file thật.
         6. fsync thư mục cha trên POSIX."""
+        parent_dir = os.path.dirname(os.path.abspath(self.path))
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
         lock_path = self.path + ".lock"
         with FileLock(lock_path, timeout=10.0):
             with self._lock:

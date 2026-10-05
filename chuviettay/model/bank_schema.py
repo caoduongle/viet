@@ -380,7 +380,7 @@ def migrate_bank_dict(d: dict[str, Any], from_version: int, context: str = "") -
 def load_and_validate(path: str) -> dict[str, Any]:
     """Nạp file .json.gz từ đĩa, kiểm định tính toàn vẹn và di trú trong bộ nhớ nếu là bản cũ."""
     if not os.path.exists(path):
-        raise BankNotFoundError(f"Không thấy kho mẫu: {path} (để cùng thư mục với hw_note.py hoặc dùng --bank)")
+        raise BankNotFoundError(f"Không thấy kho mẫu: {path} (dùng --bank <đường_dẫn> hoặc chạy lệnh 'seed' để tạo)")
 
     try:
         size = os.path.getsize(path)

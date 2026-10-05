@@ -128,3 +128,17 @@ def test_d4_cli_no_missing_grid_flag(capsys, tiny_bank_path, tmp_path):
     assert os.path.exists(out)
     assert not os.path.exists(str(tmp_path / "cli_no_grid_thieu.xopp"))
 
+
+def test_thieu_kho_mau_thong_bao_ro_rang_khong_nhac_hw_note(monkeypatch, tmp_path):
+    """T039: Báo lỗi thiếu kho mẫu nêu rõ đường dẫn và hướng dẫn --bank/seed, không nhắc hw_note.py."""
+    from chuviettay import paths
+    nonexistent = str(tmp_path / "khong_co" / "chu_cua_ban.json.gz")
+    monkeypatch.setattr(paths, "default_bank_path", lambda: nonexistent)
+    with pytest.raises(SystemExit) as ei:
+        cli.main(["stats"])
+    msg = str(ei.value)
+    assert "Không thấy kho mẫu" in msg
+    assert "hw_note.py" not in msg
+    assert "--bank" in msg or "seed" in msg
+
+

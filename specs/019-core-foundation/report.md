@@ -181,5 +181,41 @@ Các điểm đã hoàn thành:
 5. Cập nhật `README.md`: Nâng mô tả lưới hw3 từ 77 ô lên 85 ô kèm giải thích 4 chữ cái Latin mượn.
 - `ruff check .`: All checks passed!
 - `test_golden_master_real_path.py & test_architecture.py`: 23 passed in 2.16s.
+- **Commit**: `fc4d07f` — `feat(grid): bổ sung f, j, w, z vào lưới hw3 và lọc ký tự chữ cái khi học [F3]`
+
+---
+
+### F4 — Vị trí kho mẫu và log chuẩn theo hệ điều hành khi cài bằng pip
+
+#### Bằng chứng kiểm thử ĐỎ (T040)
+Lệnh: `py -3.12 -m pytest tests/test_paths_logging.py::test_user_data_dir_windows tests/test_paths_logging.py::test_default_bank_path_fallback_to_user_data_dir tests/test_cli.py::test_thieu_kho_mau_thong_bao_ro_rang_khong_nhac_hw_note`
+Kết quả:
+```text
+FAILED tests/test_paths_logging.py::test_user_data_dir_windows - AttributeError: module 'chuviettay.paths' has no attribute 'user_data_dir'
+FAILED tests/test_paths_logging.py::test_default_bank_path_fallback_to_user_data_dir - AssertionError
+FAILED tests/test_cli.py::test_thieu_kho_mau_thong_bao_ro_rang_khong_nhac_hw_note - AssertionError: assert 'hw_note.py' not in ...
+3 failed in 0.90s
+```
+
+#### Bằng chứng kiểm thử XANH sau khi hiện thực (T045)
+Lệnh: `py -3.12 -m pytest tests/test_paths_logging.py tests/test_cli.py`
+Kết quả: `25 passed in 0.96s`
+
+Lệnh xác minh baseline script: `py -3.12 repro_viet_baseline.py --repo . --with-pip --only F4`
+Kết quả:
+```text
+[ĐÃ SỬA  ] F4   Cài bằng pip: kho/log mặc định nằm trong site-packages, `hw-note stats` báo không thấy kho
+           kho mặc định = C:\Users\LE\AppData\Roaming\chuviettay\chu_cua_ban.json.gz
+
+Tổng: 1 mục | BUG: 0 | ĐÃ SỬA: 1 | LỖI-CHẠY: 0 | BỎ-QUA: 0
+```
+
+Các điểm đã hoàn thành:
+1. `user_data_dir()`: Thêm hàm chuẩn vào `chuviettay/paths.py` chỉ dùng thư viện chuẩn Python: Windows (`%APPDATA%/chuviettay`), macOS (`~/Library/Application Support/chuviettay`), Linux (`$XDG_DATA_HOME/chuviettay` hoặc `~/.local/share/chuviettay`).
+2. Thứ tự ưu tiên 4 tầng của `default_bank_path()`: (1) `--bank` qua CLI parser; (2) `sys.frozen` (PyInstaller .exe) -> luôn cạnh file thực thi; (3) chạy từ mã nguồn nếu file `chu_cua_ban.json.gz` đã tồn tại ở `app_base_dir()` -> dùng file cục bộ (giữ trọn vẹn hành vi portable); (4) còn lại -> `user_data_dir()/chu_cua_ban.json.gz`.
+3. Ghi đĩa an toàn (`Bank.save`): Tự động tạo thư mục cha (`os.makedirs(parent_dir, exist_ok=True)`) trước khi tạo file lock và ghi dữ liệu nguyên tử.
+4. Cập nhật thông báo lỗi CLI & Schema: Loại bỏ hoàn toàn nhắc nhở lỗi thời "để cùng thư mục với hw_note.py", thay bằng hướng dẫn `--bank <đường_dẫn>` hoặc chạy `seed`.
+- `ruff check .`: All checks passed!
+- `test_golden_master_real_path.py & test_architecture.py`: 23 passed in 1.70s.
 
 
