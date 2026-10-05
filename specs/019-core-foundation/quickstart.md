@@ -99,11 +99,13 @@ Verify that `default_bank_path()` resolves to standard OS user directory when lo
 ```bash
 python -c "
 from chuviettay import paths
-import os
-p = paths.default_bank_path()
-print('Default bank path:', p)
-# Khi không có file cục bộ, đường dẫn phải trỏ về thư mục dữ liệu người dùng
-assert 'chuviettay' in p.lower()
+from unittest.mock import patch
+print('Local portable path:', paths.default_bank_path())
+with patch('os.path.exists', return_value=False):
+    p = paths.default_bank_path()
+    print('User data fallback path:', p)
+    assert 'chuviettay' in p.lower()
+print('Phân giải đường dẫn kho mẫu hoàn toàn chính xác.')
 "
 ```
 

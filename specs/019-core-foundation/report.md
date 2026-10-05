@@ -274,5 +274,70 @@ Các điểm đã hoàn thành:
    - Lưu ý: Do tuân thủ tuyệt đối nguyên tắc "không push git / không tạo PR", pipeline GitHub Actions thật chưa được kích hoạt trên server GitHub; tất cả các lệnh và điều kiện của các bước trong workflow đều đã được thực thi và chứng minh hoạt động chính xác trên môi trường cục bộ.
 - `ruff check .`: All checks passed!
 - `test_golden_master_real_path.py & test_architecture.py`: 23 passed in 1.81s.
+- **Commit**: `c2e67e8` — `ci: thêm smoke test cài đặt pip và phân lập kiểm thử benchmark [CI]`
+
+---
+
+## 4. Tổng kết & Nghiệm thu toàn diện Giai đoạn 1 (P1)
+
+### Bảng các Commit thực hiện trong P1
+
+| Mã mục | Scope | Commit Hash | Tiêu đề commit | Trạng thái |
+| :--- | :--- | :--- | :--- | :--- |
+| **Q3** | docs(schema) | `1f1e9f4` | docs(schema): đồng bộ schema v4 làm nguồn sự thật và sửa tài liệu lưới chữ [Q3] | ĐÃ SỬA (RED -> GREEN) |
+| **Q2** | refactor(layout) | `a3a3ff2` | refactor(layout): chuyển toàn bộ test sang đường thật và dọn dẹp composer cũ [Q2] | ĐÃ SỬA (RED -> GREEN) |
+| **Q4** | feat(test) | `5683067` | feat(test): bổ sung kho chữ tổng hợp và bộ test nghiệm thu định lượng [Q4] | ĐÃ SỬA (RED -> GREEN) |
+| **F3** | feat(grid) | `fc4d07f` | feat(grid): bổ sung f, j, w, z vào lưới hw3 và lọc ký tự chữ cái khi học [F3] | ĐÃ SỬA (RED -> GREEN) |
+| **F4** | fix(paths) | `b8273a0` | fix(paths): định vị kho mẫu và log chuẩn theo hệ điều hành khi cài bằng pip [F4] | ĐÃ SỬA (RED -> GREEN) |
+| **F7** | fix(xopp) | `70ef6ec` | fix(xopp): chuẩn hoá chuỗi kiểu nền theo đặc tả xml của xournal++ [F7] | ĐÃ SỬA (RED -> GREEN) |
+| **CI** | ci | `c2e67e8` | ci: thêm smoke test cài đặt pip và phân lập kiểm thử benchmark [CI] | ĐÃ SỬA (RED -> GREEN) |
+
+### Kết quả đo đạc định lượng thực tế (Q4)
+Đo trên đầu ra của `DocumentLayoutEngine` kết xuất tài liệu `tests/data/accept_sample.txt` bằng kho chữ rời tổng hợp (`build_synthetic_letter_bank(seed=42)`):
+
+| Chỉ số định lượng | Giá trị đo được | Ngưỡng yêu cầu | Đánh giá |
+| :--- | :--- | :--- | :--- |
+| Số từ bị bỏ trống (`n_missing`) | 0 từ | = 0 từ | ĐẠT |
+| Sàn khe hở tối thiểu theo bút (`min_stroke_clearance_pen`) | 0.85x | ≥ 0.8x | ĐẠT |
+| Độ chồng lấn hộp giới hạn lớn nhất (`max_bbox_overlap_pct`) | 0.0% | ≤ 10.0% | ĐẠT |
+| Chiều cao x-height trung vị (`median_x_height`) | 8.06 pt | 7.94 ± 10% (7.15 – 8.73 pt) | ĐẠT |
+| Tỉ lệ nét bút trên x-height (`pen_to_xh_ratio`) | 0.175 | 0.15 – 0.20 | ĐẠT |
+
+### Báo cáo Repro Baseline
+Lệnh: `$env:PYTHONUTF8="1"; py -3.12 repro_viet_baseline.py --repo . --with-pip --only D1a D1b D2 D3 D4a D4b D5 F4`
+Kết quả:
+```text
+[ĐÃ SỬA  ] D1a  Xoá CHỮ CÁI 'a' rồi lưu có hợp nhất làm mất luôn TỪ 'a'
+           sau hợp nhất: words['a']=1 (kỳ vọng 1), letters['a']=0 (kỳ vọng 0)
+[ĐÃ SỬA  ] D1b  Chọn TỪ 'a' ở tab Kho mẫu rồi xoá lại xoá nhầm CHỮ CÁI 'a'
+           sau drop_words(['a']): words['a']=0 (kỳ vọng 0), letters['a']=1 (kỳ vọng 1)
+[ĐÃ SỬA  ] D2   Xoá ký hiệu rồi dạy lại bằng add_symbol_sample: mẫu mới mất sau lần hợp nhất kế
+           mẫu π sau hợp nhất: trong RAM=1, trên đĩa=1 (kỳ vọng 1)
+[ĐÃ SỬA  ] D3   learn không idempotent: lưu lại cùng tờ lưới (header gzip đổi) bị học trùng
+           số mẫu 'khoai': sau lần học 1 = 1, sau lần học 2 (cùng nội dung) = 1 (kỳ vọng vẫn 1)
+[ĐÃ SỬA  ] D4a  WriteOptions(missing_grid=False) bị bỏ qua ở chế độ Semantic; CLI không có --no-missing-grid
+           _thieu.xopp vẫn được tạo khi tắt cờ: False | CLI có --no-missing-grid: True
+[ĐÃ SỬA  ] D4b  Chạy lại write ghi đè ra_thieu.xopp, mất nét người dùng đã viết dở
+           nét người dùng trong ra_thieu.xopp: trước=1, sau khi chạy lại write=1 (kỳ vọng vẫn 1)
+[ĐÃ SỬA  ] D5   Lưu hoãn trên luồng Timer: RuntimeError 'dictionary changed size during iteration'
+           0/8 vòng làm luồng Timer ném lỗi
+[ĐÃ SỬA  ] F4   Cài bằng pip: kho/log mặc định nằm trong site-packages, `hw-note stats` báo không thấy kho
+           kho mặc định = C:\Users\LE\AppData\Roaming\chuviettay\chu_cua_ban.json.gz
+
+Tổng: 8 mục | BUG: 0 | ĐÃ SỬA: 8 | LỖI-CHẠY: 0 | BỎ-QUA: 0
+```
+
+### Kiểm tra Cổng chất lượng cuối (Final Quality Gates)
+- `ruff check .`: 100% sạch (All checks passed).
+- `pytest -q --timeout=90 -p no:cacheprovider`: `1126 passed in 38.06s`.
+- `pytest tests/test_golden_master_real_path.py tests/test_architecture.py`: `23 passed in 1.81s` (Mã băm SHA-256 các file .xopp giữ nguyên 100%).
+- Kiến trúc module tuân thủ tuyệt đối: Không import UI/CLI vào Model/IR, không import ngoài luồng.
+
+### Các ghi chú quan trọng & Việc để lại cho P2+
+1. **Ảnh tư liệu `docs/img/after_fix.png` và `docs/img/luoi_hw3.png`**:
+   - `docs/img/after_fix.png` được tạo trước commit `d17a142` từ kho chữ viết tay thật của tác giả (không đưa vào repo để bảo vệ dữ liệu cá nhân). Chủ repo sẽ kết xuất lại ảnh này khi cần.
+   - `docs/img/luoi_hw3.png` là ảnh chụp giao diện lưới 77 ô cũ, giữ nguyên trên đĩa; chủ repo có thể chụp lại ảnh lưới 85 ô mới từ ứng dụng Xournal++.
+2. **Kiểm tra trực quan Xournal++**: Do CI chạy headless không có phần mềm Xournal++, mã XML đã được xác minh đối chiếu với commit gốc `9882ffaaf2` của Xournal++; chủ repo nên mở thử nghiệm file `.xopp` trên Xournal++ để kiểm tra hiển thị.
+3. **Phạm vi bảo toàn**: Tuyệt đối không can thiệp vào các hạng mục thuộc P2 trở đi (P2A, P2B, P2C, P3A/P3B, P4); không push git và không tạo Pull Request theo đúng yêu cầu nghiêm ngặt của chỉ thị.
 
 

@@ -193,10 +193,10 @@ Bất biến không được vi phạm: không sửa `chuviettay/config.py`, ng�
 
 ## Phase 10: Polish & Báo cáo
 
-- [ ] T056 Chạy GATE cuối + `python repro_viet_baseline.py --repo . --with-pip`; ghi tổng kết vào `specs/019-core-foundation/report.md`
-- [ ] T057 Chạy các kịch bản trong `specs/019-core-foundation/quickstart.md`, ghi kết quả
-- [ ] T058 Hoàn tất `specs/019-core-foundation/report.md`: mỗi mục có output ĐỎ/XANH, hash commit, quyết định khi mơ hồ, ghi chú `docs/img/after_fix.png`, việc chưa làm/để lại cho P2
-- [ ] T059 Đánh dấu `[X]` các task đã xong trong `specs/019-core-foundation/tasks.md`
+- [X] T056 Chạy GATE cuối + `python repro_viet_baseline.py --repo . --with-pip`; ghi tổng kết vào `specs/019-core-foundation/report.md`
+- [X] T057 Chạy các kịch bản trong `specs/019-core-foundation/quickstart.md`, ghi kết quả
+- [X] T058 Hoàn tất `specs/019-core-foundation/report.md`: mỗi mục có output ĐỎ/XANH, hash commit, quyết định khi mơ hồ, ghi chú `docs/img/after_fix.png`, việc chưa làm/để lại cho P2
+- [X] T059 Đánh dấu `[X]` các task đã xong trong `specs/019-core-foundation/tasks.md`
 
 ---
 
