@@ -1,5 +1,17 @@
 # Nhật ký thay đổi
 
+## Chưa phát hành — Lưới an toàn & vá lỗi toàn vẹn dữ liệu (P0)
+
+### Toàn vẹn dữ liệu kho mẫu & Nâng cấp Schema v4 (D1, D2, D5)
+- **Phân tách không gian tên tombstone (D1)**: Định dạng tombstone được mở rộng thành `<category>:<label>` (ví dụ `letters:a`, `words:a`, `symbols:π`). Khắc phục lỗi `drop_letter("a")` làm mất từ `"a"` trong kho khi đồng bộ merge. Hỗ trợ tương thích ngược: các tombstone cũ không có tiền tố danh mục vẫn được tôn trọng xóa trên mọi danh mục.
+- **Nâng cấp Schema v4 (`CURRENT_VERSION = 4`)**: Bổ sung bộ chuyển đổi di trú tự động `_migrate_v3_to_v4` khi nạp kho v3 lên v4, đảm bảo cấu trúc kho và từ điển `tombstones` luôn nhất quán.
+- **Gỡ tombstone khi dạy lại ký hiệu (D2)**: `add_symbol_sample` nay xóa bỏ đúng tombstone tương ứng khi thêm mẫu mới, khắc phục lỗi ký hiệu bị mất mẫu sau khi xóa rồi dạy lại và merge kho.
+- **Chống đua luồng khi lưu hoãn & tăng tốc serialize (D5)**: Bổ sung `RLock` bảo vệ trạng thái kho mẫu và chuỗi đột biến `_mutation_seq`. Chuyển sang serialize `json.dumps()` nguyên tử trước khi nén gzip, đưa I/O đĩa ra ngoài khóa; tăng tốc độ ghi đĩa gấp 5x và loại bỏ hoàn toàn ngoại lệ `RuntimeError: dictionary changed size during iteration`.
+
+### Sửa lỗi dàn trang và học mẫu (D3, D4)
+- **Học mẫu tất định & khử trùng ô (D3)**: Hàm `learn_from_files` giải nén gzip trước khi băm SHA-256 XML để tránh phụ thuộc vào header timestamp của gzip. Thêm cơ chế kiểm tra trùng lặp tọa độ nét để loại bỏ các ô trùng lặp.
+- **Tôn trọng cờ missing_grid & bảo vệ nét người dùng (D4)**: Hỗ trợ cờ `--no-missing-grid` trên CLI và hộp kiểm trên GUI; không tự động ghi đè file `_thieu.xopp` nếu phát hiện có nét vẽ của người dùng.
+
 ## Chưa phát hành — Sửa & cải tiến cơ chế ghép chữ viết tay (spec 017)
 
 Khắc phục triệt để hiện tượng chữ dính/nhoè ("cục mực"), khôi phục khả năng ghép chữ tiếng Việt có dấu thanh từ kho mẫu ký tự đơn, chuẩn hoá tỉ lệ nét/cỡ chữ tương đồng với chữ viết tay thực tế trong sổ ghi chú, và bổ sung định dạng lưới tập viết 4 dòng kẻ `hw3`.

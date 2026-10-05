@@ -12,8 +12,10 @@ from chuviettay.model.bank import (
     BankError,
     BankNotFoundError,
     BankValidationError,
+    CURRENT_VERSION,
     UnsupportedSchemaVersionError,
 )
+
 
 
 def test_nap_kho_nho(tiny_bank):
@@ -250,7 +252,7 @@ def test_di_tru_kho_v1_thieu_metadata_tu_dong_dien_defaults(tmp_path):
     with gzip.open(p, "wt", encoding="utf-8") as f:
         json.dump(d, f)
     b = Bank(p)
-    assert b.d["schema_version"] == 3
+    assert b.d["schema_version"] == CURRENT_VERSION
     assert b.d["line"] == 24.0
     assert b.d["width"] == 500.0
     assert b.d["x0"] == 78.0
@@ -271,18 +273,19 @@ def test_di_tru_kho_v1_legacy_sang_v2_trong_bo_nho(tmp_path):
         json.dump(d, f)
 
     b = Bank(p)
-    # Trong bộ nhớ đã được nâng cấp lên schema_version = 3
-    assert b.d["schema_version"] == 3
+    # Trong bộ nhớ đã được nâng cấp lên schema_version = 4
+    assert b.d["schema_version"] == CURRENT_VERSION
     assert "ba" in b.words
 
     # Nhưng trên đĩa vẫn giữ nguyên bản gốc (chưa ghi đè vì chỉ đọc)
     disk_raw = gzip.decompress(open(p, "rb").read()).decode("utf-8")
     assert "schema_version" not in disk_raw
 
-    # Khi có thao tác save() mới ghi phiên bản 3 xuống đĩa
+    # Khi có thao tác save() mới ghi phiên bản 4 xuống đĩa
     b.save()
     disk_after = gzip.decompress(open(p, "rb").read()).decode("utf-8")
-    assert '"schema_version":3' in disk_after
+    assert f'"schema_version":{CURRENT_VERSION}' in disk_after
+
 
 
 def test_concurrent_save_an_toan_khong_lam_hong_kho(tmp_path):
@@ -307,7 +310,7 @@ def test_concurrent_save_an_toan_khong_lam_hong_kho(tmp_path):
 
     # File cuối cùng phải nguyên vẹn và nạp lại bình thường
     final_bank = Bank(p)
-    assert final_bank.d["schema_version"] == 3
+    assert final_bank.d["schema_version"] == CURRENT_VERSION
     assert "goc" in final_bank.words
     assert not any(f.endswith(".tmp") for f in os.listdir(tmp_path))
 
@@ -363,12 +366,13 @@ def test_create_empty_atomic_pipeline(tmp_path):
     p = str(tmp_path / "new_empty_bank.json.gz")
     b = Bank.create_empty(p)
     assert os.path.exists(p)
-    assert b.d["schema_version"] == 3
+    assert b.d["schema_version"] == CURRENT_VERSION
     assert b.words == {}
     assert not any(f.endswith(".tmp") for f in os.listdir(tmp_path))
     # Mở lại kiểm tra tính toàn vẹn
     reloaded = Bank(p)
-    assert reloaded.d["schema_version"] == 3
+    assert reloaded.d["schema_version"] == CURRENT_VERSION
+
 
 
 def test_incremental_teach_performance_and_correctness(tmp_path):
@@ -672,5 +676,47 @@ def test_d5_concurrent_save_and_mutations_no_runtime_error(tmp_path):
     # Khẳng định 0 RuntimeError
     all_errors = save_errors + main_errors
     assert not all_errors, f"Đua luồng gây lỗi: {all_errors}"
+
+
+def test_d1a_drop_letter_does_not_drop_word_on_merge(tmp_path):
+    """D1a: Xoá chữ cái 'a' rồi lưu có hợp nhất không được làm mất từ 'a'."""
+    p = str(tmp_path / "bank_d1a.json.gz")
+    b = Bank.create_empty(p)
+    b.add_letter_sample("a", [[0.0, -5.0, 3.0, 0.0]], 4.0, dedup=False)
+    b.add_sample("a", [[0.0, -5.0, 3.0, 0.0]], 4.0, dedup=False)
+    b.save()
+
+    b.drop_letter("a")
+
+    # Giả lập tiến trình khác chạm vào file kích hoạt merge_bank_dicts
+    st = os.stat(p)
+    os.utime(p, (st.st_atime, st.st_mtime + 2.0))
+
+    b.save()
+    w = len(b.words.get("a", []))
+    le = len(b.letters.get("a", []))
+    assert le == 0, f"letters['a'] phải bị xoá, nhưng có {le} mẫu"
+    assert w == 1, f"words['a'] phải còn nguyên sau hợp nhất, nhưng có {w} mẫu"
+
+
+def test_d1b_drop_words_does_not_drop_letter(tmp_path):
+    """D1b: Chọn từ 'a' xoá qua AppController.drop_words không được xoá chữ cái 'a'."""
+    from chuviettay.controller.app_controller import AppController
+
+    p = str(tmp_path / "bank_d1b.json.gz")
+    b = Bank.create_empty(p)
+    b.add_letter_sample("a", [[0.0, -5.0, 3.0, 0.0]], 4.0, dedup=False)
+    b.add_sample("a", [[0.0, -5.0, 3.0, 0.0]], 4.0, dedup=False)
+    b.save()
+
+    ctl = AppController(p)
+    ctl.load_bank()
+    ctl.drop_words(["a"])
+
+    w = len(ctl.bank.words.get("a", []))
+    le = len(ctl.bank.letters.get("a", []))
+    assert w == 0, f"words['a'] phải bị xoá qua drop_words, nhưng có {w} mẫu"
+    assert le == 1, f"letters['a'] phải được giữ nguyên, nhưng có {le} mẫu"
+
 
 

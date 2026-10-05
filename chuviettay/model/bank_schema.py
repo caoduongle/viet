@@ -17,7 +17,7 @@ from typing import Any
 
 from chuviettay.config import TONES
 
-CURRENT_VERSION = 3
+CURRENT_VERSION = 4
 
 # Các trường bắt buộc ở cấp cao nhất và kiểu dữ liệu tương ứng (Schema v3)
 REQUIRED_METADATA_KEYS: dict[str, type | tuple[type, ...]] = {
@@ -344,10 +344,20 @@ def _migrate_v2_to_v3(d: dict[str, Any]) -> dict[str, Any]:
     return d
 
 
+def _migrate_v3_to_v4(d: dict[str, Any]) -> dict[str, Any]:
+    """Nâng cấp từ v3 lên v4: thêm schema_version = 4, chuẩn hoá tombstones hỗ trợ phân tách không gian tên."""
+    d["schema_version"] = 4
+    if "tombstones" not in d:
+        d["tombstones"] = {}
+    return d
+
+
 _MIGRATORS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {
     1: _migrate_v1_to_v2,
     2: _migrate_v2_to_v3,
+    3: _migrate_v3_to_v4,
 }
+
 
 
 def migrate_bank_dict(d: dict[str, Any], from_version: int, context: str = "") -> dict[str, Any]:

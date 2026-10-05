@@ -61,11 +61,22 @@ def test_validate_v2_allowed_when_legacy_flag_set():
 def test_migration_v2_to_v3():
     d = _sample_v2_dict()
     upgraded = migrate_bank_dict(d, from_version=2)
-    assert upgraded["schema_version"] == 3
+    assert upgraded["schema_version"] == CURRENT_VERSION
     assert "symbols" in upgraded
     assert upgraded["symbols"] == {}
-    # Xác nhận qua validate_bank_dict v3 nghiêm ngặt
-    assert validate_bank_dict(upgraded, allow_legacy=False) == 3
+    # Xác nhận qua validate_bank_dict nghiêm ngặt
+    assert validate_bank_dict(upgraded, allow_legacy=False) == CURRENT_VERSION
+
+
+def test_migration_v3_to_v4():
+    d = _sample_v2_dict()
+    d["schema_version"] = 3
+    d["symbols"] = {"π": [{"s": [[0.0, 0.0, 5.0, 5.0]], "w": 6.0}]}
+    d["tombstones"] = {"a": 1234567.0}
+    upgraded = migrate_bank_dict(d, from_version=3)
+    assert upgraded["schema_version"] == 4
+    assert upgraded["tombstones"] == {"a": 1234567.0}
+    assert validate_bank_dict(upgraded, allow_legacy=False) == 4
 
 
 def test_migration_v1_to_v3():
@@ -80,10 +91,10 @@ def test_migration_v1_to_v3():
     version = validate_bank_dict(d, allow_legacy=True)
     assert version == 1
     upgraded = migrate_bank_dict(d, from_version=1)
-    assert upgraded["schema_version"] == 3
+    assert upgraded["schema_version"] == CURRENT_VERSION
     assert upgraded["symbols"] == {}
     assert upgraded["line"] == 24.0
-    assert validate_bank_dict(upgraded, allow_legacy=False) == 3
+    assert validate_bank_dict(upgraded, allow_legacy=False) == CURRENT_VERSION
 
 
 def test_merge_bank_dicts_handles_symbols():
@@ -116,7 +127,7 @@ def test_merge_bank_dicts_handles_symbols():
 def test_bank_add_and_drop_symbol(tmp_path):
     bank_path = str(tmp_path / "test_v3_bank.json.gz")
     bank = Bank.create_empty(bank_path)
-    assert bank.d["schema_version"] == 3
+    assert bank.d["schema_version"] == CURRENT_VERSION
     assert bank.symbols == {}
 
     # Thêm ký hiệu
@@ -129,7 +140,7 @@ def test_bank_add_and_drop_symbol(tmp_path):
 
     # Nạp lại từ đĩa
     reloaded = Bank(bank_path)
-    assert reloaded.d["schema_version"] == 3
+    assert reloaded.d["schema_version"] == CURRENT_VERSION
     assert "π" in reloaded.symbols
     assert len(reloaded.symbols["π"]) == 1
 
@@ -137,3 +148,4 @@ def test_bank_add_and_drop_symbol(tmp_path):
     removed_count = reloaded.drop_symbol("π")
     assert removed_count == 1
     assert "π" not in reloaded.symbols
+

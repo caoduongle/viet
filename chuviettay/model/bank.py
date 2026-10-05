@@ -92,6 +92,49 @@ def _tombstone_ts(val: Any) -> float:
     return 0.0
 
 
+class TombstoneDict(dict):
+    """Từ điển Deletion Tombstones hỗ trợ tương thích ngược:
+    - Lưu khoá dưới dạng 'category:label' (hoặc 'label' kế thừa từ v1-v3).
+    - Hỗ trợ 'label' in tombstones (trả về True nếu tồn tại bất kỳ 'cat:label' nào hoặc 'label').
+    - Hỗ trợ tombstones['label'] và tombstones.get('label') truy xuất thông tin tombstone.
+    """
+
+    def __contains__(self, key: object) -> bool:
+        if super().__contains__(key):
+            return True
+        if isinstance(key, str):
+            for k in self.keys():
+                if isinstance(k, str) and (k == key or k.endswith(f":{key}")):
+                    return True
+        return False
+
+    def get(self, key: Any, default: Any = None) -> Any:
+        if super().__contains__(key):
+            return super().get(key, default)
+        if isinstance(key, str):
+            for k, v in self.items():
+                if isinstance(k, str) and (k == key or k.endswith(f":{key}")):
+                    return v
+        return default
+
+    def __getitem__(self, key: Any) -> Any:
+        if super().__contains__(key):
+            return super().__getitem__(key)
+        if isinstance(key, str):
+            for k, v in self.items():
+                if isinstance(k, str) and (k == key or k.endswith(f":{key}")):
+                    return v
+        return super().__getitem__(key)
+
+
+def _is_category_tombstoned(tombstones: dict[str, Any], cat: str, label: str) -> bool:
+    """Kiểm tra xem một nhãn thuộc phân loại `cat` có đang bị đánh dấu xoá hay không."""
+    if f"{cat}:{label}" in tombstones:
+        return True
+    raw_keys = super(TombstoneDict, tombstones).keys() if isinstance(tombstones, TombstoneDict) else tombstones.keys()
+    return label in raw_keys and ":" not in label
+
+
 def merge_bank_dicts(
     base: dict[str, Any],
     disk: dict[str, Any],
@@ -102,7 +145,11 @@ def merge_bank_dicts(
     Tránh lost-update khi nhiều tiến trình cùng ghi, đồng thời bảo vệ deletion tombstones."""
     # 1. Hợp nhất deletion tombstones
     disk_tombstones = dict(disk.get("tombstones", {}))
-    base_tombstones = dict(base.setdefault("tombstones", {}))
+    base_tomb_raw = base.setdefault("tombstones", TombstoneDict())
+    if not isinstance(base_tomb_raw, TombstoneDict):
+        base_tomb_raw = TombstoneDict(base_tomb_raw)
+        base["tombstones"] = base_tomb_raw
+    base_tombstones = dict(base_tomb_raw)
 
     # Chuẩn hoá readded_words sang dict[str, float]
     readd_map: dict[str, float] = {}
@@ -122,7 +169,7 @@ def merge_bank_dicts(
                 base_tombstones[w] = {"deleted_at": now_ts, "generation": base_gen}
 
     # Hợp nhất disk_tombstones và base_tombstones: timestamp xoá mới hơn thì thắng
-    merged_tombstones: dict[str, Any] = {}
+    merged_tombstones: TombstoneDict = TombstoneDict()
     all_tomb_keys = set(disk_tombstones.keys()) | set(base_tombstones.keys())
     for w in all_tomb_keys:
         t_disk = disk_tombstones.get(w)
@@ -148,14 +195,22 @@ def merge_bank_dicts(
                 merged_tombstones.pop(w, None)
 
     # Cập nhật in-place vào base["tombstones"] để bảo toàn identity với self._tombstones
-    base_tomb_dict = base.setdefault("tombstones", {})
+    base_tomb_dict = base.setdefault("tombstones", TombstoneDict())
+    if not isinstance(base_tomb_dict, TombstoneDict):
+        base_tomb_dict = TombstoneDict(base_tomb_dict)
+        base["tombstones"] = base_tomb_dict
     base_tomb_dict.clear()
     base_tomb_dict.update(merged_tombstones)
 
     # Áp dụng tombstone để loại bỏ từ / ký hiệu / chữ số / dấu câu / chữ cái đã bị xoá
-    for w in merged_tombstones:
-        for c_name in ("words", "digits", "punct", "symbols", "letters"):
-            base.get(c_name, {}).pop(w, None)
+    for tomb_key in list(merged_tombstones.keys()):
+        if ":" in tomb_key:
+            cat, lbl = tomb_key.split(":", 1)
+            if cat in ("words", "digits", "punct", "symbols", "letters"):
+                base.get(cat, {}).pop(lbl, None)
+        else:
+            for c_name in ("words", "digits", "punct", "symbols", "letters"):
+                base.get(c_name, {}).pop(tomb_key, None)
 
     # Đồng bộ generation cao hơn giữa base và disk
     disk_gen = int(disk.get("generation", 0))
@@ -167,7 +222,7 @@ def merge_bank_dicts(
         disk_c = disk.get(c_name, {})
         base_c = base.setdefault(c_name, {})
         for label, disk_samples in disk_c.items():
-            if label in merged_tombstones:
+            if _is_category_tombstoned(merged_tombstones, c_name, label):
                 continue
             if label not in base_c:
                 base_c[label] = list(disk_samples)
@@ -178,6 +233,7 @@ def merge_bank_dicts(
                     if sig not in existing_sigs:
                         base_c[label].append(s)
                         existing_sigs.add(sig)
+
 
     # 3. Hợp nhất marks tự dạy nếu có
     disk_marks = disk.get("marks", {})
@@ -213,7 +269,11 @@ class Bank:
         self.tl: dict[str, list[tuple[str, dict]]] = {}
         self._raw_marks: dict[str, list[dict]] = {t: [] for t in TONES}
         self.marks: dict[str, list[dict]] = {t: [] for t in TONES}
-        self._tombstones: dict[str, Any] = self.d.setdefault("tombstones", {})
+        tomb_dict = self.d.setdefault("tombstones", TombstoneDict())
+        if not isinstance(tomb_dict, TombstoneDict):
+            tomb_dict = TombstoneDict(tomb_dict)
+            self.d["tombstones"] = tomb_dict
+        self._tombstones: TombstoneDict = tomb_dict
         for k, v in list(self._tombstones.items()):
             if isinstance(v, (int, float)) and not isinstance(v, bool):
                 self._tombstones[k] = {"deleted_at": float(v), "generation": 0}
@@ -245,7 +305,7 @@ class Bank:
             "words": {}, "digits": {}, "punct": {}, "symbols": {}, "letters": {}, "v": 1,
             "pen": {"tool": "pen", "color": "#000000ff", "width": "1.2", "capStyle": "round"},
             "x0": 78.0, "width": 500.0, "ratio": 6.6,
-            "tombstones": {},
+            "tombstones": TombstoneDict(),
             "generation": 0,
         }
 
@@ -265,7 +325,11 @@ class Bank:
         bank.tl = {}
         bank._raw_marks = {t: [] for t in TONES}
         bank.marks = {t: [] for t in TONES}
-        bank._tombstones = bank.d.setdefault("tombstones", {})
+        tomb_dict = bank.d.setdefault("tombstones", TombstoneDict())
+        if not isinstance(tomb_dict, TombstoneDict):
+            tomb_dict = TombstoneDict(tomb_dict)
+            bank.d["tombstones"] = tomb_dict
+        bank._tombstones = tomb_dict
         bank._deleted_words = set()
         bank._readded_words = {}
         bank._generation = 0
@@ -411,7 +475,11 @@ class Bank:
                         try:
                             disk_d = load_and_validate(self.path)
                             merge_bank_dicts(self.d, disk_d, self._deleted_words, self._readded_words)
-                            self._tombstones = self.d.setdefault("tombstones", {})
+                            tomb_dict = self.d.setdefault("tombstones", TombstoneDict())
+                            if not isinstance(tomb_dict, TombstoneDict):
+                                tomb_dict = TombstoneDict(tomb_dict)
+                                self.d["tombstones"] = tomb_dict
+                            self._tombstones = tomb_dict
                             self._generation = int(self.d.get("generation", 0))
                             self.rebuild()
                         except BankError:
@@ -484,12 +552,22 @@ class Bank:
             T = tone_info(w)[0]
             return strip_tone(w) in self.tl and (not T or bool(self.marks.get(T)))
 
-    def _clear_tombstone(self, label: str) -> None:
+    def _clear_tombstone(self, label: str, category: str | None = None) -> None:
         """Gỡ bỏ tombstone và trạng thái đã xoá khi thêm lại mẫu cho `label`."""
-        if label in self._tombstones or label in self._deleted_words:
-            self._readded_words[label] = time.time()
-        self._deleted_words.discard(label)
-        self._tombstones.pop(label, None)
+        now = time.time()
+        keys = []
+        if category:
+            keys.append(f"{category}:{label}")
+        keys.append(label)
+        raw_keys = super(TombstoneDict, self._tombstones).keys() if isinstance(self._tombstones, TombstoneDict) else self._tombstones.keys()
+        for k in keys:
+            if k in raw_keys or k in self._deleted_words:
+                self._readded_words[k] = now
+            self._deleted_words.discard(k)
+            if isinstance(self._tombstones, TombstoneDict):
+                super(TombstoneDict, self._tombstones).pop(k, None)
+            else:
+                self._tombstones.pop(k, None)
 
     # -------------------------------------------------------------- thêm / xoá mẫu
     def add_sample(self, label: str, rel_strokes: list[Stroke], width: float, dedup: bool = True) -> dict:
@@ -524,7 +602,7 @@ class Bank:
             existing.append(inst)
             self._dirty = True
 
-            self._clear_tombstone(label)
+            self._clear_tombstone(label, category)
             return inst
 
     def add_sample_incremental(self, label: str, rel_strokes: list[Stroke], width: float) -> dict:
@@ -559,27 +637,41 @@ class Bank:
 
             return inst
 
-    def drop(self, word: str) -> int:
-        """Xoá hết mẫu của `word` (từ, chữ số, dấu câu hoặc ký hiệu) khỏi kho, trả về số mẫu đã xoá (0 nếu chưa có).
-        Tự động dọn dẹp các chỉ mục tra cứu trong bộ nhớ (tl, _raw_marks, marks) và ghi nhận tombstone. KHÔNG tự save()."""
+    def drop(self, word: str, category: str | None = None) -> int:
+        """Xoá hết mẫu của `word` (từ, chữ số, dấu câu, ký hiệu hoặc chữ cái) khỏi kho, trả về số mẫu đã xoá (0 nếu chưa có).
+        Tự động dọn dẹp các chỉ mục tra cứu trong bộ nhớ (tl, _raw_marks, marks) và ghi nhận tombstone có phân tách không gian tên. KHÔNG tự save()."""
         with self._lock:
-            target_dict = self.words
-            if word in self.symbols:
-                target_dict = self.symbols
-            elif word in self.digits:
-                target_dict = self.digits
-            elif word in self.punct:
-                target_dict = self.punct
-            elif word in getattr(self, "letters", {}):
-                target_dict = self.letters
-            elif word not in self.words:
-                return 0
+            if category is not None:
+                cat = category
+                target_dict = getattr(self, cat, None)
+                if target_dict is None or word not in target_dict:
+                    return 0
+            else:
+                if word in self.words:
+                    cat = "words"
+                    target_dict = self.words
+                elif word in self.symbols:
+                    cat = "symbols"
+                    target_dict = self.symbols
+                elif word in self.digits:
+                    cat = "digits"
+                    target_dict = self.digits
+                elif word in self.punct:
+                    cat = "punct"
+                    target_dict = self.punct
+                elif word in getattr(self, "letters", {}):
+                    cat = "letters"
+                    target_dict = self.letters
+                else:
+                    return 0
 
             self._mutation_seq += 1
             self._generation += 1
             self.d["generation"] = self._generation
-            self._deleted_words.add(word)
-            self._tombstones[word] = {"deleted_at": time.time(), "generation": self._generation}
+            tomb_key = f"{cat}:{word}"
+            self._deleted_words.add(tomb_key)
+            self._tombstones[tomb_key] = {"deleted_at": time.time(), "generation": self._generation}
+            self._readded_words.pop(tomb_key, None)
             self._readded_words.pop(word, None)
 
             removed_samples = target_dict.pop(word, [])
@@ -587,20 +679,29 @@ class Bank:
             if count > 0:
                 self._dirty = True
 
-            # 1. Dọn dẹp chỉ mục thay thế thân chữ self.tl
-            tk = strip_tone(word)
-            if tk in self.tl:
-                self.tl[tk] = [entry for entry in self.tl[tk] if entry[0] != word]
-                if not self.tl[tk]:
-                    del self.tl[tk]
+            if cat == "words":
+                # 1. Dọn dẹp chỉ mục thay thế thân chữ self.tl
+                tk = strip_tone(word)
+                if tk in self.tl:
+                    self.tl[tk] = [entry for entry in self.tl[tk] if entry[0] != word]
+                    if not self.tl[tk]:
+                        del self.tl[tk]
 
-            # 2. Dọn dẹp các nét dấu thanh gặt được từ word trong self._raw_marks
-            T = tone_info(word)[0]
-            if T and T in self._raw_marks:
-                self._raw_marks[T] = [m for m in self._raw_marks[T] if m.get("_src") != word]
-                self._refresh_tone_marks(T)
+                # 2. Dọn dẹp các nét dấu thanh gặt được từ word trong self._raw_marks
+                T = tone_info(word)[0]
+                if T and T in self._raw_marks:
+                    self._raw_marks[T] = [m for m in self._raw_marks[T] if m.get("_src") != word]
+                    self._refresh_tone_marks(T)
 
             return count
+
+    def drop_word(self, word: str) -> int:
+        """Xoá toàn bộ mẫu của `word` khỏi kho words và ghi nhận tombstone 'words:{word}'."""
+        return self.drop(word, category="words")
+
+    def drop_symbol(self, symbol: str) -> int:
+        """Xoá toàn bộ mẫu của `symbol` khỏi kho symbols và ghi nhận tombstone 'symbols:{symbol}'."""
+        return self.drop(symbol, category="symbols")
 
     def add_symbol_sample(self, symbol: str, rel_strokes: list[Stroke], width: float, dedup: bool = True) -> dict:
         """Thêm MỘT mẫu ký hiệu toán học mới vào kho symbols."""
@@ -619,25 +720,8 @@ class Bank:
             inst = {"w": round(width, 2), "s": rel_strokes, "_sig": sig}
             existing.append(inst)
             self._dirty = True
-            self._clear_tombstone(symbol)
+            self._clear_tombstone(symbol, "symbols")
             return inst
-
-
-    def drop_symbol(self, symbol: str) -> int:
-        """Xoá toàn bộ mẫu của `symbol` khỏi kho symbols và ghi nhận tombstone."""
-        with self._lock:
-            if symbol not in self.symbols:
-                return 0
-            self._mutation_seq += 1
-            self._generation += 1
-            self.d["generation"] = self._generation
-            self._deleted_words.add(symbol)
-            self._tombstones[symbol] = {"deleted_at": time.time(), "generation": self._generation}
-            self._readded_words.pop(symbol, None)
-            removed = self.symbols.pop(symbol, [])
-            if removed:
-                self._dirty = True
-            return len(removed)
 
     def add_letter_sample(
         self,
@@ -670,24 +754,13 @@ class Bank:
             existing.append(inst)
             self._dirty = True
 
-            self._clear_tombstone(letter)
+            self._clear_tombstone(letter, "letters")
             return inst
 
     def drop_letter(self, letter: str) -> int:
-        """Xoá toàn bộ mẫu của một chữ cái khỏi kho letters và ghi nhận tombstone."""
-        with self._lock:
-            if letter not in self.letters:
-                return 0
-            self._mutation_seq += 1
-            self._generation += 1
-            self.d["generation"] = self._generation
-            self._deleted_words.add(letter)
-            self._tombstones[letter] = {"deleted_at": time.time(), "generation": self._generation}
-            self._readded_words.pop(letter, None)
-            removed = self.letters.pop(letter, [])
-            if removed:
-                self._dirty = True
-            return len(removed)
+        """Xoá toàn bộ mẫu của một chữ cái khỏi kho letters và ghi nhận tombstone 'letters:{letter}'."""
+        return self.drop(letter, category="letters")
+
 
     def add_tone_sample(
         self,

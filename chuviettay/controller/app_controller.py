@@ -426,12 +426,12 @@ class AppController:
         letters = getattr(bank, "letters", {})
         return sorted((ch, len(insts)) for ch, insts in letters.items())
 
-    def drop_words(self, words: list[str]) -> DropResult:
+    def drop_words(self, words: list[str], category: str = "words") -> DropResult:
         """Xoá hết mẫu của các từ đã cho, rồi rebuild + lưu MỘT lần."""
         bank = self._require_bank()
         removed: dict[str, int] = {}
         for w in words:
-            removed[w] = removed.get(w, 0) + bank.drop(w)   # trùng từ -> cộng dồn, không ghi đè
+            removed[w] = removed.get(w, 0) + bank.drop(w, category=category)   # trùng từ -> cộng dồn, không ghi đè
         bank.rebuild()
         bank.save()
         _log.info("Xoá từ khỏi kho: %s", removed)
