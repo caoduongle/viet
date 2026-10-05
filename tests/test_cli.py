@@ -109,3 +109,13 @@ def test_verbose_thi_nem_lai_loi_de_thay_traceback(monkeypatch, tiny_bank_path):
     monkeypatch.setattr(AppController, "get_stats", lambda self: 1 / 0)
     with pytest.raises(ZeroDivisionError):
         cli.main(["--bank", tiny_bank_path, "-v", "stats"])
+
+
+def test_d4_cli_no_missing_grid_flag(capsys, tiny_bank_path, tmp_path):
+    """[D4] Kiểm tra cờ --no-missing-grid trong CLI không sinh file _thieu.xopp."""
+    out = str(tmp_path / "cli_no_grid.xopp")
+    rc = cli.main(["--bank", tiny_bank_path, "write", "-t", "zebra quokka", "-o", out, "--no-missing-grid"])
+    assert rc == 0
+    assert os.path.exists(out)
+    assert not os.path.exists(str(tmp_path / "cli_no_grid_thieu.xopp"))
+

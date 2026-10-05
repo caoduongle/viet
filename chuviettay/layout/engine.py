@@ -568,8 +568,9 @@ class DocumentLayoutEngine:
             n_pages=pb.n_pages,
         )
 
-        if all_missing:
-            grid_path = os.path.splitext(out_path)[0] + "_thieu.xopp"
+        if all_missing and self.opts.missing_grid:
+            raw_grid_path = os.path.splitext(out_path)[0] + "_thieu.xopp"
+            grid_path = xopp.resolve_missing_grid_path(raw_grid_path)
             items = sorted(all_missing.items(), key=lambda kv: (-kv[1], kv[0]))
             xopp.make_grid(
                 grid_path,

@@ -332,4 +332,39 @@ def test_write_text_unifies_into_document_pipeline_with_paper_and_background(tin
     assert 'config="r1=14.17"' in raw
 
 
+def test_d4a_missing_grid_false_does_not_create_thieu_file(tiny_bank_path, tmp_path):
+    """[D4a] Khi missing_grid=False, write_text không sinh file _thieu.xopp."""
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+    out = str(tmp_path / "out_d4a.xopp")
+    res = ctl.write_text("zebra quokka", WriteOptions(seed=1, missing_grid=False), out)
+    assert res.missing_grid_path is None
+    assert not os.path.exists(str(tmp_path / "out_d4a_thieu.xopp"))
+
+
+def test_d4b_does_not_overwrite_user_handwriting_in_missing_grid(tiny_bank_path, tmp_path):
+    """[D4b] Khi _thieu.xopp đã có nét vẽ của người dùng, không ghi đè mà ghi ra _thieu_2.xopp."""
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+    out = str(tmp_path / "out_d4b.xopp")
+    res1 = ctl.write_text("zebra quokka", WriteOptions(seed=1), out)
+    grid_1 = res1.missing_grid_path
+    assert grid_1 and os.path.exists(grid_1)
+    # Giả lập người dùng viết nét vào grid_1
+    xml = gzip.decompress(open(grid_1, "rb").read()).decode("utf-8")
+    marker = '<stroke tool="pen" color="#000000ff" width="1.41">60 100 70 90 80 100</stroke>\n'
+    xml = xml.replace("</layer>", marker + "</layer>", 1)
+    with gzip.open(grid_1, "wt", encoding="utf-8") as f:
+        f.write(xml)
+    bytes_before = open(grid_1, "rb").read()
+
+    # Chạy lại write_text
+    res2 = ctl.write_text("zebra quokka", WriteOptions(seed=1, scale=1.1), out)
+    assert res2.missing_grid_path == str(tmp_path / "out_d4b_thieu_2.xopp")
+    assert os.path.exists(res2.missing_grid_path)
+    # File cũ có nét của người dùng còn nguyên
+    assert open(grid_1, "rb").read() == bytes_before
+
+
+
 

@@ -12,6 +12,7 @@ Toàn bộ công thức/hằng số giữ NGUYÊN từ bản gốc (hw_note.py).
 from __future__ import annotations
 
 import gzip
+import os
 import statistics
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -262,6 +263,38 @@ def make_grid(
         o.append(PAGE_CLOSE)
     o.append("</xournal>")
     save_xopp(path, o)
+
+
+def has_user_handwriting(path: str) -> bool:
+    """Kiểm tra file .xopp dạng lưới ô có chứa nét viết tay của người dùng hay không."""
+    if not os.path.exists(path):
+        return False
+    try:
+        root = read_xopp(path)
+    except Exception:
+        return False
+
+    for stroke in root.iter("stroke"):
+        color = stroke.attrib.get("color", "").strip().lower()[:7]
+        if color and color not in HW3_GUIDE_COLORS:
+            return True
+    return False
+
+
+def resolve_missing_grid_path(base_grid_path: str) -> str:
+    """Xác định đường dẫn an toàn cho file lưới ô thiếu mẫu:
+    Nếu base_grid_path đã tồn tại và chứa nét viết tay của người dùng,
+    tìm đường dẫn kế tiếp (_thieu_2.xopp, _thieu_3.xopp...) để không ghi đè."""
+    if not os.path.exists(base_grid_path) or not has_user_handwriting(base_grid_path):
+        return base_grid_path
+
+    root, ext = os.path.splitext(base_grid_path)
+    idx = 2
+    while True:
+        candidate = f"{root}_{idx}{ext}"
+        if not os.path.exists(candidate) or not has_user_handwriting(candidate):
+            return candidate
+        idx += 1
 
 
 STANDALONE_TONE_LABELS = [

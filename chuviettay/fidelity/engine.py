@@ -144,7 +144,8 @@ class FidelityLayoutEngine:
         missing_grid_path = None
         # R5: Tự động tạo file lưới ô từ còn thiếu nếu được yêu cầu
         if missing_tokens > 0 and self.opts.missing_grid:
-            grid_path = os.path.splitext(out_path)[0] + "_thieu.xopp"
+            raw_grid_path = os.path.splitext(out_path)[0] + "_thieu.xopp"
+            grid_path = xopp.resolve_missing_grid_path(raw_grid_path)
             miss_keys = sorted(self.wr.missing)
             samples = {k: self.bank.words[k][0]["s"] for k in miss_keys if k in self.bank.words}
             xopp.make_grid(

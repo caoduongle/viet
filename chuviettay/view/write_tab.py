@@ -97,6 +97,7 @@ class WriteTab(ttk.Frame):
         self.v_spacing = tk.StringVar(value="")
         self.v_mode = tk.StringVar(value="Tự do (Semantic)")
         self.v_assemble = tk.BooleanVar(value=False)
+        self.v_missing_grid = tk.BooleanVar(value=True)
         self.custom_paper_width: float | None = None
         self.custom_paper_height: float | None = None
         self.current_docx_path: str | None = None
@@ -262,6 +263,8 @@ class WriteTab(ttk.Frame):
                         variable=self.v_strict).pack(anchor="w", pady=(6, 0))
         ttk.Checkbutton(opt, text="Ghép từ chữ cái khi thiếu từ nguyên khối",
                         variable=self.v_assemble).pack(anchor="w", pady=(2, 0))
+        ttk.Checkbutton(opt, text="Tự động tạo file lưới ô khi thiếu mẫu (_thieu.xopp)",
+                        variable=self.v_missing_grid).pack(anchor="w", pady=(2, 0))
 
         self._on_mode_changed()
 
@@ -399,6 +402,7 @@ class WriteTab(ttk.Frame):
             background_spacing=bg_spacing,
             background_margin=bg_margin,
             mode=("fidelity" if ("khóa" in self.v_mode.get().lower() or "fidelity" in self.v_mode.get().lower()) else "semantic"),
+            missing_grid=self.v_missing_grid.get(),
             assemble_letters=self.v_assemble.get(),
         )
         opts.validate()
