@@ -293,7 +293,7 @@ Repository đã được rà soát và làm sạch hoàn toàn các blob dữ li
 ## Mở rộng — làm theo công thức
 
 **Thêm một tuỳ chọn cho `write`** (ví dụ `--indent`):
-1. Thêm trường vào `WriteOptions` (`model/composer.py`) và dùng nó trong `compose_document`.
+1. Thêm trường vào `WriteOptions` (`model/composer.py`) và dùng nó trong `DocumentLayoutEngine` (`layout/engine.py`).
 2. CLI: thêm cờ trong `cli.build_parser` và truyền vào `WriteOptions(...)` ở `_cmd_write`.
 3. GUI: thêm ô nhập ở `WriteTab._build_options` và đọc nó ở `WriteTab.read_options`.
 4. Thêm test ở `tests/test_composer.py`.

@@ -1,29 +1,18 @@
-"""
-composer -- ghép MỘT văn bản hoàn chỉnh (nhiều dòng/nhiều trang) thành file .xopp.
+"""composer -- Định nghĩa các hợp đồng dữ liệu cho tuỳ chọn và kết quả kết xuất chữ viết tay.
 
-Đây là phần thuật toán trong hàm cmd_write() của bản gốc (hw_note.py), tách riêng
-PHẦN THUẬT TOÁN (dàn dòng theo bề rộng, chia trang, thêm độ "run tay" ngẫu nhiên) ra
-khỏi PHẦN HIỂN THỊ (in ra màn hình) -- để cả CLI lẫn GUI dùng chung một hàm, mỗi bên tự
-quyết định hiển thị kết quả kiểu gì (in ra terminal, hay hiện trong ô "Kết quả" của
-tab Viết chữ).
-
-Công thức/hằng số giữ NGUYÊN từ bản gốc.
+Chứa các lớp hợp đồng dữ liệu dùng chung giữa Controller, Layout Engine, CLI và GUI:
+- WriteMode: Chế độ kết xuất (semantic / fidelity)
+- WriteOptions: Các tuỳ chọn khổ giấy, cỡ chữ, dãn dòng, nền trang và màu mực
+- WriteResult: Thống kê số dòng, số nét, token thiếu và đường dẫn file kết xuất
+- parse_color: Kiểm tra và chuẩn hoá mã màu hex #RRGGBB / #RRGGBBAA
 """
 from __future__ import annotations
 
 import math
-import os
-import random
 import re
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
-
-from chuviettay.config import MAXH
-from chuviettay.model import xopp
-from chuviettay.model.bank import Bank
-from chuviettay.model.text_utils import Stroke, fmt, place
-from chuviettay.model.writer import Writer
 
 if TYPE_CHECKING:
     from chuviettay.document.page_format import PageFormat
@@ -51,7 +40,7 @@ def parse_color(c: str) -> str:
 @dataclass
 class WriteOptions:
     """Tuỳ chọn khi 'viết' văn bản -- tương ứng các cờ dòng lệnh --scale/--line/...
-    của lệnh `write` bản gốc."""
+    của lệnh `write`."""
     scale: float = 1.0            # nhân cỡ chữ
     line: float | None = None     # khoảng cách dòng (pt); None = lấy mặc định của kho mẫu
     width: float | None = None    # bề rộng dòng (pt); None = lấy mặc định của kho mẫu
@@ -98,41 +87,40 @@ class WriteOptions:
         if not math.isfinite(self.scale) or self.scale <= 0:
             raise ValueError(f"scale phải là số dương hữu hạn, nhận được: {self.scale}")
         if self.line is not None and (not math.isfinite(self.line) or self.line <= 0):
-            raise ValueError(f"line phải là số dương hữu hạn hoặc None, nhận được: {self.line}")
+            raise ValueError(f"line phải là số dương hữu hạn, nhận được: {self.line}")
         if self.width is not None and (not math.isfinite(self.width) or self.width <= 0):
-            raise ValueError(f"width phải là số dương hữu hạn hoặc None, nhận được: {self.width}")
-        if not math.isfinite(self.space) or self.space <= 0:
-            raise ValueError(f"space phải là số dương hữu hạn, nhận được: {self.space}")
+            raise ValueError(f"width phải là số dương hữu hạn, nhận được: {self.width}")
+        if not math.isfinite(self.space) or self.space < 0:
+            raise ValueError(f"space phải là số không âm hữu hạn, nhận được: {self.space}")
         if not math.isfinite(self.jitter) or self.jitter < 0:
             raise ValueError(f"jitter phải là số không âm hữu hạn, nhận được: {self.jitter}")
         if not math.isfinite(self.wscale) or self.wscale <= 0:
             raise ValueError(f"wscale phải là số dương hữu hạn, nhận được: {self.wscale}")
-        if not math.isfinite(self.letter_gap) or self.letter_gap <= 0:
-            raise ValueError(f"letter_gap phải là số dương hữu hạn, nhận được: {self.letter_gap}")
-        if not math.isfinite(self.target_xh) or self.target_xh <= 0:
-            raise ValueError(f"target_xh phải là số dương hữu hạn, nhận được: {self.target_xh}")
-        if not math.isfinite(self.pen_clearance_factor) or self.pen_clearance_factor < 0:
-            raise ValueError(f"pen_clearance_factor phải là số không âm hữu hạn, nhận được: {self.pen_clearance_factor}")
         if self.color is not None:
             self.color = parse_color(self.color)
 
-        # Kiểm tra khổ giấy & hướng giấy
+        # Kiểm tra khổ giấy và hướng giấy
         p = self.paper.lower().strip()
         if p != "custom" and p not in PAPER_SIZES:
-            raise ValueError(f"Khổ giấy không hợp lệ: {self.paper!r}. Chỉ chấp nhận: {', '.join(PAPER_SIZES.keys())}, custom")
+            raise ValueError(f"Khổ giấy không hợp lệ: {self.paper!r}. Chỉ chấp nhận: {', '.join(sorted(PAPER_SIZES.keys()))}, custom")
+
         if p == "custom":
             if self.paper_width is None or not math.isfinite(self.paper_width) or self.paper_width <= 0:
-                raise ValueError(f"paper_width cho khổ giấy custom phải là số dương hữu hạn, nhận được: {self.paper_width}")
+                raise ValueError("paper_width phải là số dương hữu hạn khi chọn khổ giấy custom")
             if self.paper_height is None or not math.isfinite(self.paper_height) or self.paper_height <= 0:
-                raise ValueError(f"paper_height cho khổ giấy custom phải là số dương hữu hạn, nhận được: {self.paper_height}")
+                raise ValueError("paper_height phải là số dương hữu hạn khi chọn khổ giấy custom")
 
         ori = self.orientation.lower().strip()
         if ori not in ("portrait", "landscape"):
             raise ValueError(f"Hướng giấy không hợp lệ: {self.orientation!r}. Chỉ chấp nhận: portrait, landscape")
 
         # Kiểm tra lề trang
-        for m_name, m_val in (("margin_left", self.margin_left), ("margin_right", self.margin_right),
-                              ("margin_top", self.margin_top), ("margin_bottom", self.margin_bottom)):
+        for m_name, m_val in (
+            ("margin_left", self.margin_left),
+            ("margin_right", self.margin_right),
+            ("margin_top", self.margin_top),
+            ("margin_bottom", self.margin_bottom),
+        ):
             if not math.isfinite(m_val) or m_val < 0:
                 raise ValueError(f"{m_name} phải là số không âm hữu hạn, nhận được: {m_val}")
 
@@ -147,6 +135,7 @@ class WriteOptions:
         if self.background_color is not None:
             self.background_color = parse_color(self.background_color)
 
+        # Kiểm tra lề không vượt quá kích thước giấy
         pf = self.resolve_page_format()
         if self.margin_left + self.margin_right >= pf.width:
             raise ValueError(
@@ -194,7 +183,6 @@ class WriteOptions:
         )
 
 
-
 @dataclass
 class WriteResult:
     """Kết quả một lần 'viết' -- CLI/GUI tự quyết định hiển thị thế nào từ dữ liệu này,
@@ -223,141 +211,3 @@ class WriteResult:
     def missing_symbols_sorted(self) -> list[tuple[str, int]]:
         """[(ký hiệu, số lần gặp), ...] gặp nhiều nhất xếp trước, bằng nhau thì theo chữ cái."""
         return sorted(self.missing_symbols.items(), key=lambda kv: (-kv[1], kv[0]))
-
-
-def _missing_grid_path(out_path: str) -> str:
-    return os.path.splitext(out_path)[0] + "_thieu.xopp"
-
-
-def compose_document(bank: Bank, text: str, opts: WriteOptions) -> tuple[list[str], WriteResult]:
-    """[DEPRECATED] Thuật toán kết xuất đơn trang cũ (giữ cho kiểm định tương thích ngược).
-
-    Toàn bộ luồng kết xuất hiện đại sử dụng DocumentLayoutEngine (chuviettay/layout/engine.py).
-    """
-    rnd = random.Random(opts.seed)
-    J = opts.jitter
-    S = opts.scale
-    effective_wscale = opts.wscale
-    if opts.auto_xh:
-        current_xh = getattr(bank, "xh", 7.94) or 7.94
-        if current_xh > 0 and abs(current_xh - opts.target_xh) > 0.05:
-            S = opts.scale * (opts.target_xh / current_xh)
-        base_pen = float(bank.pen.get("width", 1.41)) if bank.pen else 1.41
-        desired_pen = 0.178 * opts.target_xh * (S / (opts.target_xh / current_xh if current_xh > 0 else 1.0))
-        effective_wscale = opts.wscale * (desired_pen / base_pen if base_pen > 0 else 1.0)
-
-    wr = Writer(
-        bank,
-        rnd,
-        J,
-        not opts.strict_case,
-        opts.space,
-        assemble_letters=opts.assemble_letters,
-        letter_gap=opts.letter_gap,
-        pen_clearance_factor=opts.pen_clearance_factor,
-    )
-    line_h = opts.line or bank.d["line"]
-    width = opts.width or bank.d["width"]
-    x0 = bank.d["x0"]
-    gaps = [g for g in bank.d["wgaps"] if 6.0 <= g <= 20.0] or [11.0]
-
-    lines: list[list[tuple[float, list[Stroke], float]]] = []
-    ntok = nmiss = 0
-    for para in text.split("\n"):
-        toks = para.split()
-        if not toks:
-            lines.append([])
-            continue
-        cur, curw = [], 0.0
-        for tok in toks:
-            st, w, miss = wr.token(tok)
-            ntok += 1
-            if miss:
-                nmiss += 1
-                for m in miss:
-                    wr.missing[m] = wr.missing.get(m, 0) + 1
-            w *= S
-            sp = rnd.choice(gaps) * S * opts.space * (1 + rnd.gauss(0, 0.06 * J))
-            if cur and curw + sp + w > width:
-                lines.append(cur)
-                cur, curw = [], 0.0
-            start = curw + (sp if cur else 0.0)
-            cur.append((start, st, w))
-            curw = start + w
-        if cur:
-            lines.append(cur)
-
-    per_page = max(1, int((MAXH - 40) // line_h))
-    pages = [lines[i:i + per_page] for i in range(0, len(lines), per_page)] or [[]]
-    o, nstroke = [xopp.HEAD], 0
-    for pg in pages:
-        o.append(xopp.PAGE_OPEN % (fmt(x0 + width + 20), fmt(max(200.0, 40 + len(pg) * line_h))))
-        for i, ln in enumerate(pg):
-            base = 20 + (i + 1) * line_h
-            slope, amp = rnd.gauss(0, 0.0015 * J), 0.45 * J
-            wl, ph = rnd.uniform(140, 260), rnd.uniform(0, 6.283)
-            xo = x0 + rnd.gauss(0, 1.2 * J)
-            for start, st, w in ln:
-                if not st:
-                    continue
-                s = S * (1 + rnd.gauss(0, 0.02 * J))
-                rot = rnd.gauss(0, 0.010 * J)
-                dy = rnd.gauss(0, 0.35 * J)
-                for pts in place(st, 0.0, 0.0, s, rot):
-                    fin = []
-                    for x, y in pts:
-                        X = start + x
-                        fin.append((xo + X, base + dy + y + slope * X + amp * math.sin(6.283 * X / wl + ph)))
-                    o.append(xopp.stroke_xml(fin, bank.pen, opts.color, effective_wscale * (1 + rnd.gauss(0, 0.02 * J))))
-                    nstroke += 1
-        o.append(xopp.PAGE_CLOSE)
-    o.append("</xournal>")
-
-    from chuviettay.model.text_utils import missing_letters_ranked
-    missing_lets = (
-        missing_letters_ranked(
-            list(wr.missing.keys()),
-            getattr(bank, "letters", {}),
-            getattr(bank, "marks", {}),
-            strict_case=opts.strict_case,
-            bank_digits=getattr(bank, "digits", {}),
-            bank_punct=getattr(bank, "punct", {}),
-            bank_symbols=getattr(bank, "symbols", {}),
-            bank_words=getattr(bank, "words", {}),
-        )
-        if wr.missing
-        else []
-    )
-
-    result = WriteResult(
-        out_path="", n_lines=len(lines), n_strokes=nstroke,
-        n_tokens=ntok, n_missing_tokens=nmiss, missing=dict(wr.missing),
-        missing_letters=missing_lets,
-        assembled_words=list(wr.assembled),
-    )
-    return o, result
-
-
-def write_document(bank: Bank, text: str, opts: WriteOptions, out_path: str,
-                    make_missing_grid: bool = True) -> WriteResult:
-    """[DEPRECATED] Ghi file theo thuật toán cũ compose_document().
-
-    Dùng riêng cho kiểm định đối sánh (golden master). Mọi caller mới sử dụng AppController.write_text()
-    hoặc AppController.write_document().
-    """
-    parts, result = compose_document(bank, text, opts)
-    xopp.save_xopp(out_path, parts)
-    result.out_path = out_path
-
-    if make_missing_grid and result.missing:
-        grid_path = _missing_grid_path(out_path)
-        items = result.missing_sorted()
-        xopp.make_grid(
-            grid_path, [k for k, _ in items], bank,
-            "Từ CHƯA có mẫu: viết mỗi từ vào ô, giữa hai đường kẻ, rồi Ctrl+S và chạy: python hw_note.py learn %s"
-            % os.path.basename(grid_path),
-            grid_version="hw2",
-        )
-        result.missing_grid_path = grid_path
-
-    return result

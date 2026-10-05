@@ -11,7 +11,7 @@ import random
 import pytest
 
 from chuviettay.model.bank import Bank
-from chuviettay.model.composer import WriteOptions, compose_document
+from chuviettay.model.composer import WriteOptions
 from chuviettay.model.text_utils import (
     bbox,
     classify_left_contour,
@@ -162,7 +162,11 @@ def test_i_dot_suppression_on_upper_tone(tmp_path):
 
 
 def test_auto_xh_and_dynamic_stroke_scaling(tmp_path):
+    import gzip
+    from chuviettay.controller.app_controller import AppController
+
     bank = _create_quality_test_bank(tmp_path)
+    bank.save()
     opts = WriteOptions(
         assemble_letters=True,
         scale=2.0,
@@ -171,8 +175,11 @@ def test_auto_xh_and_dynamic_stroke_scaling(tmp_path):
         letter_gap=1.0,
         pen_clearance_factor=0.8,
     )
-    parts, res = compose_document(bank, "pipeline", opts)
+    ctl = AppController(bank.path)
+    ctl.load_bank()
+    out = str(tmp_path / "pipeline.xopp")
+    res = ctl.write_text("pipeline", opts, out)
     assert res.n_strokes > 0
     # Kiểm tra stroke xml sinh ra có wscale được bù trừ phù hợp
-    xml_content = "".join(parts)
+    xml_content = gzip.decompress(open(out, "rb").read()).decode("utf-8")
     assert 'width="' in xml_content
