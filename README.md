@@ -97,7 +97,7 @@ Khi bật cờ `--assemble`, các từ chưa có mẫu nguyên từ trong kho s�
 ```bash
 python3 hw_note.py grid -o luoi_ky_tu.xopp
 ```
-Tờ lưới `hw3` gồm 4 dòng kẻ mốc (chân chữ baseline, x-height, ascender, descender) kèm vạch lề trái/phải và hướng dẫn viết tay chi tiết bằng tiếng Việt. Ngoài bảng chữ cái và chữ số, lưới bao gồm 14 cụm phụ âm/nguyên âm đôi tiếng Việt thông dụng (`ng, nh, ch, tr, ph, th, kh, gi, qu, ươ, ưa, uy, ay, oa`) giúp nét nối giữa các chữ cái mượt mà hơn. Nạp tờ lưới đã viết bằng lệnh `python3 hw_note.py learn luoi_ky_tu.xopp`.
+Tờ lưới `hw3` gồm 4 dòng kẻ mốc (chân chữ baseline, x-height, ascender, descender) kèm vạch lề trái/phải và hướng dẫn viết tay chi tiết bằng tiếng Việt. Lưới tạo 77 ô (29 chữ cái tiếng Việt × hoa/thường = 58 ô, 14 cụm phụ âm/nguyên âm đôi thông dụng `ng, nh, ch, tr, ph, th, kh, gi, qu, ươ, ưa, uy, ay, oa`, và 5 ô dấu thanh rời) và hoàn toàn không chứa chữ số. Chữ số và dấu câu được dạy thông qua "bộ tối thiểu" (`model/seed_words.MINIMAL_DIGITS`, `MINIMAL_PUNCT` qua nút ở tab Dạy hoặc lệnh `seed`). Nạp tờ lưới đã viết bằng lệnh `python3 hw_note.py learn luoi_ky_tu.xopp`.
 
 ### Di trú kho mẫu ký tự (`scripts/migrate_letter_bank.py`)
 

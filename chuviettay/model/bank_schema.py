@@ -1,8 +1,8 @@
 """Kiểm tra cấu trúc (schema validation) và di trú phiên bản (migration) cho kho mẫu chữ viết tay.
 
 Đặc tả định dạng kho mẫu (gzip-compressed JSON):
-- Phiên bản hiện tại: schema_version = 2
-- Bản cũ (v1): không có trường schema_version (được coi là v1 và tự nâng cấp trong bộ nhớ).
+- Phiên bản hiện tại: schema_version = 4 (hỗ trợ chữ cái ghép words/letters, dấu thanh rời marks, ký hiệu toán học symbols và tombstones đồng bộ)
+- Bản cũ (v1, v2, v3): tự động phát hiện và nâng cấp di trú an toàn trong bộ nhớ lên phiên bản hiện tại (CURRENT_VERSION = 4).
 """
 from __future__ import annotations
 

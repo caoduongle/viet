@@ -18,7 +18,8 @@ import sys
 # Cho phép chạy trực tiếp script từ mọi thư mục
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from chuviettay.config import NANG
+from chuviettay.config import NANG, TONES
+from chuviettay.model.bank_schema import CURRENT_VERSION
 from chuviettay.model.text_utils import tone_info
 
 
@@ -104,7 +105,7 @@ def generate_synthetic_bank() -> dict:
         punct[p_char] = [make_sample(4.0, st)]
 
     return {
-        "schema_version": 2,
+        "schema_version": CURRENT_VERSION,
         "xh": 7.0,
         "wgaps": [11.0],
         "dgaps": [3.5],
@@ -117,6 +118,9 @@ def generate_synthetic_bank() -> dict:
         "words": words,
         "digits": digits,
         "punct": punct,
+        "symbols": {},
+        "letters": {},
+        "marks": {t: [] for t in TONES},
     }
 
 

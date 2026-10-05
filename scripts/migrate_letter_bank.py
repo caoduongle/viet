@@ -15,7 +15,7 @@ import statistics
 from typing import Any
 
 from chuviettay.config import NANG, TONES
-from chuviettay.model.bank_schema import validate_bank_dict
+from chuviettay.model.bank_schema import CURRENT_VERSION, validate_bank_dict
 from chuviettay.model.file_lock import FileLock
 from chuviettay.model.text_utils import (
     Stroke,
@@ -128,6 +128,7 @@ def migrate_bank_dict_letters(
     scale = target_xh / raw_xh
     letters = out.setdefault("letters", {})
     marks = out.setdefault("marks", {t: [] for t in TONES})
+    out.setdefault("symbols", {})
     for t in TONES:
         if t not in marks:
             marks[t] = []
@@ -178,6 +179,7 @@ def migrate_bank_dict_letters(
         migrated_count += 1
 
     out["xh"] = round(target_xh, 2)
+    out["schema_version"] = CURRENT_VERSION
 
     return out
 
@@ -198,7 +200,7 @@ def migrate_bank_file(
         d = json.load(gf)
 
     migrated_d = migrate_bank_dict_letters(d, target_xh=target_xh)
-    validate_bank_dict(migrated_d, context=str(out_p), allow_legacy=True)
+    validate_bank_dict(migrated_d, context=str(out_p), allow_legacy=False)
 
     out_p.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = out_p.with_suffix(out_p.suffix + ".tmp")

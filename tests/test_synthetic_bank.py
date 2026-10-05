@@ -48,3 +48,11 @@ def test_synthetic_bank_co_tu_moc_calibration():
     b = Bank(SYNTHETIC_PATH)
     assert "xin" in b.words
     assert len(b.words["xin"]) >= 5
+
+
+def test_generate_synthetic_bank_schema_version_v4_strict():
+    from scripts.gen_synthetic_bank import generate_synthetic_bank
+
+    d = generate_synthetic_bank()
+    assert d.get("schema_version") == CURRENT_VERSION
+    assert validate_bank_dict(d, allow_legacy=False) == CURRENT_VERSION

@@ -252,3 +252,11 @@ def test_real_world_chu_cua_ban_loads_cleanly():
         d = load_and_validate("chu_cua_ban.json.gz")
         assert len(d["words"]) > 0
         assert len(d["punct"]) > 0
+
+
+def test_bank_schema_docstring_matches_current_version():
+    import chuviettay.model.bank_schema as bs
+
+    doc = bs.__doc__ or ""
+    assert "schema_version = 2" not in doc, "Docstring vẫn tham chiếu schema_version = 2 lỗi thời"
+    assert f"schema_version = {bs.CURRENT_VERSION}" in doc or f"CURRENT_VERSION = {bs.CURRENT_VERSION}" in doc

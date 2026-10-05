@@ -132,3 +132,25 @@ def test_migrate_bank_dict_preserves_and_normalizes(tmp_path):
     assert "b" in b.letters
     assert b.marks[sac_tone]
     assert b.marks[nang_tone]
+
+
+def test_migrate_schema_version_v4_and_strict_validation(tmp_path):
+    from chuviettay.model.bank_schema import CURRENT_VERSION
+    from scripts.migrate_letter_bank import migrate_bank_file
+
+    in_dict = _sample_v3_with_letters()
+    migrated = migrate_bank_dict_letters(in_dict)
+    assert migrated.get("schema_version") == CURRENT_VERSION
+    # Kiểm tra kiểm định nghiêm ngặt không cho phép legacy
+    assert validate_bank_dict(migrated, allow_legacy=False) == CURRENT_VERSION
+
+    # Kiểm tra qua migrate_bank_file
+    in_file = tmp_path / "in_bank.json.gz"
+    out_file = tmp_path / "out_bank.json.gz"
+    with gzip.open(in_file, "wt", encoding="utf-8") as gf:
+        json.dump(in_dict, gf)
+    migrate_bank_file(in_file, out_file)
+    with gzip.open(out_file, "rt", encoding="utf-8") as gf:
+        out_dict = json.load(gf)
+    assert out_dict.get("schema_version") == CURRENT_VERSION
+    assert validate_bank_dict(out_dict, allow_legacy=False) == CURRENT_VERSION
