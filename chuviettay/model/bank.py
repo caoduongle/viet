@@ -24,6 +24,7 @@ import logging
 import os
 import sys
 import tempfile
+import threading
 import time
 from typing import Any
 
@@ -227,6 +228,8 @@ class Bank:
             self._last_synced_size = st.st_size
         except OSError:
             pass
+        self._lock = threading.RLock()
+        self._mutation_seq: int = 0
         self._dirty: bool = False
         self.rebuild()
         _log.debug("Đã mở kho mẫu %s (%d từ, %d ký hiệu, %d chữ cái)", path, len(self.words), len(self.symbols), len(self.letters))
@@ -268,6 +271,8 @@ class Bank:
         bank._generation = 0
         bank._last_synced_mtime_ns = None
         bank._last_synced_size = None
+        bank._lock = threading.RLock()
+        bank._mutation_seq = 0
         bank._dirty = False
         bank.rebuild()
         bank.save()
@@ -293,23 +298,24 @@ class Bank:
           thanh đã "gặt" (harvest) được từ những từ đã học, dùng để GHÉP vào thân chữ
           khi thay thế ở trên.
         Gọi lại sau khi thêm/xoá mẫu."""
-        self.tl = {}
-        for k, insts in self.words.items():
-            tk = strip_tone(k)
-            for inst in insts:
-                if inst.get("T", "") == "" or inst.get("ti", -1) >= 0:
-                    self.tl.setdefault(tk, []).append((k, inst))
-        self._raw_marks = {t: [] for t in TONES}
-        standalone_marks = self.d.get("marks", {})
-        for t in TONES:
-            for m in standalone_marks.get(t, []):
-                self._raw_marks[t].append(dict(m))
-        for k, insts in self.words.items():
-            for inst in insts:
-                self._harvest(k, inst)
-        self.marks = {t: [] for t in TONES}
-        for t in TONES:
-            self._refresh_tone_marks(t)
+        with self._lock:
+            self.tl = {}
+            for k, insts in self.words.items():
+                tk = strip_tone(k)
+                for inst in insts:
+                    if inst.get("T", "") == "" or inst.get("ti", -1) >= 0:
+                        self.tl.setdefault(tk, []).append((k, inst))
+            self._raw_marks = {t: [] for t in TONES}
+            standalone_marks = self.d.get("marks", {})
+            for t in TONES:
+                for m in standalone_marks.get(t, []):
+                    self._raw_marks[t].append(dict(m))
+            for k, insts in self.words.items():
+                for inst in insts:
+                    self._harvest(k, inst)
+            self.marks = {t: [] for t in TONES}
+            for t in TONES:
+                self._refresh_tone_marks(t)
 
     def _harvest(self, key: str, inst: dict) -> dict | None:
         """Tách riêng nét dấu thanh ra khỏi một mẫu đã học (nếu mẫu đó có xác định
@@ -355,15 +361,19 @@ class Bank:
     @property
     def is_dirty(self) -> bool:
         """Kiểm tra kho mẫu có thay đổi chưa được ghi xuống đĩa hay không."""
-        return self._dirty
+        with self._lock:
+            return self._dirty
 
     def mark_dirty(self) -> None:
         """Đánh dấu kho mẫu đã có thay đổi mới trong bộ nhớ."""
-        self._dirty = True
+        with self._lock:
+            self._dirty = True
 
     def flush(self, force_overwrite: bool = False) -> None:
         """Ép ghi các thay đổi dơ (dirty) xuống đĩa nếu có."""
-        if self._dirty:
+        with self._lock:
+            dirty = self._dirty
+        if dirty:
             self.save(force_overwrite=force_overwrite)
 
     # -------------------------------------------------------------- đọc/ghi
@@ -379,44 +389,50 @@ class Bank:
         6. fsync thư mục cha trên POSIX."""
         lock_path = self.path + ".lock"
         with FileLock(lock_path, timeout=10.0):
-            # Nếu file đã tồn tại trên đĩa và không force_overwrite, kiểm tra xem có bị tiến trình khác sửa đổi không
-            needs_merge = not force_overwrite
-            if force_overwrite:
-                _log.warning("force_overwrite=True: Ghi đè trực tiếp kho mẫu xuống đĩa bỏ qua kiểm tra hợp nhất (%s)", self.path)
-            elif os.path.exists(self.path) and os.path.getsize(self.path) > 0:
-                try:
-                    st = os.stat(self.path)
-                    if (
-                        self._last_synced_mtime_ns is not None
-                        and self._last_synced_size is not None
-                        and st.st_mtime_ns == self._last_synced_mtime_ns
-                        and st.st_size == self._last_synced_size
-                    ):
-                        needs_merge = False
-                except OSError:
-                    needs_merge = True
-
-                if needs_merge:
+            with self._lock:
+                # Nếu file đã tồn tại trên đĩa và không force_overwrite, kiểm tra xem có bị tiến trình khác sửa đổi không
+                needs_merge = not force_overwrite
+                if force_overwrite:
+                    _log.warning("force_overwrite=True: Ghi đè trực tiếp kho mẫu xuống đĩa bỏ qua kiểm tra hợp nhất (%s)", self.path)
+                elif os.path.exists(self.path) and os.path.getsize(self.path) > 0:
                     try:
-                        disk_d = load_and_validate(self.path)
-                        merge_bank_dicts(self.d, disk_d, self._deleted_words, self._readded_words)
-                        self._tombstones = self.d.setdefault("tombstones", {})
-                        self._generation = int(self.d.get("generation", 0))
-                        self.rebuild()
-                    except BankError:
-                        _log.error("Không thể đọc/hợp nhất file trên đĩa (%s); dừng ghi để bảo vệ file gốc.", self.path)
-                        raise
-                    except (OSError, ValueError, KeyError) as e:
-                        _log.error("Lỗi khi đọc file trên đĩa (%s): %s; dừng ghi để bảo vệ file gốc.", self.path, e)
-                        raise BankCorruptedError(f"Không thể đọc/hợp nhất file trên đĩa ({self.path}): {e}") from e
+                        st = os.stat(self.path)
+                        if (
+                            self._last_synced_mtime_ns is not None
+                            and self._last_synced_size is not None
+                            and st.st_mtime_ns == self._last_synced_mtime_ns
+                            and st.st_size == self._last_synced_size
+                        ):
+                            needs_merge = False
+                    except OSError:
+                        needs_merge = True
 
-            self.d["schema_version"] = CURRENT_VERSION
+                    if needs_merge:
+                        try:
+                            disk_d = load_and_validate(self.path)
+                            merge_bank_dicts(self.d, disk_d, self._deleted_words, self._readded_words)
+                            self._tombstones = self.d.setdefault("tombstones", {})
+                            self._generation = int(self.d.get("generation", 0))
+                            self.rebuild()
+                        except BankError:
+                            _log.error("Không thể đọc/hợp nhất file trên đĩa (%s); dừng ghi để bảo vệ file gốc.", self.path)
+                            raise
+                        except (OSError, ValueError, KeyError) as e:
+                            _log.error("Lỗi khi đọc file trên đĩa (%s): %s; dừng ghi để bảo vệ file gốc.", self.path, e)
+                            raise BankCorruptedError(f"Không thể đọc/hợp nhất file trên đĩa ({self.path}): {e}") from e
+
+                self.d["schema_version"] = CURRENT_VERSION
+                seq_at_snapshot = self._mutation_seq
+                snapshot_deleted_words = set(self._deleted_words)
+                snapshot_readded_words = dict(self._readded_words)
+                payload = json.dumps(self.d, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
             parent_dir = os.path.dirname(self.path) or "."
             fd, tmp = tempfile.mkstemp(dir=parent_dir, prefix=".bank_", suffix=".tmp")
             try:
                 with os.fdopen(fd, "wb") as raw_f:
-                    with gzip.open(raw_f, "wt", encoding="utf-8", compresslevel=1) as gz_f:
-                        json.dump(self.d, gz_f, ensure_ascii=False, separators=(",", ":"))
+                    with gzip.open(raw_f, "wb", compresslevel=1) as gz_f:
+                        gz_f.write(payload)
                     raw_f.flush()
                     os.fsync(raw_f.fileno())
 
@@ -432,16 +448,24 @@ class Bank:
                     except OSError:
                         pass
 
-                try:
-                    st = os.stat(self.path)
-                    self._last_synced_mtime_ns = st.st_mtime_ns
-                    self._last_synced_size = st.st_size
-                except OSError:
-                    self._last_synced_mtime_ns = None
-                    self._last_synced_size = None
-                self._deleted_words.clear()
-                self._readded_words.clear()
-                self._dirty = False
+                with self._lock:
+                    try:
+                        st = os.stat(self.path)
+                        self._last_synced_mtime_ns = st.st_mtime_ns
+                        self._last_synced_size = st.st_size
+                    except OSError:
+                        self._last_synced_mtime_ns = None
+                        self._last_synced_size = None
+
+                    if self._mutation_seq == seq_at_snapshot:
+                        self._deleted_words.clear()
+                        self._readded_words.clear()
+                        self._dirty = False
+                    else:
+                        self._deleted_words.difference_update(snapshot_deleted_words)
+                        for w in snapshot_readded_words:
+                            if self._readded_words.get(w) == snapshot_readded_words[w]:
+                                self._readded_words.pop(w, None)
             except BaseException:
                 try:
                     os.remove(tmp)
@@ -454,10 +478,11 @@ class Bank:
     def can(self, w: str) -> bool:
         """Có đủ mẫu để viết được từ/token `w` không (khớp thẳng, hoặc ghép được từ
         phần thân + dấu thanh rời)?"""
-        if w in self.words or w in self.digits or w in self.punct or w in self.symbols:
-            return True
-        T = tone_info(w)[0]
-        return strip_tone(w) in self.tl and (not T or bool(self.marks.get(T)))
+        with self._lock:
+            if w in self.words or w in self.digits or w in self.punct or w in self.symbols:
+                return True
+            T = tone_info(w)[0]
+            return strip_tone(w) in self.tl and (not T or bool(self.marks.get(T)))
 
     def _clear_tombstone(self, label: str) -> None:
         """Gỡ bỏ tombstone và trạng thái đã xoá khi thêm lại mẫu cho `label`."""
@@ -470,129 +495,138 @@ class Bank:
     def add_sample(self, label: str, rel_strokes: list[Stroke], width: float, dedup: bool = True) -> dict:
         """Thêm MỘT mẫu mới cho `label`. `rel_strokes` phải đã ở toạ độ TƯƠNG ĐỐI theo
         đơn vị kho mẫu (gốc = chân chữ ở x trái nhất). Tự động phân loại vào words, digits, punct hoặc symbols."""
-        category = classify_token(label, set(self.symbols.keys()))
-        target_dict = self.words
-        if category == "digits":
-            target_dict = self.digits
-        elif category == "punct":
-            target_dict = self.punct
-        elif category == "symbols":
-            target_dict = self.symbols
+        with self._lock:
+            self._mutation_seq += 1
+            category = classify_token(label, set(self.symbols.keys()))
+            target_dict = self.words
+            if category == "digits":
+                target_dict = self.digits
+            elif category == "punct":
+                target_dict = self.punct
+            elif category == "symbols":
+                target_dict = self.symbols
 
-        # Khử trùng mẫu nét trùng lặp (T020)
-        sig = sample_signature(rel_strokes)
-        existing = target_dict.setdefault(label, [])
-        if dedup:
-            for ex in existing:
-                ex_sig = ex.get("_sig")
-                if ex_sig is None:
-                    ex_sig = sample_signature(ex.get("s", []))
-                    ex["_sig"] = ex_sig
-                if ex_sig == sig:
-                    return ex
+            # Khử trùng mẫu nét trùng lặp (T020)
+            sig = sample_signature(rel_strokes)
+            existing = target_dict.setdefault(label, [])
+            if dedup:
+                for ex in existing:
+                    ex_sig = ex.get("_sig")
+                    if ex_sig is None:
+                        ex_sig = sample_signature(ex.get("s", []))
+                        ex["_sig"] = ex_sig
+                    if ex_sig == sig:
+                        return ex
 
-        T, vi, _, _ = tone_info(label) if category == "words" else ("", -1, "", "")
-        ti = find_tone(rel_strokes, label, self.xh) if (T and " " not in label) else -1
-        inst = {"w": round(width, 2), "s": rel_strokes, "T": T, "vi": vi, "ti": ti, "_sig": sig}
-        existing.append(inst)
-        self._dirty = True
+            T, vi, _, _ = tone_info(label) if category == "words" else ("", -1, "", "")
+            ti = find_tone(rel_strokes, label, self.xh) if (T and " " not in label) else -1
+            inst = {"w": round(width, 2), "s": rel_strokes, "T": T, "vi": vi, "ti": ti, "_sig": sig}
+            existing.append(inst)
+            self._dirty = True
 
-        self._clear_tombstone(label)
-        return inst
+            self._clear_tombstone(label)
+            return inst
 
     def add_sample_incremental(self, label: str, rel_strokes: list[Stroke], width: float) -> dict:
         """Thêm MỘT mẫu mới và cập nhật chỉ mục tra cứu (tl, marks) theo cách tăng dần (incremental),
         bảo toàn toàn bộ dấu thanh thô và đảm bảo marks luôn khớp chính xác với rebuild()."""
-        category = classify_token(label, set(self.symbols.keys()))
-        target_dict = self.words
-        if category == "digits":
-            target_dict = self.digits
-        elif category == "punct":
-            target_dict = self.punct
-        elif category == "symbols":
-            target_dict = self.symbols
-        existing = target_dict.get(label, [])
-        count_before = len(existing)
+        with self._lock:
+            category = classify_token(label, set(self.symbols.keys()))
+            target_dict = self.words
+            if category == "digits":
+                target_dict = self.digits
+            elif category == "punct":
+                target_dict = self.punct
+            elif category == "symbols":
+                target_dict = self.symbols
+            existing = target_dict.get(label, [])
+            count_before = len(existing)
 
-        inst = self.add_sample(label, rel_strokes, width)
-        if len(target_dict.get(label, [])) == count_before:
+            inst = self.add_sample(label, rel_strokes, width)
+            if len(target_dict.get(label, [])) == count_before:
+                return inst
+
+            if category == "words":
+                tk = strip_tone(label)
+                if inst.get("T", "") == "" or inst.get("ti", -1) >= 0:
+                    self.tl.setdefault(tk, []).append((label, inst))
+
+                T = inst.get("T", "")
+                if T and T in self._raw_marks:
+                    mark = self._harvest(label, inst)
+                    if mark is not None:
+                        self._refresh_tone_marks(T)
+
             return inst
-
-        if category == "words":
-            tk = strip_tone(label)
-            if inst.get("T", "") == "" or inst.get("ti", -1) >= 0:
-                self.tl.setdefault(tk, []).append((label, inst))
-
-            T = inst.get("T", "")
-            if T and T in self._raw_marks:
-                mark = self._harvest(label, inst)
-                if mark is not None:
-                    self._refresh_tone_marks(T)
-
-        return inst
 
     def drop(self, word: str) -> int:
         """Xoá hết mẫu của `word` (từ, chữ số, dấu câu hoặc ký hiệu) khỏi kho, trả về số mẫu đã xoá (0 nếu chưa có).
         Tự động dọn dẹp các chỉ mục tra cứu trong bộ nhớ (tl, _raw_marks, marks) và ghi nhận tombstone. KHÔNG tự save()."""
-        target_dict = self.words
-        if word in self.symbols:
-            target_dict = self.symbols
-        elif word in self.digits:
-            target_dict = self.digits
-        elif word in self.punct:
-            target_dict = self.punct
-        elif word in getattr(self, "letters", {}):
-            target_dict = self.letters
-        elif word not in self.words:
-            return 0
+        with self._lock:
+            target_dict = self.words
+            if word in self.symbols:
+                target_dict = self.symbols
+            elif word in self.digits:
+                target_dict = self.digits
+            elif word in self.punct:
+                target_dict = self.punct
+            elif word in getattr(self, "letters", {}):
+                target_dict = self.letters
+            elif word not in self.words:
+                return 0
 
-        self._generation += 1
-        self.d["generation"] = self._generation
-        self._deleted_words.add(word)
-        self._tombstones[word] = {"deleted_at": time.time(), "generation": self._generation}
-        self._readded_words.pop(word, None)
+            self._mutation_seq += 1
+            self._generation += 1
+            self.d["generation"] = self._generation
+            self._deleted_words.add(word)
+            self._tombstones[word] = {"deleted_at": time.time(), "generation": self._generation}
+            self._readded_words.pop(word, None)
 
-        removed_samples = target_dict.pop(word, [])
-        count = len(removed_samples)
-        if count > 0:
-            self._dirty = True
+            removed_samples = target_dict.pop(word, [])
+            count = len(removed_samples)
+            if count > 0:
+                self._dirty = True
 
-        # 1. Dọn dẹp chỉ mục thay thế thân chữ self.tl
-        tk = strip_tone(word)
-        if tk in self.tl:
-            self.tl[tk] = [entry for entry in self.tl[tk] if entry[0] != word]
-            if not self.tl[tk]:
-                del self.tl[tk]
+            # 1. Dọn dẹp chỉ mục thay thế thân chữ self.tl
+            tk = strip_tone(word)
+            if tk in self.tl:
+                self.tl[tk] = [entry for entry in self.tl[tk] if entry[0] != word]
+                if not self.tl[tk]:
+                    del self.tl[tk]
 
-        # 2. Dọn dẹp các nét dấu thanh gặt được từ word trong self._raw_marks
-        T = tone_info(word)[0]
-        if T and T in self._raw_marks:
-            self._raw_marks[T] = [m for m in self._raw_marks[T] if m.get("_src") != word]
-            self._refresh_tone_marks(T)
+            # 2. Dọn dẹp các nét dấu thanh gặt được từ word trong self._raw_marks
+            T = tone_info(word)[0]
+            if T and T in self._raw_marks:
+                self._raw_marks[T] = [m for m in self._raw_marks[T] if m.get("_src") != word]
+                self._refresh_tone_marks(T)
 
-        return count
+            return count
 
     def add_symbol_sample(self, symbol: str, rel_strokes: list[Stroke], width: float) -> dict:
         """Thêm MỘT mẫu ký hiệu toán học mới vào kho symbols."""
-        inst = {"w": round(width, 2), "s": rel_strokes}
-        self.symbols.setdefault(symbol, []).append(inst)
-        self._dirty = True
-        self._clear_tombstone(symbol)
-        return inst
+        with self._lock:
+            self._mutation_seq += 1
+            inst = {"w": round(width, 2), "s": rel_strokes}
+            self.symbols.setdefault(symbol, []).append(inst)
+            self._dirty = True
+            self._clear_tombstone(symbol)
+            return inst
 
     def drop_symbol(self, symbol: str) -> int:
         """Xoá toàn bộ mẫu của `symbol` khỏi kho symbols và ghi nhận tombstone."""
-        if symbol not in self.symbols:
-            return 0
-        self._generation += 1
-        self.d["generation"] = self._generation
-        self._deleted_words.add(symbol)
-        self._tombstones[symbol] = {"deleted_at": time.time(), "generation": self._generation}
-        self._readded_words.pop(symbol, None)
-        removed = self.symbols.pop(symbol, [])
-        if removed:
-            self._dirty = True
-        return len(removed)
+        with self._lock:
+            if symbol not in self.symbols:
+                return 0
+            self._mutation_seq += 1
+            self._generation += 1
+            self.d["generation"] = self._generation
+            self._deleted_words.add(symbol)
+            self._tombstones[symbol] = {"deleted_at": time.time(), "generation": self._generation}
+            self._readded_words.pop(symbol, None)
+            removed = self.symbols.pop(symbol, [])
+            if removed:
+                self._dirty = True
+            return len(removed)
 
     def add_letter_sample(
         self,
@@ -604,41 +638,45 @@ class Bank:
         rsb: float | None = None,
     ) -> dict:
         """Thêm MỘT mẫu chữ cái mới vào self.letters."""
-        sig = sample_signature(rel_strokes)
-        existing = self.letters.setdefault(letter, [])
-        if dedup:
-            for ex in existing:
-                ex_sig = ex.get("_sig")
-                if ex_sig is None:
-                    ex_sig = sample_signature(ex.get("s", []))
-                    ex["_sig"] = ex_sig
-                if ex_sig == sig:
-                    return ex
-        inst: dict[str, Any] = {"w": round(width, 2), "s": rel_strokes, "_sig": sig}
-        if lsb is not None:
-            inst["lsb"] = round(lsb, 2)
-        if rsb is not None:
-            inst["rsb"] = round(rsb, 2)
-        inst["adv"] = round(width + (inst.get("lsb") or 0.0) + (inst.get("rsb") or 0.0), 2)
-        existing.append(inst)
-        self._dirty = True
+        with self._lock:
+            self._mutation_seq += 1
+            sig = sample_signature(rel_strokes)
+            existing = self.letters.setdefault(letter, [])
+            if dedup:
+                for ex in existing:
+                    ex_sig = ex.get("_sig")
+                    if ex_sig is None:
+                        ex_sig = sample_signature(ex.get("s", []))
+                        ex["_sig"] = ex_sig
+                    if ex_sig == sig:
+                        return ex
+            inst: dict[str, Any] = {"w": round(width, 2), "s": rel_strokes, "_sig": sig}
+            if lsb is not None:
+                inst["lsb"] = round(lsb, 2)
+            if rsb is not None:
+                inst["rsb"] = round(rsb, 2)
+            inst["adv"] = round(width + (inst.get("lsb") or 0.0) + (inst.get("rsb") or 0.0), 2)
+            existing.append(inst)
+            self._dirty = True
 
-        self._clear_tombstone(letter)
-        return inst
+            self._clear_tombstone(letter)
+            return inst
 
     def drop_letter(self, letter: str) -> int:
         """Xoá toàn bộ mẫu của một chữ cái khỏi kho letters và ghi nhận tombstone."""
-        if letter not in self.letters:
-            return 0
-        self._generation += 1
-        self.d["generation"] = self._generation
-        self._deleted_words.add(letter)
-        self._tombstones[letter] = {"deleted_at": time.time(), "generation": self._generation}
-        self._readded_words.pop(letter, None)
-        removed = self.letters.pop(letter, [])
-        if removed:
-            self._dirty = True
-        return len(removed)
+        with self._lock:
+            if letter not in self.letters:
+                return 0
+            self._mutation_seq += 1
+            self._generation += 1
+            self.d["generation"] = self._generation
+            self._deleted_words.add(letter)
+            self._tombstones[letter] = {"deleted_at": time.time(), "generation": self._generation}
+            self._readded_words.pop(letter, None)
+            removed = self.letters.pop(letter, [])
+            if removed:
+                self._dirty = True
+            return len(removed)
 
     def add_tone_sample(
         self,
@@ -649,42 +687,44 @@ class Bank:
         dedup: bool = True,
     ) -> dict:
         """Thêm MỘT mẫu dấu thanh rời trực tiếp vào kho marks (hỗ trợ dấu đơn nét hoặc đa nét)."""
-        if tone not in TONES:
-            raise ValueError(f"Dấu thanh không hợp lệ: {tone!r}. Chỉ chấp nhận các dấu trong TONES.")
+        with self._lock:
+            if tone not in TONES:
+                raise ValueError(f"Dấu thanh không hợp lệ: {tone!r}. Chỉ chấp nhận các dấu trong TONES.")
 
-        if strokes and isinstance(strokes[0], (int, float)):
-            st_list: list[Stroke] = [strokes]  # type: ignore[list-item]
-        else:
-            st_list = list(strokes)  # type: ignore[arg-type]
+            self._mutation_seq += 1
+            if strokes and isinstance(strokes[0], (int, float)):
+                st_list: list[Stroke] = [strokes]  # type: ignore[list-item]
+            else:
+                st_list = list(strokes)  # type: ignore[arg-type]
 
-        all_xs = [v for s in st_list for v in s[0::2]]
-        all_ys = [v for s in st_list for v in s[1::2]]
-        cx = sum(all_xs) / len(all_xs) if all_xs else 0.0
-        cy = sum(all_ys) / len(all_ys) if all_ys else 0.0
+            all_xs = [v for s in st_list for v in s[0::2]]
+            all_ys = [v for s in st_list for v in s[1::2]]
+            cx = sum(all_xs) / len(all_xs) if all_xs else 0.0
+            cy = sum(all_ys) / len(all_ys) if all_ys else 0.0
 
-        shifted_strokes = [shift(s, -cx, -cy) for s in st_list]
-        mark = {
-            "s": shifted_strokes,
-            "dx": round(dx, 2),
-            "dy": round(dy, 2),
-            "_src": "standalone",
-        }
+            shifted_strokes = [shift(s, -cx, -cy) for s in st_list]
+            mark = {
+                "s": shifted_strokes,
+                "dx": round(dx, 2),
+                "dy": round(dy, 2),
+                "_src": "standalone",
+            }
 
-        if dedup:
-            sig = sample_signature(shifted_strokes)
-            existing = self._raw_marks.setdefault(tone, [])
-            for ex in existing:
-                ex_sig = ex.get("_sig")
-                if ex_sig is None:
-                    ex_sig = sample_signature(ex.get("s", []))
-                    ex["_sig"] = ex_sig
-                if ex_sig == sig and abs(ex.get("dx", 0.0) - mark["dx"]) < 0.1 and abs(ex.get("dy", 0.0) - mark["dy"]) < 0.1:
-                    return ex
-            mark["_sig"] = sig
+            if dedup:
+                sig = sample_signature(shifted_strokes)
+                existing = self._raw_marks.setdefault(tone, [])
+                for ex in existing:
+                    ex_sig = ex.get("_sig")
+                    if ex_sig is None:
+                        ex_sig = sample_signature(ex.get("s", []))
+                        ex["_sig"] = ex_sig
+                    if ex_sig == sig and abs(ex.get("dx", 0.0) - mark["dx"]) < 0.1 and abs(ex.get("dy", 0.0) - mark["dy"]) < 0.1:
+                        return ex
+                mark["_sig"] = sig
 
-        marks_dict = self.d.setdefault("marks", {t: [] for t in TONES})
-        marks_dict.setdefault(tone, []).append(mark)
-        self._raw_marks.setdefault(tone, []).append(mark)
-        self._refresh_tone_marks(tone)
-        self._dirty = True
-        return mark
+            marks_dict = self.d.setdefault("marks", {t: [] for t in TONES})
+            marks_dict.setdefault(tone, []).append(mark)
+            self._raw_marks.setdefault(tone, []).append(mark)
+            self._refresh_tone_marks(tone)
+            self._dirty = True
+            return mark

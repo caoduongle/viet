@@ -123,18 +123,14 @@ def test_kho_that_nap_duoc_va_chi_muc_hop_ly(real_bank):
 # ------------------------------------------------------------ ghi an toàn
 def test_save_bi_ngat_giua_chung_thi_kho_cu_con_nguyen_va_khong_de_lai_file_tam(tiny_bank, monkeypatch):
     """Mô phỏng mất điện/đầy đĩa GIỮA lúc ghi: file kho mẫu cũ phải còn đọc được như trước."""
-    import json as _json
     before = open(tiny_bank.path, "rb").read()
     tiny_bank.add_sample("mới", [[0, 0, 4, -5]], 4.0)
 
-    real_dump = _json.dump
-    def dump_roi_ngat(obj, fp, **kw):
-        fp.write("{\"xh\": 7.0, \"words\": {\"x\"")          # ghi dở dang rồi 'mất điện'
+    def replace_roi_ngat(src, dst):
         raise OSError("đĩa đầy")
-    monkeypatch.setattr("chuviettay.model.bank.json.dump", dump_roi_ngat)
+    monkeypatch.setattr("chuviettay.model.bank.os.replace", replace_roi_ngat)
     with pytest.raises(OSError, match="đĩa đầy"):
         tiny_bank.save()
-    monkeypatch.setattr("chuviettay.model.bank.json.dump", real_dump)
 
     parent = os.path.dirname(tiny_bank.path)
     assert open(tiny_bank.path, "rb").read() == before                   # file thật không suy suyển một byte
@@ -628,4 +624,53 @@ def test_d2_add_symbol_sample_clears_tombstone(tmp_path):
     reloaded = Bank(str(p))
     assert "π" in reloaded.symbols
     assert len(reloaded.symbols["π"]) == 1
+
+
+@pytest.mark.stress
+@pytest.mark.timeout(30)
+def test_d5_concurrent_save_and_mutations_no_runtime_error(tmp_path):
+    """[D5] Kiểm tra không bị lỗi RuntimeError (dictionary changed size during iteration)
+    khi một luồng liên tục gọi save() trong khi luồng chính liên tục thêm mẫu mới."""
+    import threading
+    import time
+    from tests.conftest import generate_large_synthetic_bank_dict
+
+    p = tmp_path / "bank_stress_d5.json.gz"
+    large_d = generate_large_synthetic_bank_dict(n_samples=25000)
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(large_d, f, ensure_ascii=False)
+
+    bank = Bank(str(p))
+    stop_event = threading.Event()
+    save_errors: list[Exception] = []
+
+    def saver_loop():
+        while not stop_event.is_set():
+            try:
+                bank.save()
+            except Exception as e:
+                save_errors.append(e)
+            time.sleep(0.01)
+
+    t = threading.Thread(target=saver_loop, daemon=True)
+    t.start()
+
+    t_end = time.time() + 2.5
+    idx = 0
+    main_errors: list[Exception] = []
+    while time.time() < t_end:
+        try:
+            bank.add_sample(f"word_{idx}", [[0.0, 0.0, 2.0, -2.0]], 5.0)
+            idx += 1
+            time.sleep(0.005)
+        except Exception as e:
+            main_errors.append(e)
+
+    stop_event.set()
+    t.join(timeout=5.0)
+
+    # Khẳng định 0 RuntimeError
+    all_errors = save_errors + main_errors
+    assert not all_errors, f"Đua luồng gây lỗi: {all_errors}"
+
 

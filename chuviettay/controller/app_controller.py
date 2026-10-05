@@ -75,7 +75,12 @@ class AppController:
             self._save_timer.start()
 
     def _on_debounce_save(self) -> None:
-        self.flush_save()
+        try:
+            self.flush_save()
+        except Exception:
+            _log.exception("Lỗi khi thực hiện lưu hoãn kho mẫu (debounce save)")
+            if self.bank:
+                self.bank.mark_dirty()
 
     def flush_save(self) -> None:
         """Ép ghi các thay đổi dơ (dirty) ngay lập tức xuống đĩa và huỷ timer."""
