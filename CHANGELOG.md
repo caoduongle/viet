@@ -1,5 +1,22 @@
 # Nhật ký thay đổi
 
+## Chưa phát hành — Giai đoạn 1: Nền tảng (P1)
+
+### Định dạng tài liệu & Tương thích Xournal++ (F7)
+- **Chuẩn hoá định dạng kiểu nền XML XOPP (F7)**: Đối chiếu với mã nguồn gốc của Xournal++ (`PageTypeHandler::getPageTypeFormatForString`, commit `9882ffaaf2`), các kiểu nền `iso_graph`, `iso_dotted`, `music` được tuần tự hoá chính xác thành `isograph`, `isodotted`, `staves` trong XML thẻ `<background>`. Đồng thời bổ sung bộ chuẩn hoá nhận diện cả hai dạng biểu diễn ở tầng CLI và API.
+
+### Vị trí kho mẫu và cấu hình môi trường (F4)
+- **Đường dẫn chuẩn hoá theo hệ điều hành (F4)**: Chuyển vị trí kho mẫu mặc định từ thư mục package sang thư mục dữ liệu người dùng chuẩn (`%APPDATA%`, `~/Library/Application Support`, `$XDG_DATA_HOME`), bảo đảm hoạt động đúng sau khi cài bằng `pip`.
+
+### Lưới tập viết & Tập ký tự ngoại lai (F3)
+- **Bổ sung f, j, w, z vào lưới hw3 (F3)**: Mở rộng lưới từ 77 lên 85 ô, hỗ trợ các từ mượn và tên riêng tiếng Latinh; bảo toàn tương thích ngược với tờ lưới 77 ô cũ và ngăn ngừa việc đưa chữ số, dấu câu vào kho chữ cái `bank.letters`.
+
+### Kho chữ tổng hợp & Kiểm thử nghiệm thu định lượng (Q4)
+- **Bộ sinh kho mẫu tất định (Q4)**: Cung cấp hàm `build_synthetic_letter_bank()` sinh đầy đủ 66 chữ cái, 5 dấu thanh rời, 10 chữ số, dấu câu và ký hiệu cho kiểm thử tự động với các chỉ số đo lường mực viết khách quan.
+
+### Đồng bộ tài liệu và Schema v4 (Q3)
+- **Nguồn sự thật Schema v4 (Q3)**: Đồng bộ mã nguồn, docstring, script và tài liệu hướng dẫn về Schema v4; chuẩn hoá thông tin lưới 85 ô.
+
 ## Chưa phát hành — Lưới an toàn & vá lỗi toàn vẹn dữ liệu (P0)
 
 ### Toàn vẹn dữ liệu kho mẫu & Nâng cấp Schema v4 (D1, D2, D5)

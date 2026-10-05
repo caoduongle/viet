@@ -107,10 +107,40 @@ class TestPageBackground:
         assert 'style="ruled"' in xml
         assert 'config="r1=24 m1=72"' in xml or 'config="r1=24,m1=72"' in xml
 
-    def test_all_valid_styles(self):
-        for s in VALID_BACKGROUND_STYLES:
-            bg = PageBackground(style=s)
-            assert f'style="{s}"' in bg.to_xml()
+    @pytest.mark.parametrize(
+        ("style_in", "expected_xml_style"),
+        [
+            ("plain", "plain"),
+            ("lined", "lined"),
+            ("ruled", "ruled"),
+            ("graph", "graph"),
+            ("dotted", "dotted"),
+            ("iso_graph", "isograph"),
+            ("iso_dotted", "isodotted"),
+            ("music", "staves"),
+        ],
+    )
+    def test_page_background_to_xml_styles(self, style_in, expected_xml_style):
+        bg = PageBackground(style=style_in)
+        assert f'style="{expected_xml_style}"' in bg.to_xml()
+
+    @pytest.mark.parametrize(
+        ("alias", "canonical_internal"),
+        [
+            ("isograph", "iso_graph"),
+            ("isodotted", "iso_dotted"),
+            ("staves", "music"),
+        ],
+    )
+    def test_write_options_background_alias_compatibility(self, alias, canonical_internal):
+        opts_alias = WriteOptions(background=alias)
+        opts_alias.validate()
+        opts_internal = WriteOptions(background=canonical_internal)
+        opts_internal.validate()
+
+        xml_alias = opts_alias.resolve_page_format().background.to_xml()
+        xml_internal = opts_internal.resolve_page_format().background.to_xml()
+        assert xml_alias == xml_internal
 
     def test_invalid_style_fallback_to_plain(self):
         bg = PageBackground(style="non_existent_style")

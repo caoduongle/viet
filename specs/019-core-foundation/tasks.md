@@ -165,15 +165,15 @@ Bất biến không được vi phạm: không sửa `chuviettay/config.py`, ng�
 
 ### Tests (phải ĐỎ)
 
-- [ ] T046 [P] [US6] Thêm test tham số hoá trong `tests/test_page_format.py`: `PageBackground(style=s).to_xml()` cho 8 kiểu — 3 kiểu ánh xạ ra tên chuẩn, 5 kiểu `plain/lined/ruled/graph/dotted` giữ nguyên
-- [ ] T047 [P] [US6] Thêm test nhận cả hai dạng: `WriteOptions(background="isograph").validate()` hợp lệ và cho cùng XML với `"iso_graph"`; tương tự `isodotted`, `staves`, trong `tests/test_page_format.py`
-- [ ] T048 [US6] Chạy, lưu output ĐỎ vào `specs/019-core-foundation/report.md`
+- [X] T046 [P] [US6] Thêm test tham số hoá trong `tests/test_page_format.py`: `PageBackground(style=s).to_xml()` cho 8 kiểu — 3 kiểu ánh xạ ra tên chuẩn, 5 kiểu `plain/lined/ruled/graph/dotted` giữ nguyên
+- [X] T047 [P] [US6] Thêm test nhận cả hai dạng: `WriteOptions(background="isograph").validate()` hợp lệ và cho cùng XML với `"iso_graph"`; tương tự `isodotted`, `staves`, trong `tests/test_page_format.py`
+- [X] T048 [US6] Chạy, lưu output ĐỎ vào `specs/019-core-foundation/report.md`
 
 ### Implementation
 
-- [ ] T049 [US6] Thêm `XOPP_STYLE_NAMES` (tên nội bộ → tên XML) và `normalize_background_style()` (nhận cả hai dạng → tên nội bộ) trong `chuviettay/document/page_format.py`; `to_xml()` dùng ánh xạ; `VALID_BACKGROUND_STYLES` chấp nhận cả alias
-- [ ] T050 [US6] Dùng `normalize_background_style()` trong `WriteOptions.validate()`/`resolve_page_format()` ở `chuviettay/model/composer.py`; thêm alias vào `choices` của `--background` trong `chuviettay/cli.py` (GUI `view/write_tab.py` giữ nguyên tên nội bộ)
-- [ ] T051 [US6] Ghi nguồn đối chiếu (Xournal++ `PageTypeHandler`, commit `9882ffaaf2`) vào CHANGELOG; GATE; commit `fix(xopp): chuẩn hoá chuỗi kiểu nền theo đặc tả xml của xournal++ [F7]`
+- [X] T049 [US6] Thêm `XOPP_STYLE_NAMES` (tên nội bộ → tên XML) và `normalize_background_style()` (nhận cả hai dạng → tên nội bộ) trong `chuviettay/document/page_format.py`; `to_xml()` dùng ánh xạ; `VALID_BACKGROUND_STYLES` chấp nhận cả alias
+- [X] T050 [US6] Dùng `normalize_background_style()` trong `WriteOptions.validate()`/`resolve_page_format()` ở `chuviettay/model/composer.py`; thêm alias vào `choices` của `--background` trong `chuviettay/cli.py` (GUI `view/write_tab.py` giữ nguyên tên nội bộ)
+- [X] T051 [US6] Ghi nguồn đối chiếu (Xournal++ `PageTypeHandler`, commit `9882ffaaf2`) vào CHANGELOG; GATE; commit `fix(xopp): chuẩn hoá chuỗi kiểu nền theo đặc tả xml của xournal++ [F7]`
 
 **Checkpoint**: File `.xopp` hiển thị đúng nền trong Xournal++.
 

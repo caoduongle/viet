@@ -21,9 +21,11 @@ from chuviettay.document.ir import (
 from chuviettay.document.page_format import (
     PAPER_SIZES,
     VALID_BACKGROUND_STYLES,
+    XOPP_STYLE_NAMES,
     PageBackground,
     PageFormat,
     PaperSize,
+    normalize_background_style,
     parse_length,
 )
 
@@ -49,6 +51,8 @@ __all__ = [
     "PageFormat",
     "PAPER_SIZES",
     "VALID_BACKGROUND_STYLES",
+    "XOPP_STYLE_NAMES",
+    "normalize_background_style",
     "parse_length",
 ]
 

@@ -78,7 +78,11 @@ class WriteOptions:
 
     def validate(self) -> None:
         """Kiểm tra tính hợp lệ nghiệp vụ của các tùy chọn viết. Ném ValueError nếu sai."""
-        from chuviettay.document.page_format import PAPER_SIZES, VALID_BACKGROUND_STYLES
+        from chuviettay.document.page_format import (
+            PAPER_SIZES,
+            VALID_BACKGROUND_STYLES,
+            normalize_background_style,
+        )
 
         m = self.mode.lower().strip()
         if m not in ("semantic", "fidelity"):
@@ -125,7 +129,7 @@ class WriteOptions:
                 raise ValueError(f"{m_name} phải là số không âm hữu hạn, nhận được: {m_val}")
 
         # Kiểm tra nền trang
-        bg_style = self.background.lower().strip()
+        bg_style = normalize_background_style(self.background)
         if bg_style not in VALID_BACKGROUND_STYLES:
             raise ValueError(f"Kiểu nền không hợp lệ: {self.background!r}. Chỉ chấp nhận: {', '.join(sorted(VALID_BACKGROUND_STYLES))}")
         if self.background_spacing is not None and (not math.isfinite(self.background_spacing) or self.background_spacing <= 0):
@@ -155,6 +159,7 @@ class WriteOptions:
             PageBackground,
             PageFormat,
             PaperSize,
+            normalize_background_style,
         )
 
         p = self.paper.lower().strip()
@@ -166,7 +171,7 @@ class WriteOptions:
             paper_size = PAPER_SIZES.get(p, PAPER_SIZES["a4"])
 
         bg = PageBackground(
-            style=self.background.lower().strip(),
+            style=normalize_background_style(self.background),
             spacing=self.background_spacing,
             margin=self.background_margin,
             color=self.background_color,

@@ -217,5 +217,39 @@ Các điểm đã hoàn thành:
 4. Cập nhật thông báo lỗi CLI & Schema: Loại bỏ hoàn toàn nhắc nhở lỗi thời "để cùng thư mục với hw_note.py", thay bằng hướng dẫn `--bank <đường_dẫn>` hoặc chạy `seed`.
 - `ruff check .`: All checks passed!
 - `test_golden_master_real_path.py & test_architecture.py`: 23 passed in 1.70s.
+- **Commit**: `b8273a0` — `fix(paths): định vị kho mẫu và log chuẩn theo hệ điều hành khi cài bằng pip [F4]`
+
+---
+
+### F7 — Kiểu nền theo chuẩn XML Xournal++
+
+#### Bằng chứng kiểm thử ĐỎ (T048)
+Lệnh: `py -3.12 -m pytest tests/test_page_format.py`
+Kết quả:
+```text
+FAILED tests/test_page_format.py::TestPageBackground::test_page_background_to_xml_styles[iso_graph-isograph]
+FAILED tests/test_page_format.py::TestPageBackground::test_page_background_to_xml_styles[iso_dotted-isodotted]
+FAILED tests/test_page_format.py::TestPageBackground::test_page_background_to_xml_styles[music-staves]
+FAILED tests/test_page_format.py::TestPageBackground::test_write_options_background_alias_compatibility[isograph-iso_graph]
+FAILED tests/test_page_format.py::TestPageBackground::test_write_options_background_alias_compatibility[isodotted-iso_dotted]
+FAILED tests/test_page_format.py::TestPageBackground::test_write_options_background_alias_compatibility[staves-music]
+6 failed, 25 passed in 0.80s
+```
+
+#### Bằng chứng kiểm thử XANH sau khi hiện thực (T050)
+Lệnh: `py -3.12 -m pytest tests/test_page_format.py tests/test_cli_format.py`
+Kết quả: `37 passed in 1.25s`
+
+Các điểm đã hoàn thành:
+1. **Đối chiếu mã nguồn gốc Xournal++**: Đã kiểm tra file `src/core/control/pagetype/PageTypeHandler.cpp` trên nhánh `master` của Xournal++ (`https://raw.githubusercontent.com/xournalpp/xournalpp/master/src/core/control/pagetype/PageTypeHandler.cpp`). Hash commit master ghi nhận tại thời điểm kiểm tra: `9882ffaaf2c012a1de4c33161eb4284468d84b9d`. Hàm `PageTypeHandler::getPageTypeFormatForString` chỉ chấp nhận các chuỗi hợp lệ: `plain, ruled, lined, staves, graph, dotted, isodotted, isograph`. Mọi chuỗi khác đều bị cảnh báo và rơi về `plain` (trang trắng).
+2. **Ánh xạ kiểu nền (`XOPP_STYLE_NAMES`)**:
+   - `iso_graph` -> `isograph`
+   - `iso_dotted` -> `isodotted`
+   - `music` -> `staves`
+   - `plain, lined, ruled, graph, dotted` giữ nguyên tên.
+3. **Chuẩn hoá hai chiều (`normalize_background_style`)**: Cho phép người dùng nhập cả tên cũ (`iso_graph`, `iso_dotted`, `music`) lẫn tên chuẩn Xournal++ (`isograph`, `isodotted`, `staves`) qua CLI `--background` và API `WriteOptions`.
+4. **Lưu ý kiểm thử trực quan**: Do môi trường CI không chạy được phần mềm Xournal++ GUI thật, việc kiểm chứng được thực hiện ở mức cấu trúc XML và đối chiếu mã nguồn parser C++ của Xournal++. *Chủ repo cần mở một file thử bằng Xournal++ thật để xác nhận hiển thị hình ảnh trực quan.*
+- `ruff check .`: All checks passed!
+- `test_golden_master_real_path.py & test_architecture.py`: 23 passed in 1.81s.
 
 

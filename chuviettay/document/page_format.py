@@ -18,6 +18,29 @@ def _fmt(v: float) -> str:
     return s.rstrip("0").rstrip(".") or "0"
 
 
+# Ánh xạ từ tên kiểu nền nội bộ/alias sang tên thuộc tính style chuẩn của Xournal++ XML
+# Tham chiếu: PageTypeHandler::getPageTypeFormatForString trong mã nguồn Xournal++ (commit 9882ffaaf2)
+XOPP_STYLE_NAMES: dict[str, str] = {
+    "plain": "plain",
+    "lined": "lined",
+    "ruled": "ruled",
+    "graph": "graph",
+    "dotted": "dotted",
+    "iso_graph": "isograph",
+    "isograph": "isograph",
+    "iso_dotted": "isodotted",
+    "isodotted": "isodotted",
+    "music": "staves",
+    "staves": "staves",
+}
+
+# Ánh xạ chuẩn hoá mọi biểu diễn về tên nội bộ chuẩn
+STYLE_ALIASES: dict[str, str] = {
+    "isograph": "iso_graph",
+    "isodotted": "iso_dotted",
+    "staves": "music",
+}
+
 VALID_BACKGROUND_STYLES = {
     "plain",
     "lined",
@@ -27,7 +50,19 @@ VALID_BACKGROUND_STYLES = {
     "iso_graph",
     "iso_dotted",
     "music",
+    "isograph",
+    "isodotted",
+    "staves",
 }
+
+
+def normalize_background_style(style: str) -> str:
+    """Chuẩn hoá chuỗi kiểu nền về tên nội bộ chuẩn của chuviettay.
+
+    Chấp nhận cả tên nội bộ ('iso_graph', 'iso_dotted', 'music') lẫn tên chuẩn Xournal++ XML ('isograph', 'isodotted', 'staves').
+    """
+    s = (style or "").strip().lower()
+    return STYLE_ALIASES.get(s, s)
 
 
 def parse_length(val: str | float | int, default_unit: str = "pt") -> float:
@@ -97,9 +132,11 @@ class PageBackground:
 
     def to_xml(self) -> str:
         """Sinh chuỗi XML thẻ <background> cho trang trong file .xopp."""
-        style = self.style.lower().strip()
-        if style not in VALID_BACKGROUND_STYLES:
-            style = "plain"
+        style_key = (self.style or "").strip().lower()
+        if style_key not in VALID_BACKGROUND_STYLES:
+            xml_style = "plain"
+        else:
+            xml_style = XOPP_STYLE_NAMES.get(style_key, "plain")
 
         color = self.color.strip()
         if not COLOR_RE.match(color):
@@ -113,9 +150,8 @@ class PageBackground:
         if self.margin is not None and self.margin > 0:
             cfg_parts.append(f"m1={_fmt(self.margin)}")
 
-
         cfg_attr = f' config="{",".join(cfg_parts)}"' if cfg_parts else ""
-        return f'<background type="solid" color="{color}" style="{style}"{cfg_attr}/>'
+        return f'<background type="solid" color="{color}" style="{xml_style}"{cfg_attr}/>'
 
 
 @dataclass(frozen=True)

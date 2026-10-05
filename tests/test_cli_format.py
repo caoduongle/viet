@@ -70,6 +70,27 @@ def test_cli_write_background_graph_spacing(capsys, tiny_bank_path, tmp_path):
     assert 'config="r1=14.17"' in raw
 
 
+def test_cli_write_background_alias_isograph(capsys, tiny_bank_path, tmp_path):
+    out = str(tmp_path / "cli_isograph.xopp")
+    rc, cap = run_cli(
+        capsys,
+        tiny_bank_path,
+        "write",
+        "-t",
+        "Thử nghiệm nền isograph",
+        "-o",
+        out,
+        "--background",
+        "isograph",
+        "--seed",
+        "1",
+    )
+    assert rc == 0
+    assert os.path.exists(out)
+    raw = gzip.decompress(open(out, "rb").read()).decode("utf-8")
+    assert 'style="isograph"' in raw
+
+
 def test_cli_write_custom_paper_with_units(capsys, tiny_bank_path, tmp_path):
     out = str(tmp_path / "cli_custom.xopp")
     rc, cap = run_cli(

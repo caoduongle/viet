@@ -201,7 +201,11 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--paper-width", help="bề ngang khổ giấy custom (ví dụ: 210mm, 595.28pt)")
     w.add_argument("--paper-height", help="bề dọc khổ giấy custom (ví dụ: 297mm, 841.89pt)")
     w.add_argument("--background", default="plain",
-                   choices=["plain", "lined", "ruled", "graph", "dotted", "iso_graph", "iso_dotted", "music"],
+                   choices=[
+                       "plain", "lined", "ruled", "graph", "dotted",
+                       "iso_graph", "iso_dotted", "music",
+                       "isograph", "isodotted", "staves",
+                   ],
                    help="kiểu nền giấy XOPP (plain, lined, ruled, graph, dotted, iso_graph, iso_dotted, music; mặc định: plain)")
     w.add_argument("--background-spacing", help="khoảng cách dòng/lưới ô kẻ (ví dụ: 5mm, 14.17pt, 24pt)")
     w.add_argument("--background-margin", help="lề dọc cho ruled (ví dụ: 72pt, 2.5cm)")
