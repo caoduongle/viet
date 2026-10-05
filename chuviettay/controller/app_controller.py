@@ -221,10 +221,10 @@ class AppController:
         return res
 
     # ------------------------------------------------------------------ học / dạy
-    def learn_from_files(self, files: list[str]) -> LearnResult:
+    def learn_from_files(self, files: list[str], dedup: bool = True) -> LearnResult:
         """Học từ các file .xopp đã viết tay vào lưới ô (lệnh `learn`)."""
         bank = self._require_bank()
-        result = learning.learn_from_files(bank, files)
+        result = learning.learn_from_files(bank, files, dedup=dedup)
         _log.info("Học thêm %d mẫu từ %d file", result.n_added, len(files))
         return result
 

@@ -87,8 +87,9 @@ def test_export_check_ghi_du_mau_de_doc_lai(ctl, tmp_path):
 
 def test_learn_from_files(ctl, tmp_path):
     p = str(tmp_path / "g.xopp")
-    xopp.make_grid(p, ["ba"], ctl.bank, "h", {"ba": [[0, 0, 4, -5, 8, 0]]}, calib=False)
+    xopp.make_grid(p, ["ba"], ctl.bank, "h", {"ba": [[0, 0, 4, -5.2, 8.2, 0]]}, calib=False)
     assert ctl.learn_from_files([p]).n_added == 1
+
 
 
 def test_pick_calibration_word(ctl):

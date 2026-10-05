@@ -19,6 +19,15 @@ def test_sample_deduplication(tmp_path):
     bank.add_sample("chào", [stroke], 25.0)
     assert len(bank.words["chào"]) == 1, "Mẫu nét trùng lặp phải bị khử trùng"
 
+    # Thêm mẫu ký hiệu trùng lặp (D3)
+    bank.add_symbol_sample("π", [stroke], 15.0)
+    assert len(bank.symbols["π"]) == 1
+    bank.add_symbol_sample("π", [stroke], 15.0)
+    assert len(bank.symbols["π"]) == 1, "Mẫu ký hiệu trùng lặp phải bị khử trùng khi dedup=True"
+    bank.add_symbol_sample("π", [stroke], 15.0, dedup=False)
+    assert len(bank.symbols["π"]) == 2, "Mẫu ký hiệu không bị khử trùng khi dedup=False"
+
+
 
 def test_tombstone_across_all_categories(tmp_path):
     """drop và drop_symbol ghi nhận tombstone và loại bỏ phần tử khi hợp nhất (L12)."""

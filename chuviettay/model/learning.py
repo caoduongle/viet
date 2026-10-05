@@ -8,9 +8,12 @@ tay riêng) -- xem docstring của 2 module đó để biết vì sao gộp lạ
 """
 from __future__ import annotations
 
+import gzip
+import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
+
 
 from chuviettay.model import xopp
 from chuviettay.model.bank import Bank
@@ -42,12 +45,11 @@ class LearnResult:
 
 
 
-def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
+def learn_from_files(bank: Bank, paths: list[str], dedup: bool = True) -> LearnResult:
     """Đọc từng file trong `paths`, học mọi ô đã viết tay vào kho mẫu `bank`. Nếu ô đầu
     tiên (0,0,0) của một file là ô "đo cỡ tay" (file có thẻ hw3c hoặc hw2c), tự tính hệ số cỡ tay
     cho riêng file đó trước khi thêm mẫu, để các từ mới học khớp cỡ với chữ đã học
     trước đây. Rebuild + lưu kho mẫu MỘT LẦN ở cuối (sau khi đã học hết mọi file)."""
-    import hashlib
     added = 0
     file_notes: list[str] = []
     learned_files = bank.d.setdefault("learned_files", {})
@@ -55,11 +57,17 @@ def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
     for path in paths:
         try:
             with open(path, "rb") as f:
-                f_hash = hashlib.sha256(f.read()).hexdigest()
+                content = f.read()
+            if content.startswith(b"\x1f\x8b"):
+                try:
+                    content = gzip.decompress(content)
+                except OSError:
+                    pass
+            f_hash = hashlib.sha256(content).hexdigest()
         except OSError:
             f_hash = ""
 
-        if f_hash and f_hash in learned_files:
+        if dedup and f_hash and f_hash in learned_files:
             _log.info("File %s đã được học trước đó, bỏ qua để tránh nhân đôi mẫu (L11).", path)
             continue
 
@@ -104,20 +112,36 @@ def learn_from_files(bank: Bank, paths: list[str]) -> LearnResult:
                     dy = (mark_cy - ghost_top) * scale
 
                 scaled_strokes = [[round(coord * scale, 2) for coord in s] for s in r.strokes]
-                bank.add_tone_sample(tone_code, scaled_strokes, dx=dx, dy=dy, dedup=False)
-                added += 1
-                file_added += 1
+                before_marks = len(bank._raw_marks.get(tone_code, []))
+                bank.add_tone_sample(tone_code, scaled_strokes, dx=dx, dy=dy, dedup=dedup)
+                if len(bank._raw_marks.get(tone_code, [])) > before_marks:
+                    added += 1
+                    file_added += 1
                 continue
 
+            cell_added = False
             cat = classify_token(r.label, bank)
             if cat == "symbols":
-                bank.add_symbol_sample(r.label, rel, width)
+                before_sym = len(bank.symbols.get(r.label, []))
+                bank.add_symbol_sample(r.label, rel, width, dedup=dedup)
+                if len(bank.symbols.get(r.label, [])) > before_sym:
+                    cell_added = True
             else:
                 if getattr(r, "is_hw3", False) and (len(r.label) == 1 or r.label in ("ng", "nh", "ch", "tr", "ph", "th", "kh", "gi", "qu", "ươ", "ưa", "uy", "ay", "oa")):
-                    bank.add_letter_sample(r.label, rel, width, dedup=False, lsb=r.lsb, rsb=r.rsb)
-                bank.add_sample(r.label, rel, width, dedup=False)
-            added += 1
-            file_added += 1
+                    before_let = len(bank.letters.get(r.label, []))
+                    bank.add_letter_sample(r.label, rel, width, dedup=dedup, lsb=r.lsb, rsb=r.rsb)
+                    if len(bank.letters.get(r.label, [])) > before_let:
+                        cell_added = True
+
+                target = getattr(bank, cat, bank.words)
+                before_samp = len(target.get(r.label, []))
+                bank.add_sample(r.label, rel, width, dedup=dedup)
+                if len(target.get(r.label, [])) > before_samp:
+                    cell_added = True
+
+            if cell_added:
+                added += 1
+                file_added += 1
 
         if f_hash and file_added > 0:
             learned_files[f_hash] = os.path.basename(path)

@@ -84,9 +84,18 @@ def test_check_va_seed(capsys, tiny_bank_path, tmp_path):
 def test_learn_vong_tron_voi_check(capsys, tiny_bank_path, tmp_path):
     k = str(tmp_path / "k.xopp")
     run(capsys, tiny_bank_path, "check", "-o", k)
+    # Lần 1: Chưa drop, mẫu trong k.xopp trùng với kho hiện tại -> khử trùng, không thêm mẫu trùng (D3)
+    rc, cap = run(capsys, tiny_bank_path, "learn", k)
+    assert cap.out.strip() == "Đã học thêm 0 mẫu. Chạy lại lệnh write để có đủ chữ."
+    assert len(Bank(tiny_bank_path).words["ba"]) == 2
+
+
+    # Lần 2: Xoá từ khỏi kho -> chạy lại learn k.xopp để hoàn tất vòng tròn khôi phục mẫu
+    run(capsys, tiny_bank_path, "drop", "ba", "chào", "xin")
     rc, cap = run(capsys, tiny_bank_path, "learn", k)
     assert cap.out.strip() == "Đã học thêm 3 mẫu. Chạy lại lệnh write để có đủ chữ."
-    assert len(Bank(tiny_bank_path).words["ba"]) == 3
+    assert len(Bank(tiny_bank_path).words["ba"]) == 1
+
 
 
 def test_thieu_kho_mau_thoat_voi_thong_bao_tieng_viet(tmp_path):

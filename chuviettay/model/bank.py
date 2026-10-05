@@ -602,15 +602,26 @@ class Bank:
 
             return count
 
-    def add_symbol_sample(self, symbol: str, rel_strokes: list[Stroke], width: float) -> dict:
+    def add_symbol_sample(self, symbol: str, rel_strokes: list[Stroke], width: float, dedup: bool = True) -> dict:
         """Thêm MỘT mẫu ký hiệu toán học mới vào kho symbols."""
         with self._lock:
             self._mutation_seq += 1
-            inst = {"w": round(width, 2), "s": rel_strokes}
-            self.symbols.setdefault(symbol, []).append(inst)
+            sig = sample_signature(rel_strokes)
+            existing = self.symbols.setdefault(symbol, [])
+            if dedup:
+                for ex in existing:
+                    ex_sig = ex.get("_sig")
+                    if ex_sig is None:
+                        ex_sig = sample_signature(ex.get("s", []))
+                        ex["_sig"] = ex_sig
+                    if ex_sig == sig:
+                        return ex
+            inst = {"w": round(width, 2), "s": rel_strokes, "_sig": sig}
+            existing.append(inst)
             self._dirty = True
             self._clear_tombstone(symbol)
             return inst
+
 
     def drop_symbol(self, symbol: str) -> int:
         """Xoá toàn bộ mẫu của `symbol` khỏi kho symbols và ghi nhận tombstone."""
