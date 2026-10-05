@@ -124,7 +124,7 @@ def test_controller_write_docx_fidelity_api(tmp_path, monkeypatch):
     docx_path = "tests/fixtures/sample.docx"
 
     # Nếu môi trường kiểm thử không có Word COM (ví dụ CI runner), monkeypatch converter trả về fixture kiểm thử có kiểm soát
-    if not FidelityConverter.is_available():
+    if not FidelityConverter.is_word_available():
         import json
         import shutil
         with open(FIXTURE_JSON, "r", encoding="utf-8") as f:

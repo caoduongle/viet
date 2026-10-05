@@ -100,7 +100,7 @@ def test_cli_write_custom_paper_with_units(capsys, tiny_bank_path, tmp_path):
 def test_cli_write_mode_fidelity_and_semantic(capsys, tiny_bank_path, tmp_path, monkeypatch):
     from chuviettay.fidelity.converter import FidelityConverter
 
-    if not FidelityConverter.is_available():
+    if not FidelityConverter.is_word_available():
         import json
         import shutil
         fix_json = "tests/fixtures/fidelity/sample_fidelity_data.json"
