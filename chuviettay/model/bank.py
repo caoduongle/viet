@@ -459,6 +459,13 @@ class Bank:
         T = tone_info(w)[0]
         return strip_tone(w) in self.tl and (not T or bool(self.marks.get(T)))
 
+    def _clear_tombstone(self, label: str) -> None:
+        """Gỡ bỏ tombstone và trạng thái đã xoá khi thêm lại mẫu cho `label`."""
+        if label in self._tombstones or label in self._deleted_words:
+            self._readded_words[label] = time.time()
+        self._deleted_words.discard(label)
+        self._tombstones.pop(label, None)
+
     # -------------------------------------------------------------- thêm / xoá mẫu
     def add_sample(self, label: str, rel_strokes: list[Stroke], width: float, dedup: bool = True) -> dict:
         """Thêm MỘT mẫu mới cho `label`. `rel_strokes` phải đã ở toạ độ TƯƠNG ĐỐI theo
@@ -490,11 +497,7 @@ class Bank:
         existing.append(inst)
         self._dirty = True
 
-        # Chỉ đánh dấu vào _readded_words nếu từ này đang ở trạng thái bị xoá (có tombstone)
-        if label in self._tombstones or label in self._deleted_words:
-            self._readded_words[label] = time.time()
-        self._deleted_words.discard(label)
-        self._tombstones.pop(label, None)
+        self._clear_tombstone(label)
         return inst
 
     def add_sample_incremental(self, label: str, rel_strokes: list[Stroke], width: float) -> dict:
@@ -574,6 +577,7 @@ class Bank:
         inst = {"w": round(width, 2), "s": rel_strokes}
         self.symbols.setdefault(symbol, []).append(inst)
         self._dirty = True
+        self._clear_tombstone(symbol)
         return inst
 
     def drop_symbol(self, symbol: str) -> int:
@@ -619,10 +623,7 @@ class Bank:
         existing.append(inst)
         self._dirty = True
 
-        if letter in self._tombstones or letter in self._deleted_words:
-            self._readded_words[letter] = time.time()
-        self._deleted_words.discard(letter)
-        self._tombstones.pop(letter, None)
+        self._clear_tombstone(letter)
         return inst
 
     def drop_letter(self, letter: str) -> int:

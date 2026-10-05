@@ -598,3 +598,34 @@ def test_drop_prunes_tl_raw_marks_and_updates_can_immediately(tiny_bank):
     assert len(tiny_bank._raw_marks["\u0300"]) == 0
     assert len(tiny_bank.marks["\u0300"]) == 0
 
+
+def test_d2_add_symbol_sample_clears_tombstone(tmp_path):
+    """[D2] add_symbol_sample phải gỡ bỏ tombstone để không bị mất mẫu sau lần merge kế tiếp."""
+    p = tmp_path / "bank_d2.json.gz"
+    b = Bank.create_empty(str(p))
+    b.add_symbol_sample("π", [[0.0, 0.0, 5.0, 0.0]], 5.0)
+    b.save()
+
+    b.drop_symbol("π")
+    b.save()
+
+    # Thêm lại mẫu cho π
+    b.add_symbol_sample("π", [[0.0, 0.0, 5.0, 0.0]], 5.0)
+
+    # Giả lập tiến trình khác ghi kho trên đĩa để kích hoạt merge_bank_dicts trong b.save()
+    with gzip.open(p, "rt", encoding="utf-8") as f:
+        disk_data = json.load(f)
+    disk_data["words"]["ngoai"] = [{"w": 5.0, "s": [[0.0, 0.0, 5.0, 0.0]]}]
+    disk_data["generation"] = b.d["generation"] + 1
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(disk_data, f, ensure_ascii=False)
+
+    b.save()
+
+    assert "π" in b.symbols
+    assert len(b.symbols["π"]) == 1
+
+    reloaded = Bank(str(p))
+    assert "π" in reloaded.symbols
+    assert len(reloaded.symbols["π"]) == 1
+
