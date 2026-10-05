@@ -56,3 +56,39 @@ def test_generate_synthetic_bank_schema_version_v4_strict():
     d = generate_synthetic_bank()
     assert d.get("schema_version") == CURRENT_VERSION
     assert validate_bank_dict(d, allow_legacy=False) == CURRENT_VERSION
+
+
+def test_build_synthetic_letter_bank_contract():
+    import pytest
+    from scripts.gen_synthetic_bank import build_synthetic_letter_bank
+
+    d1 = build_synthetic_letter_bank(seed=42)
+    d2 = build_synthetic_letter_bank(seed=42)
+    assert d1 == d2, "Cùng seed phải sinh từ điển kho bằng nhau tất định"
+
+    # Schema v4 và siêu dữ liệu
+    assert d1.get("schema_version") == CURRENT_VERSION
+    assert validate_bank_dict(d1, allow_legacy=False) == CURRENT_VERSION
+    assert pytest.approx(d1["xh"], abs=0.1) == 7.94
+    assert str(d1["pen"]["width"]) == "1.41"
+
+    # Đầy đủ 29 chữ cái tiếng Việt + 4 chữ cái Latin mượn (f, j, w, z) hoa/thường
+    letters = d1["letters"]
+    vn_letters = (
+        "a", "ă", "â", "b", "c", "d", "đ", "e", "ê", "g", "h", "i", "k", "l", "m",
+        "n", "o", "ô", "ơ", "p", "q", "r", "s", "t", "u", "ư", "v", "x", "y",
+        "A", "Ă", "Â", "B", "C", "D", "Đ", "E", "Ê", "G", "H", "I", "K", "L", "M",
+        "N", "O", "Ô", "Ơ", "P", "Q", "R", "S", "T", "U", "Ư", "V", "X", "Y",
+    )
+    loan_letters = ("f", "F", "j", "J", "w", "W", "z", "Z")
+    for ch in vn_letters + loan_letters:
+        assert ch in letters, f"Thiếu chữ cái {ch} trong letters"
+        assert len(letters[ch]) >= 1
+        sample = letters[ch][0]
+        assert "lsb" in sample and "rsb" in sample and "w" in sample and "s" in sample
+
+    # 5 dấu thanh rời trong marks
+    marks = d1["marks"]
+    for t in TONES:
+        assert t in marks and len(marks[t]) >= 1, f"Thiếu dấu thanh {t} trong marks"
+

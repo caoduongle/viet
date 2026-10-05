@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from chuviettay.config import NANG, TONES
 from chuviettay.model.bank_schema import CURRENT_VERSION
-from chuviettay.model.text_utils import tone_info
+from chuviettay.model.text_utils import normalize_letter_sample, tone_info
 
 
 def make_sample(width: float, strokes: list[list[float]], T: str = "", vi: int = -1, ti: int = -1) -> dict:
@@ -121,6 +121,183 @@ def generate_synthetic_bank() -> dict:
         "symbols": {},
         "letters": {},
         "marks": {t: [] for t in TONES},
+    }
+
+
+def build_synthetic_letter_bank(seed: int = 42) -> dict:
+    """Sinh kho mẫu chữ cái tổng hợp chuẩn (synthetic letter bank) với hình học xác định.
+
+    CHÚ Ý: Hàm này chỉ chứng minh cơ chế lắp ghép chữ (dual-path letter assembly),
+    tự động co giãn x-height (auto-xh) và sàn khoảng cách vật lý (clearance floor)
+    trong môi trường kiểm thử tự động, không đại diện cho tính thẩm mỹ chữ viết tay.
+
+    Đặc tính kỹ thuật:
+    - Schema version: v4
+    - Target x-height: 7.94 pt
+    - Bút vẽ chuẩn: width 1.41 pt
+    - Bao gồm: 29 chữ cái tiếng Việt + 4 chữ Latin mượn (f, j, w, z) hoa/thường
+    - 5 dấu thanh rời trong marks (\u0300, \u0301, \u0303, \u0309, \u0323)
+    - Đầy đủ chữ số (0-9), dấu câu và ký hiệu toán học / lập trình
+    """
+    xh = 7.94
+
+    # 1. Nét hình học cơ sở chữ cái viết thường
+    raw_letters: dict[str, list[list[float]]] = {
+        # x_height letters (min_y = -7.94, max_y = 0.0 -> height = 7.94)
+        "a": [[4.5, -xh, 0.5, -xh, 0.5, 0.0, 4.5, 0.0, 4.5, -xh, 4.5, 0.0]],
+        "c": [[4.5, -xh, 0.5, -xh, 0.5, 0.0, 4.5, 0.0]],
+        "e": [[0.5, -xh / 2, 4.5, -xh / 2, 4.5, -xh, 0.5, -xh, 0.5, 0.0, 4.5, 0.0]],
+        "m": [[0.5, 0.0, 0.5, -xh, 3.5, -xh, 3.5, 0.0, 3.5, -xh, 6.5, -xh, 6.5, 0.0]],
+        "n": [[0.5, 0.0, 0.5, -xh, 4.5, -xh, 4.5, 0.0]],
+        "o": [[2.5, -xh, 0.5, -xh, 0.5, 0.0, 4.5, 0.0, 4.5, -xh, 2.5, -xh]],
+        "r": [[0.5, 0.0, 0.5, -xh, 3.5, -xh, 4.0, -xh * 0.8]],
+        "s": [[4.0, -xh, 0.5, -xh, 0.5, -xh / 2, 4.0, -xh / 2, 4.0, 0.0, 0.5, 0.0]],
+        "u": [[0.5, -xh, 0.5, 0.0, 4.5, 0.0, 4.5, -xh, 4.5, 0.0]],
+        "v": [[0.5, -xh, 2.5, 0.0, 4.5, -xh]],
+        "w": [[0.5, -xh, 2.0, 0.0, 3.5, -xh * 0.6, 5.0, 0.0, 6.5, -xh]],
+        "x": [[0.5, -xh, 4.5, 0.0, 2.5, -xh / 2, 4.5, -xh, 0.5, 0.0]],
+        "z": [[0.5, -xh, 4.5, -xh, 0.5, 0.0, 4.5, 0.0]],
+        # ascenders (height ~ 10.5)
+        "b": [[0.5, -10.5, 0.5, 0.0, 4.5, 0.0, 4.5, -xh, 0.5, -xh]],
+        "d": [[4.5, -10.5, 4.5, 0.0, 0.5, 0.0, 0.5, -xh, 4.5, -xh]],
+        "h": [[0.5, -10.5, 0.5, 0.0, 0.5, -xh, 4.5, -xh, 4.5, 0.0]],
+        "k": [[0.5, -10.5, 0.5, 0.0, 0.5, -xh / 2, 4.5, -xh, 0.5, -xh / 2, 4.5, 0.0]],
+        "l": [[1.0, -10.5, 1.0, 0.0, 2.5, 0.0]],
+        "t": [[1.5, -10.0, 1.5, 0.0, 3.0, 0.0, 1.5, 0.0, 1.5, -xh, 0.5, -xh, 3.0, -xh]],
+        # descenders (height ~ 10.5)
+        "g": [[4.5, -xh, 0.5, -xh, 0.5, 0.0, 4.5, 0.0, 4.5, 3.0, 1.0, 3.0]],
+        "p": [[0.5, 3.0, 0.5, -xh, 4.5, -xh, 4.5, 0.0, 0.5, 0.0]],
+        "q": [[4.5, 3.0, 4.5, -xh, 0.5, -xh, 0.5, 0.0, 4.5, 0.0]],
+        "y": [[0.5, -xh, 2.5, 0.0, 4.5, -xh, 2.5, 0.0, 1.0, 3.0]],
+        # i, j
+        "i": [[1.0, -xh, 1.0, 0.0, 2.5, 0.0]],
+        "j": [[2.5, -xh, 2.5, 3.0, 0.5, 3.0]],
+        "f": [[3.5, -10.5, 1.5, -10.5, 1.5, 0.0, 1.5, -xh, 0.5, -xh, 3.5, -xh]],
+    }
+
+    # Ký tự có dấu phụ (mũ, trăng, sừng, gạch ngang)
+    hat_bre = [1.5, -9.5, 2.5, -9.0, 3.5, -9.5]
+    hat_cir = [1.5, -9.0, 2.5, -9.8, 3.5, -9.0]
+    bar_d = [3.0, -9.0, 5.5, -9.0]
+    horn = [4.5, -xh, 5.2, -9.0]
+
+    raw_letters["ă"] = raw_letters["a"] + [hat_bre]
+    raw_letters["â"] = raw_letters["a"] + [hat_cir]
+    raw_letters["đ"] = raw_letters["d"] + [bar_d]
+    raw_letters["ê"] = raw_letters["e"] + [hat_cir]
+    raw_letters["ô"] = raw_letters["o"] + [hat_cir]
+    raw_letters["ơ"] = raw_letters["o"] + [horn]
+    raw_letters["ư"] = raw_letters["u"] + [horn]
+
+    # 2. Nét hình học chữ in hoa
+    raw_upper: dict[str, list[list[float]]] = {
+        "A": [[0.5, 0.0, 3.5, -10.5, 6.5, 0.0, 5.0, -4.0, 2.0, -4.0]],
+        "B": [[0.5, 0.0, 0.5, -10.5, 4.5, -10.5, 4.5, -5.5, 0.5, -5.5, 5.0, -5.5, 5.0, 0.0, 0.5, 0.0]],
+        "C": [[5.5, -10.5, 0.5, -10.5, 0.5, 0.0, 5.5, 0.0]],
+        "D": [[0.5, 0.0, 0.5, -10.5, 4.5, -10.5, 5.5, -5.5, 4.5, 0.0, 0.5, 0.0]],
+        "E": [[5.0, -10.5, 0.5, -10.5, 0.5, -5.5, 4.0, -5.5, 0.5, -5.5, 0.5, 0.0, 5.0, 0.0]],
+        "G": [[5.5, -10.5, 0.5, -10.5, 0.5, 0.0, 5.5, 0.0, 5.5, -5.0, 3.0, -5.0]],
+        "H": [[0.5, 0.0, 0.5, -10.5, 0.5, -5.5, 5.5, -5.5, 5.5, -10.5, 5.5, 0.0]],
+        "I": [[1.0, -10.5, 4.0, -10.5, 2.5, -10.5, 2.5, 0.0, 1.0, 0.0, 4.0, 0.0]],
+        "K": [[0.5, 0.0, 0.5, -10.5, 0.5, -5.5, 5.0, -10.5, 0.5, -5.5, 5.0, 0.0]],
+        "L": [[0.5, -10.5, 0.5, 0.0, 4.5, 0.0]],
+        "M": [[0.5, 0.0, 0.5, -10.5, 3.5, 0.0, 6.5, -10.5, 6.5, 0.0]],
+        "N": [[0.5, 0.0, 0.5, -10.5, 5.5, 0.0, 5.5, -10.5]],
+        "O": [[3.0, -10.5, 0.5, -10.5, 0.5, 0.0, 5.5, 0.0, 5.5, -10.5, 3.0, -10.5]],
+        "P": [[0.5, 0.0, 0.5, -10.5, 5.0, -10.5, 5.0, -5.0, 0.5, -5.0]],
+        "Q": [[3.0, -10.5, 0.5, -10.5, 0.5, 0.0, 5.5, 0.0, 5.5, -10.5, 3.0, -10.5, 4.0, -2.0, 6.0, 1.5]],
+        "R": [[0.5, 0.0, 0.5, -10.5, 5.0, -10.5, 5.0, -5.5, 0.5, -5.5, 3.0, -5.5, 5.5, 0.0]],
+        "S": [[5.0, -10.5, 0.5, -10.5, 0.5, -5.5, 5.0, -5.5, 5.0, 0.0, 0.5, 0.0]],
+        "T": [[0.5, -10.5, 5.5, -10.5, 3.0, -10.5, 3.0, 0.0]],
+        "U": [[0.5, -10.5, 0.5, 0.0, 5.5, 0.0, 5.5, -10.5]],
+        "V": [[0.5, -10.5, 3.0, 0.0, 5.5, -10.5]],
+        "X": [[0.5, -10.5, 5.5, 0.0, 3.0, -5.25, 5.5, -10.5, 0.5, 0.0]],
+        "Y": [[0.5, -10.5, 3.0, -5.5, 5.5, -10.5, 3.0, -5.5, 3.0, 0.0]],
+        "F": [[0.5, 0.0, 0.5, -10.5, 5.0, -10.5, 0.5, -10.5, 0.5, -5.5, 4.0, -5.5]],
+        "J": [[4.5, -10.5, 4.5, 0.0, 0.5, 0.0, 0.5, -2.5]],
+        "W": [[0.5, -10.5, 2.0, 0.0, 3.5, -7.0, 5.0, 0.0, 6.5, -10.5]],
+        "Z": [[0.5, -10.5, 5.5, -10.5, 0.5, 0.0, 5.5, 0.0]],
+    }
+    raw_upper["Ă"] = raw_upper["A"] + [[2.5, -12.5, 3.5, -12.0, 4.5, -12.5]]
+    raw_upper["Â"] = raw_upper["A"] + [[2.5, -12.0, 3.5, -12.8, 4.5, -12.0]]
+    raw_upper["Đ"] = raw_upper["D"] + [[-0.5, -5.5, 2.5, -5.5]]
+    raw_upper["Ê"] = raw_upper["E"] + [[2.0, -12.0, 3.0, -12.8, 4.0, -12.0]]
+    raw_upper["Ô"] = raw_upper["O"] + [[2.0, -12.0, 3.0, -12.8, 4.0, -12.0]]
+    raw_upper["Ơ"] = raw_upper["O"] + [[5.5, -10.5, 6.2, -12.2]]
+    raw_upper["Ư"] = raw_upper["U"] + [[5.5, -10.5, 6.2, -12.2]]
+
+    letters: dict[str, list[dict]] = {}
+    for ch, sts in {**raw_letters, **raw_upper}.items():
+        w_guess = max((pt for s in sts for pt in s[0::2]), default=5.0) + 1.0
+        norm = normalize_letter_sample(ch, sts, w_guess, raw_xh=xh, target_xh=xh)
+        letters[ch] = [norm]
+
+    # 3. Dấu thanh rời (\u0300, \u0301, \u0303, \u0309, \u0323)
+    marks: dict[str, list[dict]] = {
+        "\u0300": [{"s": [[-1.2, -0.6, 1.2, 0.6]], "dx": 0.0, "dy": -2.0, "_src": "synthetic", "T": "\u0300"}],
+        "\u0301": [{"s": [[-1.2, 0.6, 1.2, -0.6]], "dx": 0.0, "dy": -2.0, "_src": "synthetic", "T": "\u0301"}],
+        "\u0309": [{"s": [[-0.8, -0.6, 0.2, -0.6, 0.0, 0.6]], "dx": 0.0, "dy": -2.0, "_src": "synthetic", "T": "\u0309"}],
+        "\u0303": [{"s": [[-1.0, 0.4, 0.0, -0.4, 1.0, 0.4]], "dx": 0.0, "dy": -2.0, "_src": "synthetic", "T": "\u0303"}],
+        NANG: [{"s": [[-0.5, 0.0, 0.5, 0.0]], "dx": 0.0, "dy": 2.0, "_src": "synthetic", "T": NANG}],
+    }
+
+    # 4. Chữ số 0-9
+    digits: dict[str, list[dict]] = {}
+    for d_char in "0123456789":
+        digits[d_char] = [
+            make_sample(5.0, [[0.5, 0.0, 0.5, -xh, 4.5, -xh, 4.5, 0.0, 0.5, 0.0]])
+        ]
+
+    # 5. Dấu câu
+    punct: dict[str, list[dict]] = {
+        ".": [make_sample(3.0, [[1.0, 0.0, 1.5, 0.0]])],
+        ",": [make_sample(3.0, [[1.5, 0.0, 1.0, 1.5]])],
+        "!": [make_sample(3.0, [[1.5, -xh, 1.5, -2.5], [1.5, 0.0, 1.7, 0.0]])],
+        "?": [make_sample(4.0, [[1.0, -xh, 3.5, -xh, 3.5, -xh / 2, 2.0, -xh / 2, 2.0, -2.5], [2.0, 0.0, 2.2, 0.0]])],
+        "(": [make_sample(3.0, [[2.5, -xh * 1.2, 1.0, -xh * 0.5, 2.5, xh * 0.2]])],
+        ")": [make_sample(3.0, [[1.0, -xh * 1.2, 2.5, -xh * 0.5, 1.0, xh * 0.2]])],
+        ":": [make_sample(3.0, [[1.5, -xh * 0.7, 1.7, -xh * 0.7], [1.5, 0.0, 1.7, 0.0]])],
+        ";": [make_sample(3.0, [[1.5, -xh * 0.7, 1.7, -xh * 0.7], [1.5, 0.0, 1.0, 1.5]])],
+        "-": [make_sample(4.0, [[0.5, -xh * 0.5, 3.5, -xh * 0.5]])],
+        '"': [make_sample(4.0, [[1.0, -xh * 1.2, 1.0, -xh * 0.8], [2.5, -xh * 1.2, 2.5, -xh * 0.8]])],
+        "'": [make_sample(2.5, [[1.0, -xh * 1.2, 1.0, -xh * 0.8]])],
+        "/": [make_sample(4.0, [[0.5, xh * 0.2, 3.5, -xh * 1.2]])],
+    }
+
+    # 6. Ký hiệu toán học và kỹ thuật
+    symbols: dict[str, list[dict]] = {
+        ">=": [make_sample(6.0, [[0.5, -xh * 0.8, 4.5, -xh * 0.5, 0.5, -xh * 0.2], [0.5, 0.0, 4.5, 0.0]])],
+        "<=": [make_sample(6.0, [[4.5, -xh * 0.8, 0.5, -xh * 0.5, 4.5, -xh * 0.2], [0.5, 0.0, 4.5, 0.0]])],
+        ">": [make_sample(5.0, [[0.5, -xh * 0.8, 4.5, -xh * 0.5, 0.5, -xh * 0.2]])],
+        "<": [make_sample(5.0, [[4.5, -xh * 0.8, 0.5, -xh * 0.5, 4.5, -xh * 0.2]])],
+        "=": [make_sample(5.0, [[0.5, -xh * 0.6, 4.5, -xh * 0.6], [0.5, -xh * 0.3, 4.5, -xh * 0.3]])],
+        "_": [make_sample(5.0, [[0.0, 1.0, 5.0, 1.0]])],
+        "---": [make_sample(15.0, [[0.0, -xh * 0.5, 15.0, -xh * 0.5]])],
+        "--": [make_sample(10.0, [[0.0, -xh * 0.5, 10.0, -xh * 0.5]])],
+    }
+
+    # 7. Mẫu từ chuẩn phục vụ calibration
+    words: dict[str, list[dict]] = {
+        "xin": [make_sample(9.0, [[0.0, 0.0, 3.0, -5.0, 6.0, 0.0, 9.0, -5.0]]) for _ in range(5)]
+    }
+
+    return {
+        "schema_version": CURRENT_VERSION,
+        "xh": xh,
+        "wgaps": [11.0],
+        "dgaps": [3.5],
+        "line": 24.0,
+        "v": 1,
+        "x0": 78.0,
+        "width": 500.0,
+        "ratio": 6.6,
+        "pen": {"tool": "pen", "color": "#000000ff", "width": "1.41", "capStyle": "round"},
+        "words": words,
+        "digits": digits,
+        "punct": punct,
+        "symbols": symbols,
+        "letters": letters,
+        "marks": marks,
     }
 
 
