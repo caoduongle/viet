@@ -131,3 +131,43 @@ def test_d3_learn_symbols_and_cells_dedup(tiny_bank, tmp_path):
     assert len(tiny_bank.words.get("chào", [])) == 3
 
 
+def test_learn_hw3_filter_letters_only(tiny_bank, tmp_path):
+    """T033: Lưới hw3 có nhãn 1, ',', '+' thì không vào bank.letters; chữ cái và digraph vẫn vào letters."""
+    p = str(tmp_path / "hw3_filter.xopp")
+    samples = {
+        "1": [[0.0, 0.0, 3.0, -7.0, 5.0, 0.0]],
+        ",": [[1.0, 0.0, 1.0, 2.0]],
+        "+": [[0.0, -3.0, 6.0, -3.0], [3.0, 0.0, 3.0, -6.0]],
+        "a": [[0.0, 0.0, 4.0, -5.0, 4.0, 0.0]],
+        "ng": [[0.0, 0.0, 4.0, -5.0, 8.0, 0.0]],
+    }
+    xopp.make_grid(
+        p,
+        ["1", ",", "+", "a", "ng"],
+        tiny_bank,
+        "h",
+        samples=samples,
+        calib=False,
+        grid_version="hw3",
+    )
+    r = learn_from_files(tiny_bank, [p], dedup=False)
+    assert r.n_added == 5
+
+    # 1. bank.digits có "1", bank.letters KHÔNG có "1"
+    assert "1" in tiny_bank.digits
+    assert "1" not in tiny_bank.letters
+
+    # 2. bank.punct có ",", bank.letters KHÔNG có ","
+    assert "," in tiny_bank.punct
+    assert "," not in tiny_bank.letters
+
+    # 3. bank.symbols có "+", bank.letters KHÔNG có "+"
+    assert "+" in tiny_bank.symbols
+    assert "+" not in tiny_bank.letters
+
+    # 4. "a" và "ng" phải nằm trong bank.letters
+    assert "a" in tiny_bank.letters
+    assert "ng" in tiny_bank.letters
+
+
+

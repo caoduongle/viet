@@ -127,7 +127,7 @@ def learn_from_files(bank: Bank, paths: list[str], dedup: bool = True) -> LearnR
                 if len(bank.symbols.get(r.label, [])) > before_sym:
                     cell_added = True
             else:
-                if getattr(r, "is_hw3", False) and (len(r.label) == 1 or r.label in ("ng", "nh", "ch", "tr", "ph", "th", "kh", "gi", "qu", "ươ", "ưa", "uy", "ay", "oa")):
+                if getattr(r, "is_hw3", False) and ((len(r.label) == 1 and r.label.isalpha()) or r.label in xopp.VIETNAMESE_DIGRAPHS):
                     before_let = len(bank.letters.get(r.label, []))
                     bank.add_letter_sample(r.label, rel, width, dedup=dedup, lsb=r.lsb, rsb=r.rsb)
                     if len(bank.letters.get(r.label, [])) > before_let:

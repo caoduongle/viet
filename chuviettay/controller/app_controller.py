@@ -387,8 +387,10 @@ class AppController:
         standard_letters = [
             "a", "ă", "â", "b", "c", "d", "đ", "e", "ê", "g", "h", "i", "k", "l", "m",
             "n", "o", "ô", "ơ", "p", "q", "r", "s", "t", "u", "ư", "v", "x", "y",
+            "f", "j", "w", "z",
             "A", "Ă", "Â", "B", "C", "D", "Đ", "E", "Ê", "G", "H", "I", "K", "L", "M",
             "N", "O", "Ô", "Ơ", "P", "Q", "R", "S", "T", "U", "Ư", "V", "X", "Y",
+            "F", "J", "W", "Z",
         ]
         xopp.make_letter_grid(
             out_path,

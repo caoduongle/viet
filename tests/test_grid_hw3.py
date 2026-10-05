@@ -250,3 +250,72 @@ def test_make_grid_generates_hw3_by_default(tmp_path):
     assert "#e0e0e0" in colors
     assert "#d8d8d8" in colors
 
+
+def test_export_letter_grid_85_cells(tmp_path):
+    """T031: export_letter_grid phải sinh đúng 85 ô nhãn, có f/F/j/J/w/W/z/Z, không chứa chữ số."""
+    from chuviettay.controller.app_controller import AppController
+
+    bank_path = tmp_path / "bank.json.gz"
+    Bank.create_empty(str(bank_path))
+    ctl = AppController(str(bank_path))
+    ctl.load_bank()
+
+    out_path = str(tmp_path / "grid_85.xopp")
+    ctl.export_letter_grid(out_path)
+
+    root = read_xopp(out_path)
+    # Lấy các nhãn ô (bỏ qua tag hw3 và header hướng dẫn)
+    cell_labels = []
+    for t in root.iter("text"):
+        s = (t.text or "").strip()
+        if not s or s in (TAG_PLAIN, TAG_HW3) or "HƯỚNG DẪN" in s or (len(s) > 2 and s[0].isdigit() and s[1] == "."):
+            continue
+        cell_labels.append(s)
+
+    # 66 chữ cái (29 VN + 4 loan) * 2 + 14 digraphs + 5 dấu thanh = 85 ô
+    assert len(cell_labels) == 85, f"Kỳ vọng 85 ô nhãn, thực tế có {len(cell_labels)}: {cell_labels}"
+
+    loan_letters = ["f", "F", "j", "J", "w", "W", "z", "Z"]
+    for ch in loan_letters:
+        assert ch in cell_labels, f"Thiếu chữ mượn '{ch}' trong lưới ô"
+
+    # Lưới ký tự mẫu không được chứa chữ số
+    for d in "0123456789":
+        assert d not in cell_labels, f"Lưới ô chữ cái không được chứa chữ số '{d}'"
+
+
+def test_learn_from_77_cells_legacy_grid_backward_compatibility(tmp_path):
+    """T032: Đọc tờ lưới 77 ô cũ (58 chữ cái + 14 digraphs + 5 dấu) vẫn chính xác, không lệch ô."""
+    bank_path = tmp_path / "bank.json.gz"
+    bank = Bank.create_empty(str(bank_path))
+
+    old_58_letters = [
+        "a", "ă", "â", "b", "c", "d", "đ", "e", "ê", "g", "h", "i", "k", "l", "m",
+        "n", "o", "ô", "ơ", "p", "q", "r", "s", "t", "u", "ư", "v", "x", "y",
+        "A", "Ă", "Â", "B", "C", "D", "Đ", "E", "Ê", "G", "H", "I", "K", "L", "M",
+        "N", "O", "Ô", "Ơ", "P", "Q", "R", "S", "T", "U", "Ư", "V", "X", "Y",
+    ]
+    grid_path = str(tmp_path / "legacy_77.xopp")
+    make_letter_grid(grid_path, old_58_letters, bank, target_xh=7.94)
+
+    # Đọc lại tờ lưới cũ
+    cells, _ = parse_learn_file(grid_path)
+    # Chưa có nét viết tay thì len(cells) == 0 vì parse_learn_file chỉ trả ô có nét
+    # Thêm nét vào ô đầu tiên ("a") và ô thứ 58 ("Y")
+    root = read_xopp(grid_path)
+    page = root.find("page")
+    layer = page.find("layer")
+
+    # Giả lập nét viết tay trong ô (0, 0) - chữ "a"
+    st_a = ET.Element("stroke", {"tool": "pen", "color": "#000000", "width": "1.41"})
+    st_a.text = "50.0 94.0 55.0 87.0 60.0 94.0"
+    layer.append(st_a)
+
+    from chuviettay.model import xopp
+    xopp.save_xopp(grid_path, [ET.tostring(root, encoding="unicode")])
+
+    cells_after, _ = parse_learn_file(grid_path)
+    assert (0, 0, 0) in cells_after
+    assert cells_after[(0, 0, 0)].label == "a"
+
+

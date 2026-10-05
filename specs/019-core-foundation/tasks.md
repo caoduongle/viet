@@ -120,16 +120,16 @@ Bất biến không được vi phạm: không sửa `chuviettay/config.py`, ng�
 
 ### Tests (phải ĐỎ)
 
-- [ ] T031 [P] [US4] Thêm test `AppController.export_letter_grid()` sinh đúng 85 nhãn ô (đếm thẻ `<text>` nhãn), chứa `f F j J w W z Z`, không chứa chữ số, trong `tests/test_grid_hw3.py`
-- [ ] T032 [P] [US4] Thêm test tương thích: lưới 77 ô (dựng bằng `xopp.make_letter_grid` với danh sách 58 chữ cũ) có nét giả lập → `learn_from_files` đọc đủ 77 ô, không lệch ô, trong `tests/test_grid_hw3.py`
-- [ ] T033 [P] [US4] Thêm test lọc: lưới hw3 có nhãn `"1"`, `","`, `"+"` → không vào `bank.letters` (vẫn vào `digits`/`punct`/`symbols` như hiện tại); cụm trong `xopp.VIETNAMESE_DIGRAPHS` vẫn vào `letters`, trong `tests/test_learning.py`
-- [ ] T034 [US4] Chạy, lưu output ĐỎ vào `specs/019-core-foundation/report.md`
+- [X] T031 [P] [US4] Thêm test `AppController.export_letter_grid()` sinh đúng 85 nhãn ô (đếm thẻ `<text>` nhãn), chứa `f F j J w W z Z`, không chứa chữ số, trong `tests/test_grid_hw3.py`
+- [X] T032 [P] [US4] Thêm test tương thích: lưới 77 ô (dựng bằng `xopp.make_letter_grid` với danh sách 58 chữ cũ) có nét giả lập → `learn_from_files` đọc đủ 77 ô, không lệch ô, trong `tests/test_grid_hw3.py`
+- [X] T033 [P] [US4] Thêm test lọc: lưới hw3 có nhãn `"1"`, `","`, `"+"` → không vào `bank.letters` (vẫn vào `digits`/`punct`/`symbols` như hiện tại); cụm trong `xopp.VIETNAMESE_DIGRAPHS` vẫn vào `letters`, trong `tests/test_learning.py`
+- [X] T034 [US4] Chạy, lưu output ĐỎ vào `specs/019-core-foundation/report.md`
 
 ### Implementation
 
-- [ ] T035 [P] [US4] Thêm `"f","j","w","z"` và `"F","J","W","Z"` vào `standard_letters` của `export_letter_grid` trong `chuviettay/controller/app_controller.py`
-- [ ] T036 [P] [US4] Ở `chuviettay/model/learning.py` dòng ~130, thay điều kiện bằng `(len(r.label) == 1 and r.label.isalpha()) or r.label in xopp.VIETNAMESE_DIGRAPHS` (bỏ tuple digraph lặp lại)
-- [ ] T037 [US4] Cập nhật README (77 → 85 ô, thêm f/j/w/z) trong `README.md`; chạy GATE; commit `feat(grid): bổ sung f, j, w, z vào lưới hw3 và lọc ký tự chữ cái khi học [F3]`
+- [X] T035 [P] [US4] Thêm `"f","j","w","z"` và `"F","J","W","Z"` vào `standard_letters` của `export_letter_grid` trong `chuviettay/controller/app_controller.py`
+- [X] T036 [P] [US4] Ở `chuviettay/model/learning.py` dòng ~130, thay điều kiện bằng `(len(r.label) == 1 and r.label.isalpha()) or r.label in xopp.VIETNAMESE_DIGRAPHS` (bỏ tuple digraph lặp lại)
+- [X] T037 [US4] Cập nhật README (77 → 85 ô, thêm f/j/w/z) trong `README.md`; chạy GATE; commit `feat(grid): bổ sung f, j, w, z vào lưới hw3 và lọc ký tự chữ cái khi học [F3]`
 
 **Checkpoint**: Lưới hw3 85 ô, tương thích ngược 77 ô.
 

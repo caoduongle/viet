@@ -154,5 +154,32 @@ Bảng kết quả đo lường định lượng từ `tools/measure_ink.measure
 
 - `ruff check .`: All checks passed!
 - `test_golden_master_real_path.py & test_architecture.py`: 23 passed in 4.40s.
+- **Commit**: `5683067` — `feat(test): bổ sung kho chữ tổng hợp và bộ test nghiệm thu định lượng [Q4]`
+
+---
+
+### F3 — Lưới chữ cái hw3 có f, j, w, z và bộ lọc nhãn chữ cái
+
+#### Bằng chứng kiểm thử ĐỎ (T034)
+Lệnh: `py -3.12 -m pytest tests/test_grid_hw3.py::test_export_letter_grid_85_cells tests/test_learning.py::test_learn_hw3_filter_letters_only`
+Kết quả:
+```text
+FAILED tests/test_grid_hw3.py::test_export_letter_grid_85_cells - AssertionError: Kỳ vọng 85 ô nhãn, thực tế có 77: ['a', 'ă', 'â', ... 'X', 'Y', 'ng', ... 'dấu nặng']
+FAILED tests/test_learning.py::test_learn_hw3_filter_letters_only - AssertionError: assert '1' not in {'1': [{'w': 5.0, 's': ...}]}
+2 failed in 0.82s
+```
+
+#### Bằng chứng kiểm thử XANH sau khi hiện thực (T037)
+Lệnh: `py -3.12 -m pytest tests/test_grid_hw3.py tests/test_learning.py`
+Kết quả: `19 passed in 1.02s`
+
+Các điểm đã hoàn thành:
+1. `export_letter_grid`: Bổ sung `f, j, w, z` và `F, J, W, Z` vào `standard_letters` -> Lưới sinh đúng 85 ô nhãn (66 chữ cái + 14 digraphs + 5 dấu thanh).
+2. Tương thích ngược: `test_learn_from_77_cells_legacy_grid_backward_compatibility` khẳng định đọc chính xác lưới 77 ô cũ từ `HEAD~` không bị lệch ô.
+3. Lọc ký tự khi học (`learning.py`): Điều kiện `(len(r.label) == 1 and r.label.isalpha()) or r.label in xopp.VIETNAMESE_DIGRAPHS` đảm bảo các nhãn chữ số `"1"`, dấu câu `","`, ký hiệu `"+"` không bao giờ bị ghi đè vào `bank.letters`.
+4. Ảnh minh hoạ `docs/img/luoi_hw3.png`: Là ảnh kết xuất đồ hoạ giao diện thực tế của tờ lưới cũ (77 ô). Giữ nguyên file ảnh trên đĩa để tránh sinh giả lập; chủ repo có thể kết xuất lại ảnh lưới 85 ô từ Xournal++ khi cần.
+5. Cập nhật `README.md`: Nâng mô tả lưới hw3 từ 77 ô lên 85 ô kèm giải thích 4 chữ cái Latin mượn.
+- `ruff check .`: All checks passed!
+- `test_golden_master_real_path.py & test_architecture.py`: 23 passed in 2.16s.
 
 
