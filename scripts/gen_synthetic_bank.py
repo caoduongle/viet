@@ -301,15 +301,21 @@ def build_synthetic_letter_bank(seed: int = 42) -> dict:
     }
 
 
-def save_synthetic_bank(out_path: str) -> None:
-    data = generate_synthetic_bank()
+def save_synthetic_bank(out_path: str, letters: bool = False) -> None:
+    data = build_synthetic_letter_bank() if letters else generate_synthetic_bank()
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with gzip.open(out_path, "wt", encoding="utf-8", compresslevel=9) as f:
         json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
     print(f"Đã sinh fixture tổng hợp thành công tại: {out_path}")
-    print(f"Số từ: {len(data['words'])}, số chữ số: {len(data['digits'])}, số dấu câu: {len(data['punct'])}")
+    print(f"Số từ: {len(data['words'])}, số chữ số: {len(data['digits'])}, số dấu câu: {len(data['punct'])}, số chữ cái: {len(data.get('letters', {}))}")
 
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else os.path.join("tests", "data", "kho_mau_tong_hop.json.gz")
-    save_synthetic_bank(target)
+    import argparse
+    parser = argparse.ArgumentParser(description="Sinh fixture kho mẫu chữ tổng hợp")
+    parser.add_argument("target", nargs="?", default=os.path.join("tests", "data", "kho_mau_tong_hop.json.gz"), help="Đường dẫn file đầu ra")
+    parser.add_argument("-o", "--output", dest="out", help="Đường dẫn file đầu ra")
+    parser.add_argument("--letters", action="store_true", help="Sinh kho mẫu đầy đủ chữ rời")
+    args = parser.parse_args()
+    target_path = args.out or args.target
+    save_synthetic_bank(target_path, letters=args.letters)

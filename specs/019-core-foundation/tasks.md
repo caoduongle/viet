@@ -184,10 +184,10 @@ Bất biến không được vi phạm: không sửa `chuviettay/config.py`, ng�
 **Goal**: Smoke test cài pip sạch; benchmark tách khỏi lượt chạy chính/độ phủ.
 **Independent Test**: YAML parse được; chạy cục bộ các lệnh của job smoke và `pytest -m "not benchmark"` / `-m benchmark` đều xanh.
 
-- [ ] T052 [US7] Đối chiếu cấu hình pytest: cả `pytest.ini` và `[tool.pytest.ini_options]` trong `pyproject.toml` tồn tại (pytest.ini thắng) — xác nhận marker `benchmark` đã đăng ký trong `pytest.ini`; ghi nhận, không gộp cấu hình (ngoài phạm vi)
-- [ ] T053 [US7] Thêm job `pip-smoke` vào `.github/workflows/ci.yml`: venv sạch, `pip install .`, `hw-note --help`, tạo kho tạm bằng `scripts/gen_synthetic_bank.py`, `hw-note --bank <tmp> stats`, và `python repro_viet_baseline.py --repo . --with-pip --only F4`
-- [ ] T054 [US7] Trong `.github/workflows/ci.yml`: bước test chính chạy `-m "not benchmark"`; thêm bước riêng `-m benchmark` (không coverage); giữ `--timeout` hiện có
-- [ ] T055 [US7] Kiểm tra YAML hợp lệ (`python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml'))"` nếu có PyYAML, nếu không thì ghi rõ chưa kiểm được); chạy các lệnh smoke cục bộ; ghi vào report rằng CI thật chưa được quan sát (không push); GATE; commit `ci: thêm smoke test cài đặt pip và phân lập kiểm thử benchmark [CI]`
+- [X] T052 [US7] Đối chiếu cấu hình pytest: cả `pytest.ini` và `[tool.pytest.ini_options]` trong `pyproject.toml` tồn tại (pytest.ini thắng) — xác nhận marker `benchmark` đã đăng ký trong `pytest.ini`; ghi nhận, không gộp cấu hình (ngoài phạm vi)
+- [X] T053 [US7] Thêm job `pip-smoke` vào `.github/workflows/ci.yml`: venv sạch, `pip install .`, `hw-note --help`, tạo kho tạm bằng `scripts/gen_synthetic_bank.py`, `hw-note --bank <tmp> stats`, và `python repro_viet_baseline.py --repo . --with-pip --only F4`
+- [X] T054 [US7] Trong `.github/workflows/ci.yml`: bước test chính chạy `-m "not benchmark"`; thêm bước riêng `-m benchmark` (không coverage); giữ `--timeout` hiện có
+- [X] T055 [US7] Kiểm tra YAML hợp lệ (`python -c "import yaml,sys; yaml.safe_load(open('.github/workflows/ci.yml'))"` nếu có PyYAML, nếu không thì ghi rõ chưa kiểm được); chạy các lệnh smoke cục bộ; ghi vào report rằng CI thật chưa được quan sát (không push); GATE; commit `ci: thêm smoke test cài đặt pip và phân lập kiểm thử benchmark [CI]`
 
 ---
 

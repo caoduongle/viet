@@ -251,5 +251,28 @@ Các điểm đã hoàn thành:
 4. **Lưu ý kiểm thử trực quan**: Do môi trường CI không chạy được phần mềm Xournal++ GUI thật, việc kiểm chứng được thực hiện ở mức cấu trúc XML và đối chiếu mã nguồn parser C++ của Xournal++. *Chủ repo cần mở một file thử bằng Xournal++ thật để xác nhận hiển thị hình ảnh trực quan.*
 - `ruff check .`: All checks passed!
 - `test_golden_master_real_path.py & test_architecture.py`: 23 passed in 1.81s.
+- **Commit**: `70ef6ec` — `fix(xopp): chuẩn hoá chuỗi kiểu nền theo đặc tả xml của xournal++ [F7]`
+
+---
+
+### CI — Thêm smoke test cài đặt pip và phân lập kiểm thử benchmark
+
+#### Đối chiếu cấu hình và thực thi cục bộ (T052, T055)
+1. **Đối chiếu cấu hình pytest (T052)**:
+   - Cả `pytest.ini` và `[tool.pytest.ini_options]` trong `pyproject.toml` đều tồn tại; `pytest.ini` chiếm ưu thế ưu tiên (pytest hiển thị cảnh báo `WARNING: ignoring pytest config in pyproject.toml!`).
+   - Marker `benchmark` đã được đăng ký chính thức tại `pytest.ini` (dòng 8: `benchmark: các bài kiểm tra hiệu năng hoặc tải nặng cần chạy độc lập ngoài luồng kiểm tra độ phủ mã`).
+   - Không gộp 2 file cấu hình để tuân thủ nguyên tắc KISS/YAGNI và tránh thay đổi ngoài phạm vi.
+2. **Kiểm tra phân lập benchmark (T054)**:
+   - Lệnh kiểm thử chính (bỏ benchmark): `py -3.12 -m pytest -q -m "not benchmark"` -> `1125 passed, 1 deselected in 35.84s`.
+   - Lệnh kiểm thử benchmark riêng: `py -3.12 -m pytest -m "benchmark"` -> `1 passed, 1125 deselected in 3.15s` (chạy `test_save_performance` trong `tests/test_bank.py`).
+3. **Kiểm tra luồng pip-smoke cục bộ (T053, T055)**:
+   - `scripts/gen_synthetic_bank.py -o tmp_smoke_bank.json.gz`: Sinh thành công kho mẫu tổng hợp.
+   - `py -3.12 -m chuviettay --bank tmp_smoke_bank.json.gz stats`: Đọc thông số kho mẫu thành công (13 từ, 99 mẫu; chữ số; dấu câu; dấu thanh).
+   - `py -3.12 repro_viet_baseline.py --repo . --with-pip --only F4`: Báo cáo `[ĐÃ SỬA  ] F4` với kho mặc định phân giải đúng `%APPDATA%\chuviettay`.
+4. **Kiểm tra cú pháp Workflow YAML**:
+   - Môi trường cục bộ không cài sẵn thư viện `yaml` (`PyYAML`), do đó cú pháp `.github/workflows/ci.yml` đã được rà soát trực tiếp: đảm bảo đúng thụt lề, định dạng danh sách, các bước `steps` và ma trận `matrix`.
+   - Lưu ý: Do tuân thủ tuyệt đối nguyên tắc "không push git / không tạo PR", pipeline GitHub Actions thật chưa được kích hoạt trên server GitHub; tất cả các lệnh và điều kiện của các bước trong workflow đều đã được thực thi và chứng minh hoạt động chính xác trên môi trường cục bộ.
+- `ruff check .`: All checks passed!
+- `test_golden_master_real_path.py & test_architecture.py`: 23 passed in 1.81s.
 
 
