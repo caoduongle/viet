@@ -43,3 +43,44 @@ def test_import_char_grid_exists_and_returns_result(tmp_path):
     from chuviettay.model import xopp
     assert hasattr(xopp, "import_char_grid"), "xopp thiếu hàm import_char_grid"
     assert hasattr(xopp, "GridImportResult"), "xopp thiếu dataclass GridImportResult"
+
+
+def test_app_controller_and_bridge_char_grid_flow(tmp_path):
+    """Kiểm tra AppController.import_grid và BrowserBridge.import_grid."""
+    from chuviettay.controller.app_controller import AppController
+    from chuviettay.browser.bridge import BrowserBridge
+
+    bank_path = str(tmp_path / "ctl_bank.json.gz")
+    ctl = AppController(bank_path)
+    ctl.load_bank(bank_path, create_if_missing=True)
+
+    grid_path = str(tmp_path / "grid_export.xopp")
+    ctl.export_letter_grid(grid_path, group_id="co_ban")
+
+    grid_ink_path = str(tmp_path / "grid_ink.xopp")
+    fill_grid_with_ink(grid_path, grid_ink_path, labels=["a", "b", "c"])
+
+    # AppController.import_grid
+    res = ctl.import_grid(grid_ink_path)
+    assert res.added_samples >= 3
+    assert "a" in ctl.bank.letters
+
+    # BrowserBridge.import_grid (nhận bytes)
+    bridge = BrowserBridge(bank_path)
+    bridge.init()
+    with open(grid_ink_path, "rb") as f:
+        bytes_data = f.read()
+    b_res = bridge.import_grid(bytes_data, dedup=True)
+    assert b_res["ok"] is True
+    assert b_res["data"]["duplicate_samples"] >= 3  # idempotent / dedup
+
+    # BrowserBridge.get_char_catalog
+    cat_res = bridge.get_char_catalog("co_ban")
+    assert cat_res["ok"] is True
+    assert "a" in cat_res["data"]["chars"]
+
+    # BrowserBridge.get_missing_queue
+    miss_res = bridge.get_missing_queue(kind="co_ban")
+    assert miss_res["ok"] is True
+    assert "a" not in miss_res["tokens"]
+

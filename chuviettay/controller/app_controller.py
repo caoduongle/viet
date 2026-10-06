@@ -30,19 +30,20 @@ from typing import Any
 from chuviettay import paths
 from chuviettay.config import TONES
 from chuviettay.controller.results import (
-    BankStats, CheckResult, DropResult, LearnResult, SeedResult, TeachOutcome,
+    BankStats, CheckResult, DropResult, GridImportResult, LearnResult, SeedResult, TeachOutcome,
     WriteOptions, WriteResult,
 )
 from chuviettay.document.ir import Document
 from chuviettay.importer.base import ImportResult
 from chuviettay.layout.engine import DocumentLayoutEngine, TokenBox
-from chuviettay.model import learning, xopp
+from chuviettay.model import char_catalog, learning, xopp
 from chuviettay.model.bank import (  # noqa: F401  (re-export cho cli.py/view)
     Bank, BankCorruptedError, BankError, BankNotFoundError, BankValidationError, UnsupportedSchemaVersionError,
 )
-from chuviettay.model.calibration import compute_scale
+from chuviettay.model.calibration import compute_scale, pick_calib_char
+from chuviettay.model.char_catalog import CharCatalogGroup, CATALOG_GROUPS, get_catalog_group
 from chuviettay.model.seed_words import SEED
-from chuviettay.model.text_utils import Stroke
+from chuviettay.model.text_utils import Stroke, classify_char
 
 _log = logging.getLogger(__name__)
 
@@ -252,8 +253,12 @@ class AppController:
         return result
 
     def pick_calibration_word(self) -> str | None:
-        """Từ đã có nhiều mẫu, độ rộng ổn định -- dùng làm từ mốc để hiệu chỉnh cỡ tay."""
-        return xopp.pick_calib_word(self._require_bank())
+        """Ký tự/từ đã có nhiều mẫu, độ rộng ổn định -- dùng làm mốc để hiệu chỉnh cỡ tay."""
+        b = self._require_bank()
+        c = pick_calib_char(b)
+        if c:
+            return c
+        return xopp.pick_calib_word(b)
 
     def teach_word(
         self,
@@ -385,7 +390,7 @@ class AppController:
         )
 
     def export_seed_grid(self, n: int, out_path: str) -> SeedResult:
-        """Lệnh `seed`: tạo file lưới ô các từ thông dụng còn thiếu để viết mẫu."""
+        """Lệnh `seed`: tạo file lưới ô các từ thông dụng còn thiếu để viết mẫu (hỗ trợ tương thích ngược)."""
         bank = self._require_bank()
         todo = self.missing_seed_words(n)
         xopp.make_grid(
@@ -397,31 +402,132 @@ class AppController:
         _log.info("Xuất %s với %d từ thông dụng còn thiếu", out_path, len(todo))
         return SeedResult(out_path=out_path, words=todo)
 
+    def import_grid(self, xopp_content_or_path: str | bytes, dedup: bool = True) -> GridImportResult:
+        """Nạp file lưới ô tập viết (.xopp) để trích xuất các mẫu ký tự vào kho."""
+        bank = self._require_bank()
+        result = xopp.import_char_grid(bank, xopp_content_or_path, dedup=dedup)
+        _log.info("Nạp lưới ô: thêm %d mẫu, trùng %d mẫu, bỏ qua %d ô đa ký tự, loại %d ô",
+                  result.added_samples, result.duplicate_samples, result.skipped_multi_char, result.rejected_cells)
+        return result
+
+    def teach_char(
+        self,
+        label: str,
+        rel_strokes: list[Stroke],
+        width: float,
+        deferred_save: bool = False,
+    ) -> TeachOutcome:
+        """Lưu một mẫu ký tự (chữ cái, chữ số, dấu câu, ký hiệu, hoặc dấu thanh) vào kho tương ứng."""
+        bank = self._require_bank()
+        cat = classify_char(label)
+        instance: dict
+
+        if cat == "marks":
+            tone_code = xopp.HW3_TONE_MAP.get(label.lower(), label)
+            if rel_strokes:
+                instance = bank.add_tone_sample(tone_code, rel_strokes[0])
+            else:
+                instance = {}
+        elif cat == "letters":
+            instance = bank.add_letter_sample(label, rel_strokes, width)
+        elif cat == "digits":
+            instance = bank.add_sample(label, rel_strokes, width)
+        elif cat == "punct":
+            instance = bank.add_sample(label, rel_strokes, width)
+        elif cat == "symbols":
+            instance = bank.add_symbol_sample(label, rel_strokes, width)
+        else:
+            instance = bank.add_sample(label, rel_strokes, width)
+
+        bank.mark_dirty()
+        if deferred_save:
+            self.schedule_save()
+        else:
+            bank.save()
+
+        _log.info("Dạy ký tự %r (nhóm %s), hệ số cỡ tay phiên hiện tại: %.2fx", label, cat, self.session_scale)
+        return TeachOutcome(
+            label=label,
+            instance=instance,
+            session_scale=self.session_scale,
+            recalibrated=False,
+        )
+
+    def get_char_catalog(self, group_id: str = "co_ban") -> CharCatalogGroup:
+        """Lấy danh mục ký tự mẫu theo nhóm id ('co_ban', 'toan_hy_lap', 'mo_rong', 'day_du')."""
+        return get_catalog_group(group_id)
+
+    def get_missing_chars(
+        self,
+        group_id: str = "co_ban",
+        exclude: Iterable[str] = (),
+    ) -> list[str]:
+        """Danh sách các ký tự trong nhóm catalog chỉ định mà kho mẫu chưa có mẫu."""
+        bank = self._require_bank()
+        excl = set(exclude)
+        group = get_catalog_group(group_id)
+        todo: list[str] = []
+
+        for ch in group.chars:
+            if ch in excl:
+                continue
+            cat = classify_char(ch)
+            has_sample = False
+            if cat == "marks":
+                tone_code = xopp.HW3_TONE_MAP.get(ch.lower(), ch)
+                has_sample = bool(bank.marks.get(tone_code))
+            elif cat == "letters":
+                has_sample = bool(getattr(bank, "letters", {}).get(ch))
+            elif cat == "digits":
+                has_sample = bool(bank.digits.get(ch))
+            elif cat == "punct":
+                has_sample = bool(bank.punct.get(ch))
+            elif cat == "symbols":
+                has_sample = bool(getattr(bank, "symbols", {}).get(ch))
+
+            if not has_sample:
+                todo.append(ch)
+
+        return todo
+
     def export_letter_grid(
         self,
         out_path: str,
         target_xh: float = 7.94,
         include_digraphs: bool = True,
         include_tones: bool = True,
+        group_id: str | None = None,
     ) -> str:
-        """Tạo file lưới ô chuẩn hw3 để người dùng viết mẫu từng chữ cái & digraph tiếng Việt."""
+        """Tạo file lưới ô chuẩn hw3 để người dùng viết mẫu từng chữ cái & digraph tiếng Việt hoặc theo catalog."""
         bank = self._require_bank()
-        standard_letters = [
-            "a", "ă", "â", "b", "c", "d", "đ", "e", "ê", "g", "h", "i", "k", "l", "m",
-            "n", "o", "ô", "ơ", "p", "q", "r", "s", "t", "u", "ư", "v", "x", "y",
-            "f", "j", "w", "z",
-            "A", "Ă", "Â", "B", "C", "D", "Đ", "E", "Ê", "G", "H", "I", "K", "L", "M",
-            "N", "O", "Ô", "Ơ", "P", "Q", "R", "S", "T", "U", "Ư", "V", "X", "Y",
-            "F", "J", "W", "Z",
-        ]
-        xopp.make_letter_grid(
-            out_path,
-            standard_letters,
-            bank,
-            target_xh=target_xh,
-            include_digraphs=include_digraphs,
-            include_tones=include_tones,
-        )
+        if group_id and group_id != "co_ban":
+            group = get_catalog_group(group_id)
+            chars_to_export = list(group.chars)
+            xopp.make_letter_grid(
+                out_path,
+                chars_to_export,
+                bank,
+                target_xh=target_xh,
+                include_digraphs=False,
+                include_tones=False,
+            )
+        else:
+            standard_letters = [
+                "a", "ă", "â", "b", "c", "d", "đ", "e", "ê", "g", "h", "i", "k", "l", "m",
+                "n", "o", "ô", "ơ", "p", "q", "r", "s", "t", "u", "ư", "v", "x", "y",
+                "f", "j", "w", "z",
+                "A", "Ă", "Â", "B", "C", "D", "Đ", "E", "Ê", "G", "H", "I", "K", "L", "M",
+                "N", "O", "Ô", "Ơ", "P", "Q", "R", "S", "T", "U", "Ư", "V", "X", "Y",
+                "F", "J", "W", "Z",
+            ]
+            xopp.make_letter_grid(
+                out_path,
+                standard_letters,
+                bank,
+                target_xh=target_xh,
+                include_digraphs=include_digraphs,
+                include_tones=include_tones,
+            )
         _log.info("Xuất lưới chữ cái hw3 vào %s", out_path)
         return out_path
 

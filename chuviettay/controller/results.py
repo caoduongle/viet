@@ -17,9 +17,10 @@ from dataclasses import dataclass, field
 
 from chuviettay.model.composer import WriteOptions, WriteResult  # re-export
 from chuviettay.model.learning import LearnResult  # re-export
+from chuviettay.model.xopp import GridImportResult  # re-export
 
 __all__ = [
-    "WriteOptions", "WriteResult", "LearnResult",
+    "WriteOptions", "WriteResult", "LearnResult", "GridImportResult",
     "CheckResult", "DropResult", "SeedResult", "BankStats", "TeachOutcome",
 ]
 

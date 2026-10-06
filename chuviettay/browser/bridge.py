@@ -270,16 +270,100 @@ class BrowserBridge:
         except Exception as e:
             return _err_res(e)
 
+    def import_grid(self, xopp_bytes: bytes, dedup: bool = True) -> dict[str, Any]:
+        """Nạp file .xopp lưới ô tập viết và cập nhật kho ký tự mẫu."""
+        try:
+            res = self._ctl.import_grid(xopp_bytes, dedup=dedup)
+            return {
+                "ok": True,
+                "data": _clean_json(res),
+            }
+        except Exception as e:
+            return _err_res(e)
+
+    def teach_char(
+        self,
+        label: str,
+        strokes: list[list[float]] | None = None,
+        width: float | None = None,
+        pixel_strokes: list[list[tuple[float, float]]] | None = None,
+        deferred_save: bool = True,
+    ) -> dict[str, Any]:
+        """Lưu một mẫu ký tự vào kho tương ứng (chữ cái, chữ số, dấu câu, ký hiệu, dấu thanh)."""
+        try:
+            if pixel_strokes:
+                norm_px = [[(float(pt[0]), float(pt[1])) for pt in st] for st in pixel_strokes]
+                rel_strokes, w = strokes_to_bank_units(norm_px, self._ctl.session_scale)
+            else:
+                rel_strokes = [list(st) for st in (strokes or [])]
+                w = float(width if width is not None else 0.0)
+
+            outcome = self._ctl.teach_char(
+                label,
+                rel_strokes,
+                w,
+                deferred_save=deferred_save,
+            )
+            return {
+                "ok": True,
+                "label": outcome.label,
+                "session_scale": outcome.session_scale,
+                "recalibrated": outcome.recalibrated,
+                "outcome": _clean_json(outcome),
+            }
+        except Exception as e:
+            return _err_res(e)
+
+    def get_char_catalog(self, group_id: str = "co_ban") -> dict[str, Any]:
+        """Lấy danh mục ký tự mẫu theo nhóm."""
+        try:
+            group = self._ctl.get_char_catalog(group_id)
+            return {
+                "ok": True,
+                "data": {
+                    "id": group.id,
+                    "name": group.name,
+                    "description": group.description,
+                    "chars": list(group.chars),
+                },
+            }
+        except Exception as e:
+            return _err_res(e)
+
+    def export_char_grid(self, group_id: str = "co_ban", target_xh: float = 7.94) -> dict[str, Any]:
+        """Sinh file lưới ô chuẩn hw3 cho nhóm ký tự để tải về."""
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".xopp", delete=False) as tmp:
+                out_path = tmp.name
+            try:
+                self._ctl.export_letter_grid(out_path, target_xh=target_xh, group_id=group_id)
+                with open(out_path, "rb") as f:
+                    xopp_bytes = f.read()
+                return {
+                    "ok": True,
+                    "xopp_base64": base64.b64encode(xopp_bytes).decode("ascii"),
+                }
+            finally:
+                if os.path.exists(out_path):
+                    try:
+                        os.remove(out_path)
+                    except OSError:
+                        pass
+        except Exception as e:
+            return _err_res(e)
+
     def get_missing_queue(
         self,
-        kind: str = "essentials",
+        kind: str = "co_ban",
         limit: int = 50,
         exclude: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Lấy danh sách các từ còn thiếu trong hàng đợi dạy chữ."""
+        """Lấy danh sách các ký tự còn thiếu trong hàng đợi dạy chữ."""
         try:
             ex = set(exclude or [])
-            if kind == "essentials":
+            if kind in ("co_ban", "toan_hy_lap", "mo_rong", "day_du"):
+                tokens = self._ctl.get_missing_chars(group_id=kind, exclude=ex)
+            elif kind == "essentials":
                 tokens = self._ctl.missing_minimal_essentials(exclude=ex)
             else:
                 tokens = self._ctl.missing_seed_words(limit, exclude=ex)

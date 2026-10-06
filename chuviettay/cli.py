@@ -127,6 +127,28 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
 
 
 def _cmd_learn(ctl: AppController, a: argparse.Namespace) -> None:
+    if getattr(a, "grid", False):
+        total_added = 0
+        total_dup = 0
+        total_skipped = 0
+        total_rejected = 0
+        for f in a.files:
+            r = ctl.import_grid(f)
+            total_added += r.added_samples
+            total_dup += r.duplicate_samples
+            total_skipped += r.skipped_multi_char
+            total_rejected += r.rejected_cells
+            msg = f"{f}: nạp {r.added_samples} mẫu mới, {r.duplicate_samples} mẫu trùng"
+            if r.skipped_multi_char:
+                msg += f", bỏ qua {r.skipped_multi_char} ô đa ký tự"
+            if r.rejected_cells:
+                msg += f", loại {r.rejected_cells} ô không hợp lệ"
+            if r.updated_xh:
+                msg += f", cập nhật x-height = {r.updated_xh:.2f}pt"
+            print(msg)
+        print(f"Tổng cộng: đã thêm {total_added} mẫu ký tự mới vào kho.")
+        return
+
     result = ctl.learn_from_files(a.files)
     for note in result.file_notes:
         print(note)
@@ -164,9 +186,10 @@ def _cmd_stats(ctl: AppController, a: argparse.Namespace) -> None:
 
 
 def _cmd_grid(ctl: AppController, a: argparse.Namespace) -> None:
-    path = ctl.export_letter_grid(a.out, target_xh=a.target_xh, include_digraphs=not a.no_digraphs)
-    print(f"Đã tạo tờ lưới chữ cái chuẩn hw3 tại: {path}")
-    print("Mở file bằng Xournal++ -> viết từng chữ cái vào ô -> lưu lại -> chạy lệnh: python hw_note.py learn %s" % path)
+    set_group = getattr(a, "set", "co_ban")
+    path = ctl.export_letter_grid(a.out, target_xh=a.target_xh, include_digraphs=not a.no_digraphs, group_id=set_group)
+    print(f"Đã tạo tờ lưới ký tự chuẩn hw3 (nhóm: {set_group}) tại: {path}")
+    print("Mở file bằng Xournal++ -> viết từng ký tự vào ô -> lưu lại -> chạy lệnh: python hw_note.py learn --grid %s" % path)
 
 
 # ---------------------------------------------------------------- bộ đọc tham số
@@ -206,7 +229,7 @@ def build_parser() -> argparse.ArgumentParser:
                        "plain", "lined", "ruled", "graph", "dotted",
                        "iso_graph", "iso_dotted", "music",
                        "isograph", "isodotted", "staves",
-                   ],
+                    ],
                    help="kiểu nền giấy XOPP (plain, lined, ruled, graph, dotted, iso_graph, iso_dotted, music; mặc định: plain)")
     w.add_argument("--background-spacing", help="khoảng cách dòng/lưới ô kẻ (ví dụ: 5mm, 14.17pt, 24pt)")
     w.add_argument("--background-margin", help="lề dọc cho ruled (ví dụ: 72pt, 2.5cm)")
@@ -230,8 +253,9 @@ def build_parser() -> argparse.ArgumentParser:
     w.set_defaults(fn=_cmd_write)
 
 
-    l = sub.add_parser("learn", help="học từ trong file mẫu đã viết")
-    l.add_argument("files", nargs="+")
+    l = sub.add_parser("learn", help="học từ hoặc ký tự trong file mẫu đã viết")
+    l.add_argument("files", nargs="+", help="danh sách các file .xopp đã viết tay")
+    l.add_argument("--grid", action="store_true", help="chế độ nạp file lưới ký tự chuẩn hw3")
     l.set_defaults(fn=_cmd_learn)
 
     s = sub.add_parser("seed", help="tạo file mẫu các từ thông dụng còn thiếu")
@@ -250,9 +274,11 @@ def build_parser() -> argparse.ArgumentParser:
     t = sub.add_parser("stats", help="thống kê kho mẫu")
     t.set_defaults(fn=_cmd_stats)
 
-    g = sub.add_parser("grid", help="tạo file lưới ô chuẩn hw3 để viết mẫu chữ cái")
+    g = sub.add_parser("grid", help="tạo file lưới ô chuẩn hw3 để viết mẫu ký tự")
     g.add_argument("-o", "--out", default="luoi_chu_cai.xopp", help="đường dẫn file .xopp xuất ra (mặc định: luoi_chu_cai.xopp)")
     g.add_argument("--target-xh", type=float, default=7.94, help="x-height mục tiêu (pt, mặc định: 7.94 pt)")
+    g.add_argument("--set", choices=["co_ban", "toan_hy_lap", "mo_rong", "day_du"], default="co_ban",
+                   help="nhóm ký tự xuất lưới: co_ban (mặc định), toan_hy_lap, mo_rong, day_du")
     g.add_argument("--no-digraphs", action="store_true", help="không bao gồm các cụm phụ âm đôi (ng, nh, ch...)")
     g.set_defaults(fn=_cmd_grid)
     return ap
