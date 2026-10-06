@@ -209,6 +209,9 @@ function calculateFitZoom() {
   const stage = document.getElementById("preview-stage");
   if (!stage || !currentDoc || !currentDoc.pages.length) return 1.0;
 
+  // Nếu khung xem trước đang bị ẩn (chuyển tab khác hoặc clientWidth = 0), bảo toàn zoom hiện tại
+  if (stage.clientWidth <= 100) return currentZoom;
+
   const page = currentDoc.pages[currentPageIndex] || currentDoc.pages[0];
   const baseWidthPx = (page.width || 595.28) * PT_TO_PX;
   const padding = 64; // Đệm hai bên an toàn (1.5rem = 48px + 16px đệm)
