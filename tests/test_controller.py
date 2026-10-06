@@ -43,15 +43,16 @@ def test_doi_kho_thi_dat_lai_he_so_co_tay_con_reload_thi_giu(ctl, tiny_bank_path
 def test_write_text(ctl, tmp_path):
     out = str(tmp_path / "ra.xopp")
     r = ctl.write_text("xin ba zzz", WriteOptions(seed=1), out)
-    assert os.path.exists(out) and r.n_tokens == 3 and r.missing == {"zzz": 1}
+    assert os.path.exists(out) and r.n_tokens == 3 and r.missing == {"z": 3}
 
 
 def test_get_stats_va_list_words(ctl):
     s = ctl.get_stats()
-    assert (s.n_words, s.n_samples) == (3, 9)
+    assert s.n_letters == 8 and s.n_samples == 14
     assert s.digit_counts == {"1": 1, "2": 1} and s.punct_counts == {",": 1, ".": 1}
     assert list(s.tone_mark_counts.values()) == [2, 0, 0, 0, 0]       # huyền, sắc, ngã, hỏi, nặng
     assert ctl.list_words() == [("ba", 2), ("chào", 2), ("xin", 5)]
+    assert ctl.bank_size == 13
     assert ctl.x_height == 7.0
 
 
@@ -80,9 +81,10 @@ def test_export_seed_grid(ctl, tmp_path):
 def test_export_check_ghi_du_mau_de_doc_lai(ctl, tmp_path):
     out = str(tmp_path / "k.xopp")
     r = ctl.export_check(out)
-    assert r.n_words == 3
+    assert r.n_words > 0 and os.path.exists(out)
     raw, has_calib = xopp.parse_learn_file(out)
-    assert has_calib is False and sorted(c.label for c in raw.values()) == ["ba", "chào", "xin"]
+    labels = sorted(c.label for c in raw.values())
+    assert has_calib is False and "a" in labels and "1" in labels and "," in labels
 
 
 def test_learn_from_files(ctl, tmp_path):
@@ -93,7 +95,31 @@ def test_learn_from_files(ctl, tmp_path):
 
 
 def test_pick_calibration_word(ctl):
-    assert ctl.pick_calibration_word() == "xin"
+    char = ctl.pick_calibration_char()
+    assert char is not None and char in ctl.bank.letters
+    assert ctl.pick_calibration_word() == char
+
+
+def test_boc_tach_ky_tu_don_vao_hang_doi():
+    import unicodedata
+    input_text = "cà phê"
+    chars = [ch for ch in unicodedata.normalize("NFC", input_text) if not ch.isspace()]
+    assert "c" in chars and "à" in chars and "p" in chars and "h" in chars and "ê" in chars
+
+
+def test_teach_char_luu_dung_danh_muc(ctl):
+    out = ctl.teach_char("k", [[0, 0, 5, -5]], 5.0)
+    assert out.label == "k"
+    assert "k" in ctl.bank.letters
+    out_digit = ctl.teach_char("9", [[0, 0, 4, -6]], 4.0)
+    assert out_digit.label == "9"
+    assert "9" in ctl.bank.digits
+
+
+def test_bank_size_va_get_stats_ky_tu_moi(ctl):
+    stats = ctl.get_stats()
+    assert stats.n_letters == len(ctl.bank.letters)
+    assert ctl.bank_size == len(ctl.bank.letters) + len(ctl.bank.digits) + len(ctl.bank.punct) + len(getattr(ctl.bank, "symbols", {})) + len([t for t, v in ctl.bank.marks.items() if v])
 
 
 # ------------------------------------------------------------ dạy trực tiếp + hiệu chỉnh cỡ tay

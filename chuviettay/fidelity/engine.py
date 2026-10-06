@@ -146,19 +146,33 @@ class FidelityLayoutEngine:
         if missing_tokens > 0 and self.opts.missing_grid:
             raw_grid_path = os.path.splitext(out_path)[0] + "_thieu.xopp"
             grid_path = xopp.resolve_missing_grid_path(raw_grid_path)
-            miss_keys = sorted(self.wr.missing)
-            samples = {k: self.bank.words[k][0]["s"] for k in miss_keys if k in self.bank.words}
+            from chuviettay.model.text_utils import missing_letters_ranked
+            ranked = missing_letters_ranked(
+                sorted(self.wr.missing),
+                self.bank.letters,
+                self.bank.marks,
+                strict_case=self.opts.strict_case,
+                bank_digits=self.bank.digits,
+                bank_punct=self.bank.punct,
+                bank_symbols=self.bank.symbols,
+            )
+            miss_chars = [item[0] for item in ranked] or sorted(self.wr.missing)
+            samples = {}
+            for k in miss_chars:
+                sample = self.wr.get_letter_sample(k)
+                if sample:
+                    samples[k] = sample["s"]
             xopp.make_grid(
                 grid_path,
-                miss_keys,
+                miss_chars,
                 self.bank,
-                f"Các từ thiếu mẫu khi viết {os.path.basename(out_path)}",
+                f"Các ký tự thiếu mẫu khi viết {os.path.basename(out_path)}",
                 samples,
                 calib=False,
                 grid_version="hw3",
             )
             missing_grid_path = grid_path
-            _log.info("Đã tạo file lưới ô từ còn thiếu: %s (%d từ)", grid_path, len(miss_keys))
+            _log.info("Đã tạo file lưới ô ký tự còn thiếu: %s (%d ký tự)", grid_path, len(miss_chars))
 
         total_images = sum(len(p.image_boxes) for p in document.pages)
         total_tables = sum(len(p.table_geometries) for p in document.pages)

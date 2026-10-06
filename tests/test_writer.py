@@ -10,28 +10,28 @@ def W(bank, seed=1, **kw):
     return Writer(bank, random.Random(seed), **kw)
 
 
-def test_khop_thang(tiny_bank):
+def test_ghep_tu_ky_tu_don(tiny_bank):
     st, w, miss = W(tiny_bank).token("xin")
-    assert miss == [] and len(st) == 1 and w in (8.8, 8.9, 9.0, 9.1, 9.2)
+    assert miss == [] and len(st) == 3 and w > 0
 
 
 def test_ghep_dau_thanh_tu_than_chu_va_net_dau_roi(tiny_bank):
     st, w, miss = W(tiny_bank).token("bà")
     assert miss == []
-    assert len(st) == 2                    # 1 nét thân "ba" + 1 nét dấu huyền ghép vào
-    assert w in (8.0, 8.4)                 # độ rộng lấy theo thân chữ
-    tone_stroke = st[1]
+    assert len(st) == 3                    # nét b + nét a + nét dấu huyền
+    assert w > 0
+    tone_stroke = st[2]
     assert min(tone_stroke[1::2]) < -5     # dấu nằm phía trên thân chữ (y âm = lên trên)
 
 
-def test_thieu_dau_thanh_thi_bao_thieu_ca_tu(tiny_bank):
+def test_thieu_dau_thanh_thi_bao_thieu_ky_tu(tiny_bank):
     st, w, miss = W(tiny_bank).token("bá")
-    assert st == [] and miss == ["bá"] and w > 0
+    assert st == [] and miss == ["\u0301"] and w > 0
 
 
 def test_chu_hoa_dau_tu_loose_va_strict(tiny_bank):
     assert W(tiny_bank).token("Xin")[2] == []
-    assert W(tiny_bank, loose_case=False).token("Xin")[2] == ["Xin"]
+    assert W(tiny_bank, loose_case=False).token("Xin")[2] == ["X"]
 
 
 def test_so_ghep_tung_chu_so_voi_khoang_cach(tiny_bank):
@@ -47,7 +47,7 @@ def test_so_thieu_chu_so_thi_bao_dung_chu_so_thieu(tiny_bank):
 
 def test_dau_cau_bao_quanh(tiny_bank):
     st, w, miss = W(tiny_bank).token("xin.")
-    assert miss == [] and len(st) == 2               # 1 nét chữ + 1 dấu chấm
+    assert miss == [] and len(st) == 4               # 3 nét chữ 'x', 'i', 'n' + 1 dấu chấm
     st2, _, miss2 = W(tiny_bank).token("(xin)")
     assert miss2 == ["(", ")"]                       # chưa có mẫu ngoặc -> báo thiếu, phần chữ vẫn viết
 
@@ -85,4 +85,16 @@ def test_standalone_punctuation_without_w_in_bank(tiny_bank):
     assert len(strokes) == 1
     assert w > 0
     assert miss == []
+
+
+def test_writer_does_not_use_bank_words(tiny_bank):
+    # Đặt một mẫu giả dị biệt vào bank.words["xin"]
+    tiny_bank.words["xin"] = [{"w": 999.0, "s": [[0, 0, 999, 999]], "T": "", "vi": -1, "ti": -1}]
+    wr = W(tiny_bank)
+    st, w, miss = wr.token("xin")
+    assert miss == []
+    # Khẳng định Writer hoàn toàn không lấy mẫu 999.0 từ bank.words
+    assert w != 999.0
+    assert not any(stk == [0, 0, 999, 999] for stk in st)
+    assert len(st) == 3
 

@@ -79,7 +79,8 @@ def learn_from_files(bank: Bank, paths: list[str], dedup: bool = True) -> LearnR
         cal = raw.get((0, 0, 0))
         if has_calib and cal:
             got = cal.right - cal.left
-            scale = compute_scale(bank.words.get(cal.label), got)
+            ref_insts = getattr(bank, "letters", {}).get(cal.label) or bank.words.get(cal.label)
+            scale = compute_scale(ref_insts, got)
 
         file_added = 0
         for r in raw.values():
@@ -126,13 +127,14 @@ def learn_from_files(bank: Bank, paths: list[str], dedup: bool = True) -> LearnR
                 bank.add_symbol_sample(r.label, rel, width, dedup=dedup)
                 if len(bank.symbols.get(r.label, [])) > before_sym:
                     cell_added = True
+            elif (len(r.label) == 1 and r.label.isalpha()) or r.label in xopp.VIETNAMESE_DIGRAPHS:
+                before_let = len(bank.letters.get(r.label, []))
+                lsb = getattr(r, "lsb", 0.0)
+                rsb = getattr(r, "rsb", 0.0)
+                bank.add_letter_sample(r.label, rel, width, dedup=dedup, lsb=lsb, rsb=rsb)
+                if len(bank.letters.get(r.label, [])) > before_let:
+                    cell_added = True
             else:
-                if getattr(r, "is_hw3", False) and ((len(r.label) == 1 and r.label.isalpha()) or r.label in xopp.VIETNAMESE_DIGRAPHS):
-                    before_let = len(bank.letters.get(r.label, []))
-                    bank.add_letter_sample(r.label, rel, width, dedup=dedup, lsb=r.lsb, rsb=r.rsb)
-                    if len(bank.letters.get(r.label, [])) > before_let:
-                        cell_added = True
-
                 target = getattr(bank, cat, bank.words)
                 before_samp = len(target.get(r.label, []))
                 bank.add_sample(r.label, rel, width, dedup=dedup)

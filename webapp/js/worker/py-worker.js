@@ -165,8 +165,8 @@ _teach_res = _bridge.teach_sample(
 )
 `);
       result = pyodide.globals.get("_teach_res").toJs({ dict_converter: Object.fromEntries });
-    } else if (method === "pick_calibration_word") {
-      result = pyodide.runPython(`_bridge.pick_calibration_word()`).toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "pick_calibration_char" || method === "pick_calibration_word") {
+      result = pyodide.runPython(`_bridge.pick_calibration_char()`).toJs({ dict_converter: Object.fromEntries });
     } else if (method === "get_missing_queue") {
       const { kind, limit, exclude } = params || {};
       pyodide.globals.set("_q_kind", kind || "essentials");
@@ -199,11 +199,12 @@ _grid_res = _bridge.import_grid(_grid_bytes, dedup=${dedup !== false ? "True" : 
 `);
       result = pyodide.globals.get("_grid_res").toJs({ dict_converter: Object.fromEntries });
     } else if (method === "teach_char") {
-      const { label, strokes, width, pixel_strokes, deferred_save } = params || {};
+      const { label, strokes, width, calibrating, pixel_strokes, deferred_save } = params || {};
       pyodide.globals.set("_tchar_label", label || "");
       pyodide.globals.set("_tchar_strokes_json", JSON.stringify(strokes || null));
       pyodide.globals.set("_tchar_px_strokes_json", JSON.stringify(pixel_strokes || null));
       pyodide.globals.set("_tchar_width", width != null ? width : 0);
+      pyodide.globals.set("_tchar_calib", Boolean(calibrating));
       pyodide.globals.set("_tchar_deferred", deferred_save !== false);
       pyodide.runPython(`
 import json
@@ -213,6 +214,7 @@ _tchar_res = _bridge.teach_char(
     _tchar_label,
     strokes=_tc_strokes,
     width=_tchar_width,
+    calibrating=_tchar_calib,
     pixel_strokes=_tc_px,
     deferred_save=_tchar_deferred,
 )

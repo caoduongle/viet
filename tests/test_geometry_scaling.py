@@ -50,6 +50,7 @@ def test_math_ascent_descent_from_actual_strokes(tiny_bank):
     engine = MathLayoutEngine(tiny_bank, S=1.0)
     # Chữ 'h' cao vượt xh (stroke lên tới y = -15, trong khi xh = 7.0)
     tiny_bank.words["h"] = [{"s": [[0, 0, 0, -15, 5, -15, 5, 0]], "w": 8.0}]
+    tiny_bank.letters["h"] = [{"s": [[0, 0, 0, -15, 5, -15, 5, 0]], "w": 8.0}]
 
     item = engine.measure(TextNode("h"))
     # Ascent phải đo được chiều cao thật 15.0 chứ không bị cắt cụt ở 0.9 * 7 = 6.3

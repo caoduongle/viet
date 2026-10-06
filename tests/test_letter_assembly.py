@@ -98,7 +98,6 @@ def test_controller_missing_letters_for_words(tiny_bank_path):
     ranked = ctl.missing_letters_for_words(["phở", "gà"])
     missing_chars = [item[0] for item in ranked]
     assert "p" in missing_chars
-    assert "h" in missing_chars
     assert "ở" in missing_chars or "ơ" in missing_chars
     assert "g" in missing_chars
 

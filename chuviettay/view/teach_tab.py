@@ -36,7 +36,7 @@ class TeachTab(ttk.Frame):
 
         top = ttk.Frame(self)
         top.pack(fill="x")
-        ttk.Label(top, text="Thêm từ vào hàng đợi:").pack(side="left")
+        ttk.Label(top, text="Thêm ký tự vào hàng đợi:").pack(side="left")
         self.add_var = tk.StringVar()
         e = ttk.Entry(top, textvariable=self.add_var, width=20)
         e.pack(side="left", padx=4)
@@ -71,8 +71,8 @@ class TeachTab(ttk.Frame):
         act.pack(fill="x", pady=8)
         ttk.Button(act, text="Hoàn tác nét", command=self.canvas.undo).pack(side="left")
         ttk.Button(act, text="Xoá hết", command=self.canvas.clear).pack(side="left", padx=6)
-        ttk.Button(act, text="Bỏ qua từ này ⏭", command=self.skip_word).pack(side="left", padx=20)
-        self.save_btn = ttk.Button(act, text="Lưu từ này & tiếp theo →", command=self.save_word)
+        ttk.Button(act, text="Bỏ qua ký tự này ⏭", command=self.skip_word).pack(side="left", padx=20)
+        self.save_btn = ttk.Button(act, text="Lưu ký tự này & tiếp theo →", command=self.save_word)
         self.save_btn.pack(side="left")
 
         self.scale_lbl = ttk.Label(work, foreground="#888888")
@@ -83,17 +83,20 @@ class TeachTab(ttk.Frame):
 
     # ------------------------------------------------------------ hàng đợi
     def load_queue(self, words: Iterable[str]) -> None:
-        for w in words:
-            if w not in self.queue:
-                self.queue.append(w)
+        import unicodedata
+        for item in words:
+            for ch in unicodedata.normalize("NFC", item):
+                if not ch.isspace() and ch not in self.queue:
+                    self.queue.append(ch)
         self._refresh()
 
     def add_word(self) -> None:
         w = self.add_var.get().strip()
-        # Không tách theo khoảng trắng: gõ "cà phê" sẽ dạy đúng CỤM đó như một nhãn,
-        # y hệt việc viết "cà phê" vào một ô khi dùng cách cũ qua Xournal++.
-        if w and w not in self.queue:
-            self.queue.append(w)
+        if w:
+            import unicodedata
+            for ch in unicodedata.normalize("NFC", w):
+                if not ch.isspace() and ch not in self.queue:
+                    self.queue.append(ch)
         self.add_var.set("")
         self._refresh()
 
@@ -174,21 +177,21 @@ class TeachTab(ttk.Frame):
         self._refresh()
 
     def skip_word(self) -> None:
-        self._calib_pending = False   # bỏ qua từ mốc = huỷ luôn việc hiệu chỉnh
+        self._calib_pending = False   # bỏ qua ký tự mốc = huỷ luôn việc hiệu chỉnh
         self._refresh(advance=True)
 
     # ------------------------------------------------------------ hiệu chỉnh cỡ tay
     def start_calibration(self) -> None:
-        word = self.ctl.pick_calibration_word()
-        if not word:
-            messagebox.showinfo("Chưa có dữ liệu", "Kho mẫu chưa có từ nào để dùng làm mốc hiệu chỉnh.")
+        char = self.ctl.pick_calibration_char()
+        if not char:
+            messagebox.showinfo("Chưa có dữ liệu", "Kho mẫu chưa có ký tự nào để dùng làm mốc hiệu chỉnh.")
             return
         self._calib_pending = True
-        self.queue.insert(0, word)
+        self.queue.insert(0, char)
         self._refresh()
         messagebox.showinfo("Hiệu chỉnh cỡ tay",
-                            "Viết từ '%s' đúng như bạn viết bình thường (không cần cố to/nhỏ), rồi bấm Lưu."
-                            % word)
+                            "Viết ký tự '%s' đúng như bạn viết bình thường (không cần cố to/nhỏ), rồi bấm Lưu."
+                            % char)
 
     def _update_scale_label(self) -> None:
         if self._calibrated:
@@ -205,25 +208,23 @@ class TeachTab(ttk.Frame):
         self._update_scale_label()
         self.canvas.draw_guides()
 
-    # ------------------------------------------------------------ lưu / chuyển từ
+    # ------------------------------------------------------------ lưu / chuyển ký tự
     def save_word(self) -> None:
         if not self.current:
             return
         if not self.canvas.has_ink():
-            messagebox.showwarning("Chưa có nét nào", "Hãy vẽ từ này trước khi lưu.")
+            messagebox.showwarning("Chưa có nét nào", "Hãy vẽ ký tự này trước khi lưu.")
             return
         label = self.current
         rel, width = self.canvas.to_bank_strokes(self.ctl.session_scale)
         use_deferred = (self.ctl.bank_size >= 30) if self.ctl else False
         try:
-            if not self._calib_pending:
-                outcome = self.ctl.teach_char(label, rel, width, deferred_save=use_deferred)
-            else:
-                outcome = self.ctl.teach_word(
-                    label, rel, width,
-                    calibrating=self._calib_pending,
-                    recompute=self.canvas.to_bank_strokes,
-                    deferred_save=use_deferred)   # L14: Lưu hoãn cho kho lớn (>=30 từ) để UI <50ms
+            outcome = self.ctl.teach_char(
+                label, rel, width,
+                calibrating=self._calib_pending,
+                recompute=self.canvas.to_bank_strokes,
+                deferred_save=use_deferred,
+            )
         except Exception as e:  # noqa: BLE001
             report_error("Lỗi khi lưu", e, _log)
             return
@@ -244,9 +245,9 @@ class TeachTab(ttk.Frame):
         self.canvas.clear()
         self.canvas.draw_guides()
         if self.current:
-            title = self.current + ("   (từ để hiệu chỉnh cỡ tay)" if self._calib_pending else "")
+            title = self.current + ("   (ký tự để hiệu chỉnh cỡ tay)" if self._calib_pending else "")
             self.word_lbl.configure(text=title)
             self.save_btn.state(["!disabled"])
         else:
-            self.word_lbl.configure(text="(hàng đợi trống -- thêm từ ở trên)")
+            self.word_lbl.configure(text="(hàng đợi trống -- thêm ký tự ở trên)")
             self.save_btn.state(["disabled"])

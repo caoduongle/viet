@@ -223,12 +223,12 @@ class BrowserBridge:
         label: str,
         strokes: list[list[float]] | None = None,
         width: float | None = None,
-        category: str = "words",
+        category: str = "letters",
         calibrating: bool = False,
         pixel_strokes: list[list[tuple[float, float]]] | None = None,
         deferred_save: bool = True,
     ) -> dict[str, Any]:
-        """Lưu một mẫu chữ/từ/ký tự đã vẽ trực tiếp."""
+        """Lưu một mẫu ký tự đã vẽ trực tiếp."""
         try:
             if pixel_strokes:
                 norm_px = [[(float(pt[0]), float(pt[1])) for pt in st] for st in pixel_strokes]
@@ -239,17 +239,14 @@ class BrowserBridge:
                 w = float(width if width is not None else 0.0)
                 recompute_fn = None
 
-            if not calibrating and (category == "letters" or self._ctl.is_letter_token(label)):
-                outcome = self._ctl.teach_letter(label, rel_strokes, w, deferred_save=deferred_save)
-            else:
-                outcome = self._ctl.teach_word(
-                    label,
-                    rel_strokes,
-                    w,
-                    calibrating=calibrating,
-                    recompute=recompute_fn,
-                    deferred_save=deferred_save,
-                )
+            outcome = self._ctl.teach_char(
+                label,
+                rel_strokes,
+                w,
+                calibrating=calibrating,
+                recompute=recompute_fn,
+                deferred_save=deferred_save,
+            )
 
             res = {
                 "ok": True,
@@ -262,13 +259,17 @@ class BrowserBridge:
         except Exception as e:
             return _err_res(e)
 
-    def pick_calibration_word(self) -> dict[str, Any]:
-        """Chọn từ mốc ổn định để đo cỡ tay."""
+    def pick_calibration_char(self) -> dict[str, Any]:
+        """Chọn ký tự mốc ổn định để đo cỡ tay."""
         try:
-            w = self._ctl.pick_calibration_word()
-            return {"ok": True, "word": w}
+            ch = self._ctl.pick_calibration_char()
+            return {"ok": True, "char": ch, "word": ch}
         except Exception as e:
             return _err_res(e)
+
+    def pick_calibration_word(self) -> dict[str, Any]:
+        """Chọn từ/ký tự mốc ổn định để đo cỡ tay (deprecated alias)."""
+        return self.pick_calibration_char()
 
     def import_grid(self, xopp_bytes: bytes, dedup: bool = True) -> dict[str, Any]:
         """Nạp file .xopp lưới ô tập viết và cập nhật kho ký tự mẫu."""
@@ -286,6 +287,7 @@ class BrowserBridge:
         label: str,
         strokes: list[list[float]] | None = None,
         width: float | None = None,
+        calibrating: bool = False,
         pixel_strokes: list[list[tuple[float, float]]] | None = None,
         deferred_save: bool = True,
     ) -> dict[str, Any]:
@@ -294,14 +296,18 @@ class BrowserBridge:
             if pixel_strokes:
                 norm_px = [[(float(pt[0]), float(pt[1])) for pt in st] for st in pixel_strokes]
                 rel_strokes, w = strokes_to_bank_units(norm_px, self._ctl.session_scale)
+                recompute_fn = lambda new_scale: strokes_to_bank_units(norm_px, new_scale)
             else:
                 rel_strokes = [list(st) for st in (strokes or [])]
                 w = float(width if width is not None else 0.0)
+                recompute_fn = None
 
             outcome = self._ctl.teach_char(
                 label,
                 rel_strokes,
                 w,
+                calibrating=calibrating,
+                recompute=recompute_fn,
                 deferred_save=deferred_save,
             )
             return {

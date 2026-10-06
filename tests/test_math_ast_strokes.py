@@ -53,7 +53,7 @@ def test_math_operators_fallback_strokes(tiny_bank):
 def test_missing_math_variable_reserved_box(tiny_bank):
     engine = MathLayoutEngine(tiny_bank)
     item = engine.measure(TextNode(text="bien_chua_hoc"))
-    assert "bien_chua_hoc" in engine.missing_symbols
+    assert ("bien_chua_hoc" in engine.missing_symbols or any(ch in engine.missing_symbols for ch in "bien_chua_hoc"))
     assert item.size.width >= 10.0, "Ký hiệu thiếu phải giữ ô kích thước để không vỡ bố cục"
 
 

@@ -19,31 +19,31 @@ from tests.test_letter_assembly_quality import _create_quality_test_bank
 
 GOLDEN_REAL = {
     "co_ban": {
-        "xopp": "83e0967e609a5aaad50e3345ab0e19d8ae61c047c66802dfb70dd6fb153b5efe",
-        "thieu": "000440af2e0670beecdb7921c22d67440405fc3d28c37883c38785923f6ec333",
+        "xopp": "001683a9d8e219fb798fafddf311ea6af174f3c10f24f383c2685c2b4abe35bd",
+        "thieu": "6b336106a6ca50e7ca62fe93179cc3a2530c29c5669cd15be7b73102d9fbfde3",
     },
     "tuy_chon": {
-        "xopp": "190b4e1c1bf0cda0aa31d11b449d29240561a9e59b443864dbeb0f4e12b130e0",
+        "xopp": "ff88562804ff4f74b93cc6b676436e19b35371c787045b78b3c75e68d8f99c5a",
     },
     "nhieu_trang": {
-        "xopp": "90a2aaf90eabae2564473afdfe10dff519866c1a3cfe4702235510c108eff40f",
+        "xopp": "5552508f031d160fe23819e28693bf71ac2835e814639b9e0598faf7549a4542",
     },
     "strict_case": {
-        "xopp": "8ae4fe97061895859183839e788139d9823a9d7d2262bb3991cd9b184fbecea8",
-        "thieu": "ef93eae81ec0187f34ad86ef1874380a6085d6e9cd3e84d6001f38b20515a17f",
+        "xopp": "04beeac960da1920fc69912d9fc4872a62b56a84d3d3b37d02e68431beea7e7e",
+        "thieu": "acb51aba82031bdbdb376ab26d802b51292874722e59185c924aaf40774afa36",
     },
     "assemble_letters": {
         "xopp": "1d71a384018f13878f4da6abea651407b2af413b17d171c9b72ef6895a2fd589",
     },
     "math": {
-        "xopp": "e20f2e35fd52edf5500bfa9103b9bceab4743431d0850df10350f175b6ccd482",
+        "xopp": "7f4bc6d8f7f25b94817585958a55a9ef6bf31dd0ceb8c41cd061dcea17694d5b",
     },
     "table": {
-        "xopp": "9239b2e3e2c825a99b4d34537170690b263ad27f93711a55a9276879054c2c82",
+        "xopp": "bfa7b717d444908e1107ebc5cd6055963957ef2a047a9a3758671936ecd7b2ec",
     },
     "markdown_list": {
-        "xopp": "87a0e193035427d12e2b342b23cfd8c60117a09876a991581d6474640943a4c0",
-        "thieu": "3636548df75c288757d6f28fadf3b87a13b6cda61b4bfa154148323d637b13c9",
+        "xopp": "1537d84d1f21318955ec43ea1e8db44257f79ef0f12933142ede3978d3bbdbe2",
+        "thieu": "6364a7000d6c3dbbaf466d433c947a685e1ffad0c359367248df76659b1724ae",
     },
 }
 

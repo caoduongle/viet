@@ -19,7 +19,7 @@ let allBankItems = []; // Danh sách tất cả nhãn: [{ label, count, category
 let currentCategoryFilter = "all";
 let currentSearchQuery = "";
 let currentDetailLabel = null;
-let currentDetailCategory = "words";
+let currentDetailCategory = "letters";
 
 export function initBankTab(sendWorkerMessage) {
   sendWorkerFn = sendWorkerMessage;
@@ -129,24 +129,16 @@ export async function refreshBankView() {
       stats = statsRes.data || {};
       const summary = document.getElementById("bank-summary");
       if (summary) {
-        summary.textContent = `Kho mẫu hiện có ${stats.n_words || 0} từ, ${stats.n_letters || 0} chữ cái, ${stats.n_samples || 0} mẫu nét.`;
+        summary.textContent = `Kho mẫu hiện có ${stats.n_letters || 0} chữ cái, ${stats.n_samples || 0} mẫu nét.`;
       }
       const statusText = document.getElementById("status-text");
       if (statusText) {
-        statusText.textContent = `${stats.n_words || 0} từ / ${stats.n_samples || 0} mẫu`;
+        statusText.textContent = `${stats.n_letters || 0} chữ cái / ${stats.n_samples || 0} mẫu`;
       }
     }
 
-    // 3. Tổng hợp danh sách tất cả các nhãn
+    // 3. Tổng hợp danh sách tất cả các nhãn ký tự
     allBankItems = [];
-
-    // Từ vựng (words)
-    const wordsRes = await sendWorkerFn("list_words");
-    if (wordsRes.ok && Array.isArray(wordsRes.data)) {
-      for (const [w, count] of wordsRes.data) {
-        allBankItems.push({ label: w, count, category: "words" });
-      }
-    }
 
     // Chữ cái (letters)
     const lettersRes = await sendWorkerFn("list_letters");
@@ -206,7 +198,7 @@ export async function refreshBankView() {
 }
 
 function updateCategoryCounts() {
-  const counts = { all: allBankItems.length, words: 0, letters: 0, digits: 0, punct: 0, symbols: 0, marks: 0 };
+  const counts = { all: allBankItems.length, letters: 0, digits: 0, punct: 0, symbols: 0, marks: 0 };
   for (const item of allBankItems) {
     if (counts[item.category] !== undefined) {
       counts[item.category]++;

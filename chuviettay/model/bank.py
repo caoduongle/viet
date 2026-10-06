@@ -547,13 +547,28 @@ class Bank:
 
     # -------------------------------------------------------------- truy vấn
     def can(self, w: str) -> bool:
-        """Có đủ mẫu để viết được từ/token `w` không (khớp thẳng, hoặc ghép được từ
-        phần thân + dấu thanh rời)?"""
+        """Có đủ mẫu để viết được từ/token `w` không (tất cả ký tự cấu thành có mẫu trong
+        letters, digits, punct, symbols và marks)?"""
         with self._lock:
-            if w in self.words or w in self.digits or w in self.punct or w in self.symbols:
+            if w in self.digits or w in self.punct or w in self.symbols or w in self.words:
                 return True
             T = tone_info(w)[0]
-            return strip_tone(w) in self.tl and (not T or bool(self.marks.get(T)))
+            if strip_tone(w) in self.tl and (not T or bool(self.marks.get(T))):
+                return True
+            letters_dict = getattr(self, "letters", {})
+            if not letters_dict:
+                return False
+            import unicodedata
+            nfc_chars = list(unicodedata.normalize("NFC", w))
+            if all(ch in letters_dict or (ch.isupper() and ch.lower() in letters_dict) for ch in nfc_chars):
+                return True
+            from chuviettay.model.text_utils import split_letters
+            chars, T, _ = split_letters(w)
+            if not chars:
+                return False
+            if T and not self.marks.get(T):
+                return False
+            return all(ch in letters_dict or (ch.isupper() and ch.lower() in letters_dict) for ch in chars)
 
     def _clear_tombstone(self, label: str, category: str | None = None) -> None:
         """Gỡ bỏ tombstone và trạng thái đã xoá khi thêm lại mẫu cho `label`."""
@@ -586,6 +601,8 @@ class Bank:
                 target_dict = self.punct
             elif category == "symbols":
                 target_dict = self.symbols
+            elif category == "letters":
+                target_dict = self.letters
 
             # Khử trùng mẫu nét trùng lặp (T020)
             sig = sample_signature(rel_strokes)
@@ -620,6 +637,8 @@ class Bank:
                 target_dict = self.punct
             elif category == "symbols":
                 target_dict = self.symbols
+            elif category == "letters":
+                target_dict = self.letters
             existing = target_dict.get(label, [])
             count_before = len(existing)
 

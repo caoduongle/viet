@@ -25,10 +25,11 @@ def make_block_bank(path: str, xh: float = 7.0, with_letters: bool = True) -> st
         digits[ch] = [box(0.8 * xh, xh * 1.45)]
     for ch in ",.()[]|":
         punct[ch] = [box(0.4 * xh, xh * 1.2)]
-    data = {"schema_version": 2, "xh": xh, "wgaps": [6.0], "dgaps": [1.0], "line": 24.0, "v": 1, "x0": 78.0,
+    data = {"schema_version": 4, "xh": xh, "wgaps": [6.0], "dgaps": [1.0], "line": 24.0, "v": 1, "x0": 78.0,
             "width": 500.0, "ratio": 6.6,
             "pen": {"tool": "pen", "color": "#000000ff", "width": "1.41", "capStyle": "round"},
-            "words": words, "digits": digits, "punct": punct}
+            "words": words, "letters": words, "digits": digits, "punct": punct,
+            "symbols": {}, "marks": {}}
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with gzip.open(path, "wt", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)

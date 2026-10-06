@@ -14,7 +14,16 @@ import random
 
 from chuviettay.config import NANG, NUMRE, TOKRE
 from chuviettay.model.bank import Bank
-from chuviettay.model.text_utils import Stroke, bbox, clamp, near_extreme, shift, strip_tone, tone_info, vowel_x, weight
+from chuviettay.model.text_utils import (
+    Stroke,
+    bbox,
+    clamp,
+    near_extreme,
+    shift,
+    split_letters,
+    tone_info,
+    weight,
+)
 
 
 class Writer:
@@ -77,29 +86,11 @@ class Writer:
         if self.loose and core[:1].isupper():
             variants.append(core[:1].lower() + core[1:])
 
-        # Ưu tiên ghép từ ký tự mẫu khi từ có chứa ký tự chữ cái (R1)
-        if self.assemble_letters and any(ch.isalpha() for ch in core):
-            for c in variants:
-                r = self.assemble_word(c)
-                if r:
-                    self.assembled.append(core)
-                    return r
-
         for c in variants:
-            if c in self.b.words:
-                inst = self.pick(self.b.words[c], c)
-                return inst["s"], inst["w"]
-        for c in variants:
-            r = self.substitute(c)
+            r = self.assemble_word(c)
             if r:
+                self.assembled.append(core)
                 return r
-
-        if self.assemble_letters and not any(ch.isalpha() for ch in core):
-            for c in variants:
-                r = self.assemble_word(c)
-                if r:
-                    self.assembled.append(core)
-                    return r
         return None
 
     def get_letter_sample(self, char: str) -> dict | None:
@@ -118,11 +109,6 @@ class Writer:
             return self.pick(b.letters[char], "let:" + char)
         if self.loose and char.isupper() and getattr(b, "letters", None) and char.lower() in b.letters:
             return self.pick(b.letters[char.lower()], "let:" + char.lower())
-
-        if len(char) == 1 and char in b.words:
-            return self.pick(b.words[char], char)
-        if self.loose and char.isupper() and len(char) == 1 and char.lower() in b.words:
-            return self.pick(b.words[char.lower()], char.lower())
 
         if getattr(b, "digits", None) and char in b.digits:
             return self.pick(b.digits[char], "d" + char)
@@ -322,35 +308,6 @@ class Writer:
 
         return body_strokes, total_w
 
-    def substitute(self, c: str) -> tuple[list[Stroke], float] | None:
-        """Chưa có mẫu cho ĐÚNG từ `c`, nhưng có thể đã có mẫu cho từ khác cùng phần
-        thân (bỏ dấu thanh) + có nét dấu thanh rời phù hợp đã "gặt" được (bank.marks)
-        -- ghép 2 phần đó lại. Nếu nguyên âm mang dấu là "i" thì bỏ chấm trên đầu chữ i
-        gốc trước khi gắn dấu thanh vào (tránh chồng 2 dấu)."""
-        T, vi, hats, letters = tone_info(c)
-        lst = self.b.tl.get(strip_tone(c))
-        if not lst or (T and not self.b.marks.get(T)):
-            return None
-        _, inst = self.pick(lst, "tl:" + strip_tone(c))
-        body = [st for k, st in enumerate(inst["s"]) if k != inst.get("ti", -1)]
-        w = inst["w"]
-        if T and vi >= 0:
-            m = self.pick(self.b.marks[T], "m" + T)
-            xv = vowel_x(letters, vi, w)
-            cx = xv + m["dx"]
-            if T == NANG:
-                cy = max(0.0, near_extreme(body, cx, max)) + m["dy"]
-            else:
-                if letters[vi] == "i":        # có dấu trên thì bỏ chấm của chữ i
-                    xh = self.b.xh
-                    dots = [k for k, st in enumerate(body) if bbox(st)[3] < -0.9 * xh
-                            and bbox(st)[2] - bbox(st)[0] < 5 and abs((bbox(st)[0] + bbox(st)[2]) / 2 - xv) < 4]
-                    if dots:
-                        body = [st for k, st in enumerate(body) if k != dots[0]]
-                cy = near_extreme(body, cx, min) + m["dy"]
-            body = body + [shift(m["s"][0], cx, cy)]
-        return body, w
-
     # -- số
     def number(self, s: str) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một chuỗi số/dấu chấm-phẩy-gạch ngang (đã khớp NUMRE), từng ký tự một,
@@ -361,7 +318,7 @@ class Writer:
         gaps = b.d.get("dgaps") or [3.5]
         for ch in s:
             if ch in ",.":
-                lib = b.punct.get(ch) or b.punct.get(",") or b.punct.get(".") or b.words.get(ch)
+                lib = b.punct.get(ch) or b.punct.get(",") or b.punct.get(".")
                 if not lib:
                     missing.append(ch)
                     continue
@@ -370,7 +327,9 @@ class Writer:
                 x += max(st[i] for st in g["s"] for i in range(0, len(st), 2)) + 0.6
                 first = True
                 continue
-            lib = b.digits.get(ch) or b.words.get(ch)
+            lib = b.digits.get(ch)
+            if not lib and getattr(b, "words", None) and ch in b.words:
+                lib = b.words[ch]
             if not lib:
                 missing.append(ch)
                 continue
@@ -409,9 +368,11 @@ class Writer:
         không có mới tách ra lead (dấu mở ngoặc/nháy đầu) + core (phần thân: số hoặc
         từ) + trail (dấu đóng ngoặc/dấu câu cuối) rồi ghép từng phần."""
         b = self.b
-        if tok in b.words:
-            inst = self.pick(b.words[tok], tok)
-            return list(inst["s"]), inst["w"], []
+        if len(tok) == 1:
+            sample = self.get_letter_sample(tok)
+            if sample:
+                w_tok = self._punct_w(sample) if getattr(b, "punct", None) and tok in b.punct else sample.get("w", 1.0 * b.xh)
+                return list(sample["s"]), w_tok, []
         if getattr(b, "digits", None) and tok in b.digits:
             inst = self.pick(b.digits[tok], "d" + tok)
             return list(inst["s"]), inst["w"], []
@@ -425,11 +386,7 @@ class Writer:
         strokes: list[Stroke] = []
         x, miss = 0.0, []
         for ch in lead:
-            if ch in b.words:
-                inst = self.pick(b.words[ch], ch)
-                strokes += [shift(st, x, 0) for st in inst["s"]]
-                x += inst["w"] + 0.15 * b.xh
-            elif getattr(b, "punct", None) and ch in b.punct:
+            if getattr(b, "punct", None) and ch in b.punct:
                 inst = self.pick(b.punct[ch], "p" + ch)
                 strokes += [shift(st, x, 0) for st in inst["s"]]
                 x += self._punct_w(inst) + 0.15 * b.xh
@@ -437,6 +394,10 @@ class Writer:
                 inst = self.pick(b.symbols[ch], "sym:" + ch)
                 strokes += [shift(st, x, 0) for st in inst["s"]]
                 x += inst["w"] + 0.15 * b.xh
+            elif getattr(b, "letters", None) and ch in b.letters:
+                inst = self.pick(b.letters[ch], "let:" + ch)
+                strokes += [shift(st, x, 0) for st in inst["s"]]
+                x += inst.get("w", 1.0 * b.xh) + 0.15 * b.xh
             else:
                 miss.append(ch)
         if core:
@@ -449,7 +410,13 @@ class Writer:
                     st, w = r
                     m = []
                 else:
-                    st, w, m = [], weight(core) * b.d.get("ratio", 6.6), [core]
+                    st, w = [], weight(core) * b.d.get("ratio", 6.6)
+                    needed_chars, needed_tone, _ = split_letters(core)
+                    m = [ch for ch in needed_chars if not self.get_letter_sample(ch)]
+                    if needed_tone and not b.marks.get(needed_tone):
+                        m.append(needed_tone)
+                    if not m:
+                        m = [core]
                 miss += m
             strokes += [shift(s_, x, 0) for s_ in st]
             x += w
@@ -459,18 +426,18 @@ class Writer:
                 g = self.pick(lib, "p" + ch)
                 strokes += [shift(st, x, 0) for st in g["s"]]
                 x += max(st[i] for st in g["s"] for i in range(0, len(st), 2)) + 0.3
-            elif ch in b.words:
-                inst = self.pick(b.words[ch], ch)
-                strokes += [shift(st, x + 0.15 * b.xh, 0) for st in inst["s"]]
-                x += inst["w"] + 0.15 * b.xh
             elif getattr(b, "symbols", None) and ch in b.symbols:
                 inst = self.pick(b.symbols[ch], "sym:" + ch)
                 strokes += [shift(st, x + 0.15 * b.xh, 0) for st in inst["s"]]
                 x += inst["w"] + 0.15 * b.xh
+            elif getattr(b, "letters", None) and ch in b.letters:
+                inst = self.pick(b.letters[ch], "let:" + ch)
+                strokes += [shift(st, x + 0.15 * b.xh, 0) for st in inst["s"]]
+                x += inst.get("w", 1.0 * b.xh) + 0.15 * b.xh
             else:
                 miss.append(ch)
         if not core and not lead and trail == tok and (
-            tok not in b.words
+            tok not in getattr(b, "letters", {})
             and tok not in getattr(b, "punct", {})
             and tok not in getattr(b, "digits", {})
             and tok not in getattr(b, "symbols", {})

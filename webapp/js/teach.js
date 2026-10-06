@@ -197,10 +197,12 @@ export class TeachController {
   // ------------------------------------------------------------ Hàng đợi
   loadQueue(words) {
     if (!Array.isArray(words)) return;
-    for (const w of words) {
-      const clean = String(w).trim();
-      if (clean && !this.queue.includes(clean)) {
-        this.queue.push(clean);
+    for (const item of words) {
+      const normalized = String(item).normalize("NFC");
+      for (const ch of normalized) {
+        if (!/\s/.test(ch) && !this.queue.includes(ch)) {
+          this.queue.push(ch);
+        }
       }
     }
     this.refresh();
@@ -209,8 +211,11 @@ export class TeachController {
   addWordFromInput() {
     const val = this.dom.inputAdd.value.trim();
     if (val) {
-      if (!this.queue.includes(val)) {
-        this.queue.push(val);
+      const normalized = val.normalize("NFC");
+      for (const ch of normalized) {
+        if (!/\s/.test(ch) && !this.queue.includes(ch)) {
+          this.queue.push(ch);
+        }
       }
       this.dom.inputAdd.value = "";
       this.refresh();
@@ -218,15 +223,21 @@ export class TeachController {
   }
 
   teachWordDirectly(word) {
-    const clean = String(word).trim();
+    const clean = String(word).trim().normalize("NFC");
     if (!clean) return;
 
-    // Đưa lên đầu hàng đợi và chuyển ngay sang
-    const idx = this.queue.indexOf(clean);
-    if (idx !== -1) {
-      this.queue.splice(idx, 1);
+    // Tách thành các ký tự đơn lẻ
+    const chars = Array.from(clean).filter((ch) => !/\s/.test(ch));
+    if (chars.length === 0) return;
+
+    for (let i = chars.length - 1; i >= 0; i--) {
+      const ch = chars[i];
+      const idx = this.queue.indexOf(ch);
+      if (idx !== -1) {
+        this.queue.splice(idx, 1);
+      }
+      this.queue.unshift(ch);
     }
-    this.queue.unshift(clean);
     this.isCalibrating = false;
     this.refresh();
   }
@@ -402,20 +413,20 @@ export class TeachController {
   // ------------------------------------------------------------ Hiệu chỉnh cỡ tay
   async startCalibration() {
     try {
-      const res = await this.worker.request("pick_calibration_word");
-      if (!res || !res.ok || !res.word) {
-        alert("Kho mẫu chưa có từ nào đủ mẫu ổn định để dùng làm mốc hiệu chỉnh.");
+      const res = await this.worker.request("pick_calibration_char");
+      const calibChar = (res && res.char) || (res && res.word);
+      if (!res || !res.ok || !calibChar) {
+        alert("Kho mẫu chưa có ký tự nào đủ mẫu ổn định để dùng làm mốc hiệu chỉnh.");
         return;
       }
-      const calibWord = res.word;
       this.isCalibrating = true;
-      const idx = this.queue.indexOf(calibWord);
+      const idx = this.queue.indexOf(calibChar);
       if (idx !== -1) {
         this.queue.splice(idx, 1);
       }
-      this.queue.unshift(calibWord);
+      this.queue.unshift(calibChar);
       this.refresh();
-      alert(`Hiệu chỉnh cỡ tay: Viết từ '${calibWord}' đúng như bạn viết bình thường (không cần cố to/nhỏ), rồi bấm Lưu.`);
+      alert(`Hiệu chỉnh cỡ tay: Viết ký tự '${calibChar}' đúng như bạn viết bình thường (không cần cố to/nhỏ), rồi bấm Lưu.`);
     } catch (err) {
       alert("Lỗi khi kích hoạt hiệu chỉnh: " + err.message);
     }
@@ -433,7 +444,7 @@ export class TeachController {
   async saveWord() {
     if (!this.current) return;
     if (!this.canvas || !this.canvas.hasInk()) {
-      alert("Hãy vẽ từ này trước khi lưu.");
+      alert("Hãy vẽ ký tự này trước khi lưu.");
       return;
     }
 
@@ -445,22 +456,12 @@ export class TeachController {
       this.dom.btnSave.disabled = true;
       this.dom.btnSave.textContent = "Đang lưu...";
 
-      let res;
-      const isSingleChar = label.length === 1 || ["sắc", "huyền", "hỏi", "ngã", "nặng", "dấu sắc", "dấu huyền", "dấu hỏi", "dấu ngã", "dấu nặng"].includes(label.toLowerCase());
-      if (isSingleChar && !wasCalibrating) {
-        res = await this.worker.request("teach_char", {
-          label,
-          pixel_strokes: pixelStrokes,
-          deferred_save: true,
-        });
-      } else {
-        res = await this.worker.request("teach_sample", {
-          label,
-          pixel_strokes: pixelStrokes,
-          calibrating: wasCalibrating,
-          deferred_save: true,
-        });
-      }
+      const res = await this.worker.request("teach_char", {
+        label,
+        pixel_strokes: pixelStrokes,
+        calibrating: wasCalibrating,
+        deferred_save: true,
+      });
 
       if (!res || !res.ok) {
         throw new Error((res && res.error) || "Lỗi không xác định khi lưu mẫu.");
@@ -479,7 +480,7 @@ export class TeachController {
       const curCount = this.sampleCounts.get(label) || 0;
       this.sampleCounts.set(label, curCount + 1);
 
-      // Chuyển sang từ kế tiếp
+      // Chuyển sang ký tự kế tiếp
       this.refresh(true);
 
       // Thông báo cho app điều phối lưu tự động và đếm số mẫu
@@ -525,7 +526,7 @@ export class TeachController {
 
     // 2. Cập nhật vùng vẽ bên phải
     if (this.current) {
-      const isCalibText = this.isCalibrating ? " (từ mốc hiệu chỉnh)" : "";
+      const isCalibText = this.isCalibrating ? " (ký tự mốc hiệu chỉnh)" : "";
       this.dom.targetWord.textContent = this.current + isCalibText;
       this.dom.btnSave.disabled = !this.canvas || !this.canvas.hasInk();
       this.dom.btnSkip.disabled = false;
@@ -539,7 +540,7 @@ export class TeachController {
       // Lấy số mẫu đã có
       this._fetchExistingSampleCount(this.current);
     } else {
-      this.dom.targetWord.textContent = "(hàng đợi trống -- thêm từ ở trên)";
+      this.dom.targetWord.textContent = "(hàng đợi trống -- thêm ký tự ở trên)";
       this.dom.sampleCount.textContent = "";
       this.dom.btnSave.disabled = true;
       this.dom.btnSkip.disabled = true;

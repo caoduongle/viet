@@ -156,25 +156,28 @@ def _cmd_learn(ctl: AppController, a: argparse.Namespace) -> None:
 
 
 def _cmd_seed(ctl: AppController, a: argparse.Namespace) -> None:
+    print("Lưu ý: Lệnh 'seed' đã lỗi thời do dự án đã chuyển sang mô hình ghép ký tự.")
+    print("Vui lòng dùng: python hw_note.py grid --set co_ban -o %s" % a.out)
     r = ctl.export_seed_grid(a.n, a.out)
-    print("Đã tạo %s với %d từ (còn thiếu nhiều nhất trong văn bản thường gặp)." % (r.out_path, len(r.words)))
+    print("Đã tạo %s với %d từ." % (r.out_path, len(r.words)))
 
 
 def _cmd_check(ctl: AppController, a: argparse.Namespace) -> None:
     r = ctl.export_check(a.out)
-    print("Đã tạo %s (%d từ)." % (r.out_path, r.n_words))
+    print("Đã tạo %s (%d ký tự)." % (r.out_path, r.n_words))
 
 
 def _cmd_drop(ctl: AppController, a: argparse.Namespace) -> None:
-    r = ctl.drop_words(a.words)
-    for w, n in r.removed.items():
-        print("Đã xóa %d mẫu của '%s'" % (n, w) if n else "Không có '%s' trong kho" % w)
+    for w in a.words:
+        r = ctl.drop_char(w)
+        for ch, n in r.removed.items():
+            print("Đã xóa %d mẫu của '%s'" % (n, ch) if n else "Không có '%s' trong kho" % ch)
 
 
 def _cmd_stats(ctl: AppController, a: argparse.Namespace) -> None:
     s = ctl.get_stats()
-    print("%d từ, %d mẫu; chữ số: %s; dấu câu: %s" % (
-        s.n_words, s.n_samples,
+    print("%d chữ cái, %d mẫu; chữ số: %s; dấu câu: %s" % (
+        s.n_letters, s.n_samples,
         " ".join("%s:%d" % kv for kv in s.digit_counts.items()),
         " ".join("%s:%d" % kv for kv in s.punct_counts.items())))
     print("Dấu thanh có mẫu để ghép: " + " ".join("%d" % n for n in s.tone_mark_counts.values())

@@ -44,40 +44,42 @@ def compute_scale(
     return clamp(ref_width / measured_width, lo, hi)
 
 
-CALIB_CANDIDATE_CHARS = ("n", "o", "a", "m", "u", "e", "c", "r", "s", "v", "x")
+PREFERRED_CALIB_CHARS = ("o", "a", "e", "n", "u", "c", "m")
+
+
+def _calc_cv(insts: list[dict]) -> float:
+    ws = [inst.get("w", 0.0) for inst in insts]
+    if len(ws) < 2:
+        return 0.0
+    mean_w = statistics.mean(ws)
+    if mean_w <= 0:
+        return 0.0
+    return statistics.stdev(ws) / mean_w
 
 
 def pick_calib_char(bank: Any) -> str | None:
     """Chọn một ký tự trong kho đã có mẫu để đo cỡ tay (ưu tiên các chữ cái chuẩn x-height
-    có độ rộng và hình dáng ổn định: 'n', 'o', 'a', 'm', 'u'...).
-
-    Nếu không có chữ cái ưu tiên, lấy bất kỳ ký tự nào trong bank.letters có >= 1 mẫu.
-    Trả về None nếu kho letters rỗng.
+    có độ rộng và hình dáng ổn định: 'o', 'a', 'e', 'n', 'u', 'c', 'm').
     """
     letters = getattr(bank, "letters", {})
     if not letters:
         return None
 
-    # 1. Tìm trong danh sách ứng viên ưu tiên
-    best_char: str | None = None
-    max_samples = 0
-    for ch in CALIB_CANDIDATE_CHARS:
-        if ch in letters and len(letters[ch]) > 0:
-            if len(letters[ch]) > max_samples:
-                max_samples = len(letters[ch])
-                best_char = ch
+    # 1. Preferred characters with >= 3 samples
+    pref_cands = [ch for ch in PREFERRED_CALIB_CHARS if ch in letters and len(letters[ch]) >= 3]
+    if pref_cands:
+        return min(pref_cands, key=lambda ch: (_calc_cv(letters[ch]), -len(letters[ch])))
 
-    if best_char is not None:
-        return best_char
+    # 2. Other lowercase characters with >= 3 samples
+    other_cands = [
+        ch for ch, insts in letters.items()
+        if len(ch) == 1 and ch.isalpha() and ch.islower() and len(insts) >= 3
+    ]
+    if other_cands:
+        return min(other_cands, key=lambda ch: (_calc_cv(letters[ch]), -len(letters[ch])))
 
-    # 2. Tìm ký tự thường có nhiều mẫu nhất
-    for ch, insts in sorted(letters.items(), key=lambda item: -len(item[1])):
-        if len(ch) == 1 and ch.isalpha() and ch.islower() and len(insts) > 0:
-            return ch
-
-    # 3. Lấy ký tự đầu tiên có mẫu
-    for ch, insts in letters.items():
-        if insts:
-            return ch
-
-    return None
+    # 3. Any letter with most samples
+    valid = [(ch, insts) for ch, insts in letters.items() if insts]
+    if not valid:
+        return None
+    return max(valid, key=lambda item: len(item[1]))[0]

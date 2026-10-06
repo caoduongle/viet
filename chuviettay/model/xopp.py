@@ -139,21 +139,26 @@ def cell_xy(n: int) -> tuple[int, float, float]:
     return p, MXT + c * CW, MYT + r * CH
 
 
+def pick_calibration_char(bank: "Bank") -> str | None:
+    """Chọn một chữ cái đã có mẫu và độ rộng ổn định trong bank.letters để làm mốc đo cỡ tay."""
+    from chuviettay.model.calibration import pick_calib_char
+    return pick_calib_char(bank)
+
+
 def pick_calib_word(bank: "Bank") -> str | None:
-    """Chọn một từ đã có NHIỀU mẫu và độ rộng ổn định (ít dao động giữa các lần viết),
-    để dùng làm "ô đo cỡ tay" đầu tiên trong file lưới ô -- ưu tiên từ càng nhiều mẫu,
-    càng ổn định càng tốt."""
-    best, best_score = None, -1e9
-    for k, lst in bank.words.items():
-        if len(lst) < 5 or " " in k or not k.isalpha():
-            continue
-        ws = [i["w"] for i in lst]
-        mu = sum(ws) / len(ws)
-        cv = statistics.pstdev(ws) / mu if mu else 1.0
-        score = len(lst) - 6 * cv
-        if score > best_score:
-            best, best_score = k, score
-    return best or next(iter(bank.words), None)
+    """Chọn từ/ký tự mốc để đo cỡ tay: ưu tiên pick_calibration_char, fallback sang bank.words."""
+    char = pick_calibration_char(bank)
+    if char:
+        return char
+    # Fallback cho kho cũ chỉ có bank.words
+    words_dict = getattr(bank, "words", {})
+    if not words_dict:
+        return None
+    preferred = ["xin", "ba", "chào", "người", "không", "một", "và"]
+    for w in preferred:
+        if w in words_dict and len(words_dict[w]) >= 2:
+            return w
+    return max(words_dict.keys(), key=lambda k: len(words_dict[k]), default=None)
 
 
 def make_grid(
@@ -177,8 +182,15 @@ def make_grid(
              đánh dấu gì đặc biệt trên chữ, chỉ nhận ra qua VỊ TRÍ ô đầu tiên + thẻ ẩn
              hw3c hoặc hw2c) để công cụ tự chỉnh cỡ chữ mới học cho khớp cỡ tay đã học trước đó.
     """
+    cw = None
+    if calib:
+        if samples:
+            matching = [k for k in samples if k not in labels and (k in getattr(bank, "words", {}) or k in getattr(bank, "letters", {}))]
+            cw = matching[0] if matching else pick_calib_word(bank)
+        else:
+            cw = pick_calib_word(bank)
+
     if grid_version == "hw2":
-        cw = pick_calib_word(bank) if calib else None
         if cw:
             labels = [cw] + list(labels)
         per = COLS * ROWS
@@ -209,7 +221,6 @@ def make_grid(
         return
 
     # Chuẩn hw3 (4 đường kẻ mốc + 2 vạch giới hạn lề)
-    cw = pick_calib_word(bank) if calib else None
     if cw:
         labels = [cw] + list(labels)
     per = COLS * ROWS

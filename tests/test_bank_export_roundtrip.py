@@ -46,7 +46,7 @@ def test_bank_export_roundtrip_cli_stats(tmp_path, capsys):
     assert rc == 0
 
     captured = capsys.readouterr()
-    assert "từ" in captured.out
+    assert "chữ cái" in captured.out or "từ" in captured.out
     assert "mẫu" in captured.out
 
 

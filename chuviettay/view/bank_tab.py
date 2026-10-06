@@ -56,29 +56,23 @@ class BankTab(ttk.Frame):
         ttk.Separator(right).pack(fill="x", pady=8)
         ttk.Button(right, text="Chọn kho mẫu khác...", command=on_choose_bank).pack(fill="x", pady=2)
 
-        self._all_words: list[tuple[str, int]] = []   # (từ, số mẫu)
-        self._all_letters: list[tuple[str, int]] = [] # (chữ cái, số mẫu)
-        self._shown: list[tuple[str, str]] = []       # [(loại, nhãn), ...]
+        self._all_chars: list[tuple[str, str, int]] = []  # [(loại, nhãn, số mẫu), ...]
+        self._shown: list[tuple[str, str]] = []            # [(loại, nhãn), ...]
         self.refresh()
 
     def refresh(self) -> None:
         self.stats_lbl.configure(text=format_stats_gui(self.ctl.get_stats()))
-        self._all_words = self.ctl.list_words()
-        self._all_letters = self.ctl.list_letters() if hasattr(self.ctl, "list_letters") else []
+        self._all_chars = self.ctl.list_all_chars()
         self._filter()
 
     def _filter(self) -> None:
         q = self.search_var.get().strip().lower()
         self.word_list.delete(0, "end")
         self._shown = []
-        for w, n in self._all_words:
-            if q in w.lower():
-                self._shown.append(("word", w))
-                self.word_list.insert("end", "%s  (%d mẫu)" % (w, n))
-        for ch, n in self._all_letters:
+        for kind, ch, n in self._all_chars:
             if q in ch.lower():
-                self._shown.append(("letter", ch))
-                self.word_list.insert("end", "[chữ cái] %s  (%d mẫu)" % (ch, n))
+                self._shown.append((kind, ch))
+                self.word_list.insert("end", "[%s] %s  (%d mẫu)" % (kind, ch, n))
 
     def selected_item(self) -> tuple[str, str] | None:
         sel = self.word_list.curselection()
@@ -93,14 +87,11 @@ class BankTab(ttk.Frame):
         if item is None:
             return
         kind, label = item
-        prompt = "Xoá chữ cái '%s' khỏi kho?" % label if kind == "letter" else "Xoá hết mẫu của '%s' khỏi kho?" % label
+        prompt = "Xoá %s '%s' khỏi kho?" % (kind, label)
         if not messagebox.askyesno("Xoá mẫu", prompt):
             return
         try:
-            if kind == "letter":
-                self.ctl.drop_letter(label)
-            else:
-                self.ctl.drop_words([label])
+            self.ctl.drop_char(label)
         except Exception as e:  # noqa: BLE001
             report_error("Lỗi khi xoá", e, _log)
             return
@@ -117,4 +108,4 @@ class BankTab(ttk.Frame):
         except Exception as e:  # noqa: BLE001
             report_error("Lỗi khi xuất file kiểm tra", e, _log)
             return
-        messagebox.showinfo("Xong", "Đã tạo %s (%d từ)." % (result.out_path, result.n_words))
+        messagebox.showinfo("Xong", "Đã tạo %s (%d ký tự)." % (result.out_path, result.n_words))

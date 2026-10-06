@@ -40,7 +40,7 @@ from chuviettay.model import learning, xopp
 from chuviettay.model.bank import (  # noqa: F401  (re-export cho cli.py/view)
     Bank, BankCorruptedError, BankError, BankNotFoundError, BankValidationError, UnsupportedSchemaVersionError,
 )
-from chuviettay.model.calibration import compute_scale, pick_calib_char
+from chuviettay.model.calibration import compute_scale
 from chuviettay.model.char_catalog import CharCatalogGroup, CATALOG_GROUPS, get_catalog_group
 from chuviettay.model.seed_words import SEED
 from chuviettay.model.text_utils import Stroke, classify_char
@@ -138,8 +138,13 @@ class AppController:
 
     @property
     def bank_size(self) -> int:
-        """Số lượng từ trong kho mẫu hiện tại."""
-        return len(self.bank.words) if self.bank else 0
+        """Tổng số lượng ký tự trong kho mẫu hiện tại."""
+        if not self.bank:
+            return 0
+        letters = getattr(self.bank, "letters", {})
+        symbols = getattr(self.bank, "symbols", {})
+        marks = getattr(self.bank, "marks", {})
+        return len(letters) + len(self.bank.digits) + len(self.bank.punct) + len(symbols) + sum(1 for v in marks.values() if v)
 
     @property
     def x_height(self) -> float:
@@ -252,13 +257,14 @@ class AppController:
         _log.info("Học thêm %d mẫu từ %d file", result.n_added, len(files))
         return result
 
-    def pick_calibration_word(self) -> str | None:
-        """Ký tự/từ đã có nhiều mẫu, độ rộng ổn định -- dùng làm mốc để hiệu chỉnh cỡ tay."""
+    def pick_calibration_char(self) -> str | None:
+        """Ký tự mốc đã có nhiều mẫu, độ rộng ổn định -- dùng làm mốc để hiệu chỉnh cỡ tay."""
         b = self._require_bank()
-        c = pick_calib_char(b)
-        if c:
-            return c
-        return xopp.pick_calib_word(b)
+        return xopp.pick_calibration_char(b)
+
+    def pick_calibration_word(self) -> str | None:
+        """Deprecated alias: gọi pick_calibration_char()."""
+        return self.pick_calibration_char()
 
     def teach_word(
         self,
@@ -269,47 +275,8 @@ class AppController:
         recompute: Callable[[float], tuple[list[Stroke], float]] | None = None,
         deferred_save: bool = False,
     ) -> TeachOutcome:
-        """Lưu MỘT từ vừa vẽ trực tiếp trong app (không qua file .xopp trung gian).
-
-        rel_strokes/width: nét + độ rộng đã quy về đơn vị kho mẫu bằng session_scale
-            HIỆN TẠI (việc quy đổi từ pixel màn hình là của view/word_canvas.py).
-        calibrating: đây là từ mốc do pick_calibration_word() chọn -- so độ rộng vừa
-            vẽ với độ rộng trung vị đã học trước đây của đúng từ đó để suy ra hệ số
-            cỡ tay MỚI (calibration.compute_scale), cập nhật self.session_scale rồi
-            tính lại nét/độ rộng theo hệ số mới trước khi lưu.
-        recompute: hàm nhận hệ số mới, trả (nét, độ rộng) tính lại TỪ DỮ LIỆU PIXEL GỐC
-            (view truyền canvas.to_bank_strokes vào đây). Chính xác nhất vì không bị
-            làm tròn 2 lần. Nếu không truyền, tự co giãn nét đã có theo tỉ lệ mới/cũ
-            (kết quả tương đương, lệch tối đa ~0.01 đơn vị do làm tròn).
-        deferred_save: nếu True, đánh dấu dirty và lên lịch ghi hoãn (debounced 2.0s)
-            thay vì ghi đè đồng bộ ngay lập tức, giúp UI phản hồi < 50ms.
-        """
-        bank = self._require_bank()
-        recalibrated = False
-        if calibrating:
-            ref_list = bank.words.get(label)
-            if ref_list and width > 0.5:
-                raw_width = width / self.session_scale     # quy ngược về "thô" (chưa nhân hệ số cũ)
-                new_scale = compute_scale(ref_list, raw_width)
-                if recompute is not None:
-                    rel_strokes, width = recompute(new_scale)
-                else:
-                    factor = new_scale / self.session_scale
-                    rel_strokes = [[round(v * factor, 2) for v in s] for s in rel_strokes]
-                    width = round(width * factor, 2)
-                self.session_scale = new_scale
-                recalibrated = True
-
-        instance = bank.add_sample_incremental(label, rel_strokes, width)
-        bank.mark_dirty()
-        if deferred_save:
-            self.schedule_save()
-        else:
-            bank.save()
-        _log.info("Dạy từ %r (%s), hệ số cỡ tay phiên hiện tại: %.2fx",
-                  label, "hiệu chỉnh cỡ tay" if recalibrated else "bình thường", self.session_scale)
-        return TeachOutcome(label=label, instance=instance,
-                            session_scale=self.session_scale, recalibrated=recalibrated)
+        """Deprecated alias: chuyển hướng sang teach_char()."""
+        return self.teach_char(label, rel_strokes, width, calibrating=calibrating, recompute=recompute, deferred_save=deferred_save)
 
     def teach_letter(
         self,
@@ -415,13 +382,41 @@ class AppController:
         label: str,
         rel_strokes: list[Stroke],
         width: float,
+        calibrating: bool = False,
+        recompute: Callable[[float], tuple[list[Stroke], float]] | None = None,
         deferred_save: bool = False,
     ) -> TeachOutcome:
         """Lưu một mẫu ký tự (chữ cái, chữ số, dấu câu, ký hiệu, hoặc dấu thanh) vào kho tương ứng."""
         bank = self._require_bank()
         cat = classify_char(label)
-        instance: dict
+        recalibrated = False
 
+        if calibrating:
+            target_list = None
+            if cat == "letters":
+                target_list = getattr(bank, "letters", {}).get(label)
+            elif cat == "digits":
+                target_list = bank.digits.get(label)
+            elif cat == "symbols":
+                target_list = getattr(bank, "symbols", {}).get(label)
+            elif cat == "punct":
+                target_list = bank.punct.get(label)
+            elif cat == "words":
+                target_list = bank.words.get(label)
+
+            if target_list and width > 0.5:
+                raw_width = width / self.session_scale
+                new_scale = compute_scale(target_list, raw_width)
+                if recompute is not None:
+                    rel_strokes, width = recompute(new_scale)
+                else:
+                    factor = new_scale / self.session_scale
+                    rel_strokes = [[round(v * factor, 2) for v in s] for s in rel_strokes]
+                    width = round(width * factor, 2)
+                self.session_scale = new_scale
+                recalibrated = True
+
+        instance: dict
         if cat == "marks":
             tone_code = xopp.HW3_TONE_MAP.get(label.lower(), label)
             if rel_strokes:
@@ -450,7 +445,7 @@ class AppController:
             label=label,
             instance=instance,
             session_scale=self.session_scale,
-            recalibrated=False,
+            recalibrated=recalibrated,
         )
 
     def get_char_catalog(self, group_id: str = "co_ban") -> CharCatalogGroup:
@@ -539,12 +534,19 @@ class AppController:
     def get_stats(self) -> BankStats:
         bank = self._require_bank()
         letters = getattr(bank, "letters", {})
+        total_samples = (
+            sum(len(v) for v in letters.values())
+            + sum(len(v) for v in bank.digits.values())
+            + sum(len(v) for v in bank.punct.values())
+            + sum(len(v) for v in getattr(bank, "symbols", {}).values())
+            + sum(len(v) for v in bank.marks.values())
+        )
         return BankStats(
             n_words=len(bank.words),
-            n_samples=sum(len(v) for v in bank.words.values()),
+            n_samples=total_samples,
             digit_counts={k: len(v) for k, v in sorted(bank.digits.items())},
             punct_counts={k: len(v) for k, v in bank.punct.items()},
-            tone_mark_counts={t: len(bank.marks[t]) for t in TONES},
+            tone_mark_counts={t: len(bank.marks.get(t, [])) for t in TONES},
             n_letters=len(letters),
             letter_counts={k: len(v) for k, v in sorted(letters.items())},
         )
@@ -598,14 +600,49 @@ class AppController:
         return self.drop_words([char], category=cat)
 
     def export_check(self, out_path: str) -> CheckResult:
-        """Lệnh `check`: xuất file lưới ô xem lại toàn bộ chữ đã học (kèm chữ gõ)."""
+        """Lệnh `check`: xuất file lưới ô xem lại toàn bộ ký tự đã học (kèm chữ gõ)."""
         bank = self._require_bank()
-        keys = sorted(bank.words)
-        samples = {k: bank.words[k][0]["s"] for k in keys}
+        keys_set = set()
+        keys_set.update(getattr(bank, "letters", {}).keys())
+        keys_set.update(bank.digits.keys())
+        keys_set.update(bank.punct.keys())
+        keys_set.update(getattr(bank, "symbols", {}).keys())
+        keys = sorted(keys_set)
+        samples = {}
+        for k in keys:
+            if k in getattr(bank, "letters", {}) and bank.letters[k]:
+                samples[k] = bank.letters[k][0]["s"]
+            elif k in bank.digits and bank.digits[k]:
+                samples[k] = bank.digits[k][0]["s"]
+            elif k in bank.punct and bank.punct[k]:
+                samples[k] = bank.punct[k][0]["s"]
+            elif k in getattr(bank, "symbols", {}) and bank.symbols[k]:
+                samples[k] = bank.symbols[k][0]["s"]
         xopp.make_grid(
             out_path, keys, bank,
-            "Kiểm tra kho mẫu: chữ gõ ở góc ô phải khớp chữ viết tay. "
-            "Sai thì: python hw_note.py drop <từ>",
+            "Kiểm tra kho mẫu ký tự: chữ gõ ở góc ô phải khớp chữ viết tay. "
+            "Sai thì: python hw_note.py drop <ký_tự>",
             samples, calib=False, grid_version="hw3")
-        _log.info("Xuất file kiểm tra %s (%d từ)", out_path, len(keys))
+        _log.info("Xuất file kiểm tra %s (%d ký tự)", out_path, len(keys))
         return CheckResult(out_path=out_path, n_words=len(keys))
+
+    def list_all_chars(self) -> list[tuple[str, str, int]]:
+        """Lấy danh sách tất cả các ký tự đã học kèm loại và số lượng mẫu.
+        Trả về danh sách tuple: (loại, nhãn, số lượng mẫu).
+        """
+        if self.bank is None:
+            return []
+        bank = self.bank
+        result: list[tuple[str, str, int]] = []
+        for ch, insts in sorted(getattr(bank, "letters", {}).items()):
+            result.append(("chữ cái", ch, len(insts)))
+        for d, insts in sorted(bank.digits.items()):
+            result.append(("chữ số", d, len(insts)))
+        for p, insts in sorted(bank.punct.items()):
+            result.append(("dấu câu", p, len(insts)))
+        for s, insts in sorted(getattr(bank, "symbols", {}).items()):
+            result.append(("ký hiệu", s, len(insts)))
+        for m, insts in sorted(bank.marks.items()):
+            result.append(("dấu thanh", m, len(insts)))
+        return result
+

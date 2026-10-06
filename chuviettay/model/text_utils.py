@@ -126,8 +126,6 @@ def missing_letters_ranked(
         w_clean = w.strip()
         if not w_clean:
             continue
-        if w_clean in words_bank and words_bank[w_clean]:
-            continue
 
         letters, tone, _ = split_letters(w_clean)
         needed_in_word: set[str] = set()
@@ -336,8 +334,8 @@ def classify_char(label: str, known_symbols: Any = None) -> str:
     if len(lbl) == 1 and lbl.isalpha():
         return "letters"
 
-    # Từ gồm nhiều chữ cái
-    if len(lbl) > 1 and lbl.isalpha():
+    # Từ gồm nhiều chữ cái hoặc có dấu gạch dưới
+    if len(lbl) > 1 and (lbl.isalpha() or "_" in lbl):
         return "words"
 
     # Fallback theo Unicode category
@@ -353,7 +351,7 @@ def classify_char(label: str, known_symbols: Any = None) -> str:
             return "marks"
         return "symbols"
 
-    return "symbols"
+    return "words"
 
 
 def sample_signature(strokes: list[Stroke]) -> str:

@@ -29,6 +29,8 @@ def test_txt_importer_preserves_blank_lines():
 def test_document_layout_engine_empty_paragraph_spacing(tiny_bank, tmp_path):
     tiny_bank.words["A"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
     tiny_bank.words["B"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
+    tiny_bank.letters["A"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
+    tiny_bank.letters["B"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
 
     importer = TxtImporter()
 

@@ -10,6 +10,9 @@ def test_table_column_alignments(tiny_bank, tmp_path):
     tiny_bank.words["A"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
     tiny_bank.words["B"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
     tiny_bank.words["C"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
+    tiny_bank.letters["A"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
+    tiny_bank.letters["B"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
+    tiny_bank.letters["C"] = [{"s": [[0, 0, 5, -10, 10, 0]], "w": 10.0}]
 
     row = TableRow(cells=[
         TableCell.from_text("A"),
