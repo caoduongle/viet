@@ -290,6 +290,68 @@ def classify_token(token: str, known_symbols: Any = None) -> str:
     return "words"
 
 
+HW3_TONE_NAMES = {
+    "dấu sắc": "\u0301",
+    "dấu huyền": "\u0300",
+    "dấu hỏi": "\u0309",
+    "dấu ngã": "\u0303",
+    "dấu nặng": "\u0323",
+    "sắc": "\u0301",
+    "huyền": "\u0300",
+    "hỏi": "\u0309",
+    "ngã": "\u0303",
+    "nặng": "\u0323",
+}
+
+
+def classify_char(label: str, known_symbols: Any = None) -> str:
+    """Phân loại một nhãn ký tự vào một trong 5 nhóm chính:
+    - 'marks': dấu thanh rời (kể cả tên tiếng Việt như 'dấu sắc' hoặc combining accent)
+    - 'letters': chữ cái đơn (hoặc digraphs tiếng Việt nếu chấp nhận)
+    - 'digits': chữ số đơn
+    - 'punct': dấu câu
+    - 'symbols': ký hiệu toán học / glyph đặc biệt
+    """
+    lbl = label.strip()
+    if not lbl:
+        return "symbols"
+
+    # Kiểm tra dấu thanh tiếng Việt rời
+    if lbl.lower() in HW3_TONE_NAMES or lbl in TONES:
+        return "marks"
+
+    # Chữ số
+    if lbl.isdigit() and len(lbl) == 1:
+        return "digits"
+
+    # Dấu câu
+    if lbl in PUNCT_CHARS:
+        return "punct"
+
+    # Ký hiệu đặc biệt / LaTeX
+    if is_symbol_label(lbl, known_symbols):
+        return "symbols"
+
+    # Chữ cái
+    if len(lbl) == 1 and lbl.isalpha():
+        return "letters"
+
+    # Fallback theo Unicode category
+    if len(lbl) == 1:
+        cat = unicodedata.category(lbl)
+        if cat.startswith("L"):
+            return "letters"
+        if cat.startswith("N"):
+            return "digits"
+        if cat.startswith("P"):
+            return "punct"
+        if cat.startswith("M"):
+            return "marks"
+        return "symbols"
+
+    return "symbols"
+
+
 def sample_signature(strokes: list[Stroke]) -> str:
     """Tạo chữ ký băm (SHA-256) từ tọa độ nét vẽ đã làm tròn để phát hiện và khử trùng mẫu học trùng lặp."""
     import hashlib

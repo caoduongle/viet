@@ -400,17 +400,192 @@ def parse_learn_file(path: str) -> tuple[dict[tuple[int, int, int], RawCell], bo
             left = min(min(s[0::2]) for s in sts)
             right = max(max(s[0::2]) for s in sts)
             cell_x0 = MXT + cell[0] * CW
-            lsb = max(0.0, left - (cell_x0 + HW3_LEFT_MARGIN_X))
-            rsb = max(0.0, (cell_x0 + HW3_RIGHT_MARGIN_X) - right)
+            # Sửa F2: Bearing được tính theo contour quang học của chữ thay vì lấy khoảng cách
+            # tới vạch lề HW3_LEFT_MARGIN_X (12.0) và HW3_RIGHT_MARGIN_X (116.0) khiến chữ bị giãn 10 lần.
+            from chuviettay.model.text_utils import compute_side_bearings
+            w_raw = right - left
+            calc_lsb, calc_rsb, _ = compute_side_bearings(label, sts, w_raw, xh=8.0)
             raw[(pi,) + cell] = RawCell(
                 label=label,
                 base=base,
                 left=left,
                 right=right,
                 strokes=sts,
-                lsb=round(lsb, 2),
-                rsb=round(rsb, 2),
+                lsb=round(calc_lsb, 2),
+                rsb=round(calc_rsb, 2),
                 is_hw3=is_hw3,
                 cell_x0=cell_x0,
             )
     return raw, has_calib
+
+
+@dataclass
+class GridImportResult:
+    """Báo cáo thống kê chi tiết kết quả nạp file lưới vào kho."""
+    total_cells: int = 0
+    cells_with_ink: int = 0
+    added_samples: int = 0
+    duplicate_samples: int = 0
+    empty_cells: int = 0
+    skipped_multi_char: int = 0
+    rejected_cells: int = 0
+    errors: list[str] = field(default_factory=list)
+    updated_xh: float | None = None
+
+
+def import_char_grid(
+    bank: "Bank",
+    xopp_content_or_path: str | bytes,
+    dedup: bool = True,
+) -> GridImportResult:
+    """Nạp file lưới tập viết (.xopp) vào kho mẫu ký tự (Bank).
+    
+    Hỗ trợ cả đường dẫn file hoặc bytes/chuỗi XML (trên web worker).
+    Đảm bảo tính idempotent, phân loại ký tự chuẩn qua classify_char,
+    bỏ qua các cụm từ cũ có báo cáo, và tự động cập nhật x-height nếu kho rỗng.
+    """
+    import tempfile
+    from chuviettay.model.text_utils import classify_char, sample_signature
+
+    tmp_path = None
+    if isinstance(xopp_content_or_path, (bytes, bytearray)):
+        with tempfile.NamedTemporaryFile(suffix=".xopp", delete=False) as f:
+            f.write(xopp_content_or_path)
+            tmp_path = f.name
+        file_path = tmp_path
+    elif isinstance(xopp_content_or_path, str) and not os.path.exists(xopp_content_or_path):
+        # Có thể là chuỗi XML trực tiếp
+        with tempfile.NamedTemporaryFile(suffix=".xopp", delete=False, mode="wt", encoding="utf-8") as f:
+            f.write(xopp_content_or_path)
+            tmp_path = f.name
+        file_path = tmp_path
+    else:
+        file_path = str(xopp_content_or_path)
+
+    res = GridImportResult()
+    try:
+        raw_cells, has_calib = parse_learn_file(file_path)
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+    res.total_cells = len(raw_cells)
+    res.cells_with_ink = len(raw_cells)
+
+    # Hiệu chỉnh scale nếu có ô calib (0, 0, 0)
+    scale = 1.0
+    if has_calib and (0, 0, 0) in raw_cells:
+        cal = raw_cells[(0, 0, 0)]
+        from chuviettay.model.calibration import compute_scale
+        got = cal.right - cal.left
+        cal_insts = getattr(bank, "letters", {}).get(cal.label)
+        if cal_insts:
+            scale = compute_scale(cal_insts, got)
+
+    # Danh sách chiều cao các chữ cái chuẩn x-height để cập nhật xh nếu cần
+    x_height_measured: list[float] = []
+
+    for r in raw_cells.values():
+        lbl = r.label.strip()
+        if not lbl:
+            res.rejected_cells += 1
+            continue
+
+        # Kiểm tra nếu là cụm nhiều chữ (từ cũ 343 ô khi sinh bằng --with-clusters)
+        if len(lbl) > 1 and lbl.lower() not in HW3_TONE_MAP and lbl not in VIETNAMESE_DIGRAPHS:
+            res.skipped_multi_char += 1
+            continue
+
+        cat = classify_char(lbl)
+        rel_strokes = [[round((v - (r.left if i % 2 == 0 else r.base)) * scale, 2)
+                        for i, v in enumerate(s)] for s in r.strokes]
+        width = round((r.right - r.left) * scale, 2)
+
+        if not rel_strokes or width <= 0:
+            res.rejected_cells += 1
+            continue
+
+        # Thu thập chiều cao của các chữ cái chuẩn x-height
+        if cat == "letters" and lbl in ("n", "o", "a", "m", "u", "c", "e", "x", "v"):
+            all_ys = [v for s in rel_strokes for v in s[1::2]]
+            if all_ys:
+                h_val = max(all_ys) - min(all_ys)
+                if h_val > 0:
+                    x_height_measured.append(h_val)
+
+        # 1. Dấu thanh rời
+        tone_code = HW3_TONE_MAP.get(lbl.lower())
+        if cat == "marks" or tone_code:
+            t_code = tone_code or lbl
+            if t_code in bank.marks:
+                xh = getattr(bank, "xh", 7.94) or 7.94
+                all_xs = [v for s in r.strokes for v in s[0::2]]
+                all_ys = [v for s in r.strokes for v in s[1::2]]
+                mark_cx = sum(all_xs) / len(all_xs) if all_xs else r.left
+                mark_cy = sum(all_ys) / len(all_ys) if all_ys else r.base
+                ghost_cx = getattr(r, "cell_x0", 0.0) + CW / 2.0
+                ghost_top = r.base - xh
+                dx = (mark_cx - ghost_cx) * scale
+                dy = (mark_cy - r.base) * scale if t_code == "\u0323" else (mark_cy - ghost_top) * scale
+                scaled_st = [[round(coord * scale, 2) for coord in s] for s in r.strokes]
+
+                before_len = len(bank.marks.get(t_code, []))
+                bank.add_tone_sample(t_code, scaled_st, dx=dx, dy=dy, dedup=dedup)
+                if len(bank.marks.get(t_code, [])) > before_len:
+                    res.added_samples += 1
+                else:
+                    res.duplicate_samples += 1
+                continue
+
+        # 2. Chữ cái
+        if cat == "letters":
+            before_len = len(getattr(bank, "letters", {}).get(lbl, []))
+            bank.add_letter_sample(lbl, rel_strokes, width, dedup=dedup, lsb=r.lsb, rsb=r.rsb)
+            if len(bank.letters.get(lbl, [])) > before_len:
+                res.added_samples += 1
+            else:
+                res.duplicate_samples += 1
+            continue
+
+        # 3. Chữ số
+        if cat == "digits":
+            before_len = len(bank.digits.get(lbl, []))
+            bank.add_sample(lbl, rel_strokes, width, dedup=dedup)
+            if len(bank.digits.get(lbl, [])) > before_len:
+                res.added_samples += 1
+            else:
+                res.duplicate_samples += 1
+            continue
+
+        # 4. Dấu câu
+        if cat == "punct":
+            before_len = len(bank.punct.get(lbl, []))
+            bank.add_sample(lbl, rel_strokes, width, dedup=dedup)
+            if len(bank.punct.get(lbl, [])) > before_len:
+                res.added_samples += 1
+            else:
+                res.duplicate_samples += 1
+            continue
+
+        # 5. Ký hiệu
+        if cat == "symbols":
+            before_len = len(getattr(bank, "symbols", {}).get(lbl, []))
+            bank.add_symbol_sample(lbl, rel_strokes, width, dedup=dedup)
+            if len(bank.symbols.get(lbl, [])) > before_len:
+                res.added_samples += 1
+            else:
+                res.duplicate_samples += 1
+            continue
+
+    # Cập nhật x-height của kho nếu kho rỗng hoặc lệch đáng kể
+    if x_height_measured and (getattr(bank, "xh", 0) <= 0 or not getattr(bank, "letters", {})):
+        new_xh = round(statistics.median(x_height_measured), 2)
+        bank.xh = new_xh
+        res.updated_xh = new_xh
+
+    bank.rebuild()
+    bank.save()
+    return res

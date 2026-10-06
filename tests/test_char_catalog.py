@@ -41,13 +41,13 @@ def test_classify_char():
     assert classify_char("dấu nặng") == "marks"
 
 
-def test_pick_calib_char():
+def test_pick_calib_char(tmp_path):
     """Kiểm tra hàm calibration.pick_calib_char chọn ký tự mốc đo x-height thay vì từ."""
     from chuviettay.model.calibration import pick_calib_char
     from chuviettay.model.bank import Bank
 
     # Kho rỗng
-    bank = Bank.create_empty("temp_calib.json.gz")
+    bank = Bank.create_empty(str(tmp_path / "temp_calib.json.gz"))
     assert pick_calib_char(bank) is None
 
     # Kho chỉ có chữ 'a' và 'n'

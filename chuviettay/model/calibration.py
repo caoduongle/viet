@@ -41,3 +41,42 @@ def compute_scale(
     ref_width = statistics.median(inst["w"] for inst in ref_instances)
     lo, hi = bounds
     return clamp(ref_width / measured_width, lo, hi)
+
+
+CALIB_CANDIDATE_CHARS = ("n", "o", "a", "m", "u", "e", "c", "r", "s", "v", "x")
+
+
+def pick_calib_char(bank: Any) -> str | None:
+    """Chọn một ký tự trong kho đã có mẫu để đo cỡ tay (ưu tiên các chữ cái chuẩn x-height
+    có độ rộng và hình dáng ổn định: 'n', 'o', 'a', 'm', 'u'...).
+    
+    Nếu không có chữ cái ưu tiên, lấy bất kỳ ký tự nào trong bank.letters có >= 1 mẫu.
+    Trả về None nếu kho letters rỗng.
+    """
+    letters = getattr(bank, "letters", {})
+    if not letters:
+        return None
+
+    # 1. Tìm trong danh sách ứng viên ưu tiên
+    best_char: str | None = None
+    max_samples = 0
+    for ch in CALIB_CANDIDATE_CHARS:
+        if ch in letters and len(letters[ch]) > 0:
+            if len(letters[ch]) > max_samples:
+                max_samples = len(letters[ch])
+                best_char = ch
+
+    if best_char is not None:
+        return best_char
+
+    # 2. Tìm ký tự thường có nhiều mẫu nhất
+    for ch, insts in sorted(letters.items(), key=lambda item: -len(item[1])):
+        if len(ch) == 1 and ch.isalpha() and ch.islower() and len(insts) > 0:
+            return ch
+
+    # 3. Lấy ký tự đầu tiên có mẫu
+    for ch, insts in letters.items():
+        if insts:
+            return ch
+
+    return None
