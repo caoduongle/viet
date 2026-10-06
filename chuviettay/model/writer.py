@@ -23,7 +23,7 @@ class Writer:
 
     def __init__(self, bank: Bank, rnd: random.Random | None = None, jitter: float = 1.0,
                  loose_case: bool = True, space: float = 1.0,
-                 assemble_letters: bool = False,
+                 assemble_letters: bool = True,
                  letter_gap: float = 1.0,
                  pen_clearance_factor: float = 0.8,
                  stable_variants: bool = False,
@@ -68,13 +68,23 @@ class Writer:
 
     # -- một từ tiếng Việt
     def word(self, core: str) -> tuple[list[Stroke], float] | None:
-        """Ghép MỘT từ (đã tách khỏi số/dấu câu bao quanh). Thử khớp thẳng (kể cả biến
-        thể hạ chữ hoa đầu nếu loose_case), rồi mới thử ghép thân-chữ + dấu-thanh-rời
-        (substitute), rồi thử ghép từ các chữ cái mẫu (assemble_word).
+        """Ghép MỘT từ (đã tách khỏi số/dấu câu bao quanh).
+        Theo R1: Nếu từ chứa ký tự chữ cái và bật assemble_letters, ưu tiên ghép từ các chữ cái mẫu (assemble_word).
+        Nếu không có đủ chữ cái mẫu (hoặc không chứa ký tự chữ cái, ví dụ ký hiệu toán học / kho cũ),
+        thử khớp thẳng (kể cả biến thể hạ chữ hoa đầu nếu loose_case), rồi mới thử ghép thân-chữ + dấu-thanh-rời (substitute).
         None nếu hoàn toàn chưa có mẫu nào dùng được."""
         variants = [core]
         if self.loose and core[:1].isupper():
             variants.append(core[:1].lower() + core[1:])
+
+        # Ưu tiên ghép từ ký tự mẫu khi từ có chứa ký tự chữ cái (R1)
+        if self.assemble_letters and any(ch.isalpha() for ch in core):
+            for c in variants:
+                r = self.assemble_word(c)
+                if r:
+                    self.assembled.append(core)
+                    return r
+
         for c in variants:
             if c in self.b.words:
                 inst = self.pick(self.b.words[c], c)
@@ -83,7 +93,8 @@ class Writer:
             r = self.substitute(c)
             if r:
                 return r
-        if self.assemble_letters:
+
+        if self.assemble_letters and not any(ch.isalpha() for ch in core):
             for c in variants:
                 r = self.assemble_word(c)
                 if r:
@@ -124,9 +135,12 @@ class Writer:
 
         xh = getattr(b, "xh", 7.94)
         from chuviettay.model.text_utils import get_vector_glyph_fallback
-        fb = get_vector_glyph_fallback(char, xh=xh)
-        if fb:
-            return fb
+        # Không sinh nét vector dự phòng cho các toán tử số học/quan hệ như '+', '-', '=' khi tìm mẫu chữ cái
+        # để nhường chỗ cho MathLayoutEngine và punct xử lý tự nhiên.
+        if char not in "+-=<>/*":
+            fb = get_vector_glyph_fallback(char, xh=xh)
+            if fb:
+                return fb
 
         return None
 
@@ -240,11 +254,15 @@ class Writer:
             rsb_prev = prev_inst.get("rsb")
             if rsb_prev is None:
                 rsb_prev = 0.04 * xh if rc_prev == "CURVED" else (0.06 * xh if rc_prev == "OPEN" else 0.08 * xh)
+            else:
+                rsb_prev = min(rsb_prev, 0.3 * xh)
 
             lc_curr = inst.get("lc") or classify_left_contour(ch)
             lsb_curr = inst.get("lsb")
             if lsb_curr is None:
                 lsb_curr = 0.04 * xh if lc_curr == "CURVED" else (0.06 * xh if lc_curr == "OPEN" else 0.08 * xh)
+            else:
+                lsb_curr = min(lsb_curr, 0.3 * xh)
 
             pair_gap = contour_pair_gap(rc_prev, lc_curr, xh=xh) * self.letter_gap
             advance = prev_w + rsb_prev + pair_gap + lsb_curr

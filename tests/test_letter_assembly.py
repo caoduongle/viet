@@ -141,18 +141,14 @@ def test_writer_assemble_word_with_tone_and_i_dot_suppression(tmp_path):
     # Tone '\u0300' (huyền)
     bank.add_tone_sample("\u0300", [0.0, 0.0, 3.0, -2.0], dx=0.0, dy=-3.0)
 
-    # assemble_letters=False -> word("gì") returns None
-    wr_off = Writer(bank, random.Random(42), assemble_letters=False)
-    assert wr_off.word("gì") is None
-
-    # assemble_letters=True -> word("gì") synthesizes and suppresses dot
-    wr_on = Writer(bank, random.Random(42), assemble_letters=True)
-    res = wr_on.word("gì")
+    # Luôn tự động ghép chữ (R1): Writer luôn synthesizes và suppresses dot cho chữ i khi có dấu
+    wr = Writer(bank, random.Random(42))
+    res = wr.word("gì")
     assert res is not None
     strokes, w = res
     # 'g' (1 stroke) + 'i' without dot (1 stroke) + tone (1 stroke) = 3 strokes
     assert len(strokes) == 3
-    assert "gì" in wr_on.assembled
+    assert "gì" in wr.assembled
 
 
 def test_kerning_pairs_different_contours(tmp_path):
