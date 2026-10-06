@@ -2,8 +2,8 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 
-const PORT = 8000;
-const DIST_DIR = path.resolve("webapp/dist");
+const PORT = Number(process.env.PORT) || 8000;
+const DIST_DIR = path.resolve(process.env.DIST_DIR || "webapp/dist");
 
 const MIME_TYPES = {
   ".html": "text/html",
@@ -19,10 +19,24 @@ const MIME_TYPES = {
 };
 
 const server = http.createServer((req, res) => {
-  let reqPath = req.url.split("?")[0];
+  let reqPath;
+  try {
+    reqPath = decodeURIComponent(req.url.split("?")[0]);
+  } catch {
+    res.writeHead(400, { "Content-Type": "text/plain" });
+    res.end("Bad Request");
+    return;
+  }
   if (reqPath === "/") reqPath = "/index.html";
 
   const filePath = path.join(DIST_DIR, reqPath);
+
+  // Chặn path traversal (../) thoát khỏi thư mục dist
+  if (filePath !== DIST_DIR && !filePath.startsWith(DIST_DIR + path.sep)) {
+    res.writeHead(403, { "Content-Type": "text/plain" });
+    res.end("Forbidden");
+    return;
+  }
 
   if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
     res.writeHead(404, { "Content-Type": "text/plain" });

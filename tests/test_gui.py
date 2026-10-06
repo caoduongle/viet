@@ -12,7 +12,7 @@ if not conftest.is_tk_usable():
 
 pytestmark = [pytest.mark.gui]
 
-from tkinter import TclError, filedialog, messagebox, simpledialog  # noqa: E402
+from tkinter import TclError, filedialog, messagebox  # noqa: E402
 
 from chuviettay.controller.app_controller import AppController  # noqa: E402
 from chuviettay.model.bank import Bank  # noqa: E402
@@ -257,13 +257,40 @@ def test_luu_khi_chua_ve_thi_canh_bao_va_khong_luu(app, dlg, tiny_bank_path):
     assert dlg.kinds() == ["showwarning"] and len(Bank(tiny_bank_path).words["ba"]) == 2
 
 
-def test_nap_tu_thong_dung(app, monkeypatch, dlg):
-    monkeypatch.setattr(simpledialog, "askinteger", lambda *a, **kw: 5)
+def _bam_nut_trong_hop_thoai_bo_ky_tu(t, nhan):
+    """Tìm hộp thoại 'Chọn bộ ký tự' (Toplevel con của tab) và bấm nút có nhãn `nhan`."""
+    t.update()
+    wins = [w for w in t.winfo_children() if w.winfo_class() == "Toplevel"]
+    assert len(wins) == 1
+    stack = [wins[0]]
+    while stack:
+        w = stack.pop()
+        if w.winfo_class() == "TButton" and w.cget("text") == nhan:
+            w.invoke()
+            return
+        stack.extend(w.winfo_children())
+    raise AssertionError("không thấy nút %r" % nhan)
+
+
+def test_nap_bo_ky_tu_co_ban(app, dlg):
+    """Nút nạp ký tự mở hộp thoại chọn bộ; bấm 'Nạp ký tự' thêm ký tự còn thiếu, không trùng hàng đợi."""
     t = app.teach_tab
     t.add_var.set("tôi"); t.add_word()
+    assert t.queue == ["tôi"]
     t.add_seed()
-    assert len(t.queue) == 6 and t.queue.count("tôi") == 1                # không thêm trùng từ đã có trong hàng đợi
+    _bam_nut_trong_hop_thoai_bo_ky_tu(t, "Nạp ký tự")
+    expected = app.ctl.get_missing_chars("co_ban", exclude=["tôi"])
+    assert expected, "kho nhỏ của test phải còn thiếu ký tự cơ bản"
+    assert t.queue == ["tôi"] + expected
+    assert t.queue.count("tôi") == 1                                      # không thêm trùng mục đã có trong hàng đợi
     assert dlg.kinds() == ["showinfo"]
+
+
+def test_huy_bo_ky_tu_khong_them_gi(app, dlg):
+    t = app.teach_tab
+    t.add_seed()
+    _bam_nut_trong_hop_thoai_bo_ky_tu(t, "Huỷ")
+    assert t.queue == [] and dlg.kinds() == []
 
 
 def test_hieu_chinh_co_tay_luong_day_du(app, tiny_bank_path, dlg):
