@@ -48,7 +48,7 @@ class BankTab(ttk.Frame):
 
         right = ttk.Frame(mid, padding=(12, 0, 0, 0))
         right.pack(side="left", fill="y")
-        ttk.Button(right, text="Xoá từ đã chọn", command=self.drop_selected).pack(fill="x", pady=2)
+        ttk.Button(right, text="Xoá mục đã chọn", command=self.drop_selected).pack(fill="x", pady=2)
         ttk.Separator(right).pack(fill="x", pady=8)
         ttk.Button(right, text="Xuất file kiểm tra lại (.xopp)...", command=self.export_check).pack(fill="x", pady=2)
         ttk.Label(right, text="(mở file này trong Xournal++ để\nxem chữ gõ có khớp chữ viết tay)",

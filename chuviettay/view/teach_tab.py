@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import tkinter as tk
 from collections.abc import Iterable
-from tkinter import messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from chuviettay.controller.app_controller import AppController
 from chuviettay.view.dialogs import report_error
@@ -42,8 +42,8 @@ class TeachTab(ttk.Frame):
         e.pack(side="left", padx=4)
         e.bind("<Return>", lambda ev: self.add_word())
         ttk.Button(top, text="Thêm", command=self.add_word).pack(side="left")
-        ttk.Button(top, text="Bộ tối thiểu", command=self.add_minimal_essentials).pack(side="left", padx=6)
-        ttk.Button(top, text="Nạp từ thông dụng còn thiếu...", command=self.add_seed).pack(side="left", padx=6)
+        ttk.Button(top, text="Bộ ký tự…", command=self.add_char_catalog).pack(side="left", padx=6)
+        ttk.Button(top, text="Nạp file lưới…", command=self.import_grid_file).pack(side="left", padx=6)
         ttk.Button(top, text="Xoá hàng đợi", command=self.clear_queue).pack(side="left")
         ttk.Button(top, text="Hiệu chỉnh cỡ tay", command=self.start_calibration).pack(side="right")
 
@@ -97,24 +97,75 @@ class TeachTab(ttk.Frame):
         self.add_var.set("")
         self._refresh()
 
+    def add_char_catalog(self) -> None:
+        """Chọn nhóm ký tự và nạp các ký tự còn thiếu vào hàng đợi."""
+        win = tk.Toplevel(self)
+        win.title("Chọn bộ ký tự")
+        win.geometry("360x220")
+        win.transient(self)
+        win.grab_set()
+
+        ttk.Label(win, text="Chọn bộ ký tự cần nạp vào hàng đợi:").pack(anchor="w", padx=12, pady=(12, 6))
+        v_group = tk.StringVar(value="co_ban")
+        options = [
+            ("co_ban", "Cơ bản (chữ cái, chữ số, dấu câu, dấu thanh)"),
+            ("toan_hy_lap", "Toán học & Hy Lạp (α, β, +, =, ≤, ∫...)"),
+            ("mo_rong", "Mở rộng (ký hiệu $, €, %, #, @...)"),
+            ("day_du", "Đầy đủ (toàn bộ các bộ trên)"),
+        ]
+        for val, lbl in options:
+            ttk.Radiobutton(win, text=lbl, value=val, variable=v_group).pack(anchor="w", padx=16, pady=2)
+
+        def on_ok():
+            group_id = v_group.get()
+            todo = self.ctl.get_missing_chars(group_id, exclude=self.queue)
+            win.destroy()
+            if not todo:
+                messagebox.showinfo("Đầy đủ", "Kho mẫu đã có đủ các ký tự trong bộ này.")
+                return
+            self.queue.extend(todo)
+            self._refresh()
+            messagebox.showinfo("Đã nạp", "Đã thêm %d ký tự vào hàng đợi." % len(todo))
+
+        btn_box = ttk.Frame(win)
+        btn_box.pack(fill="x", side="bottom", padx=12, pady=12)
+        ttk.Button(btn_box, text="Nạp ký tự", command=on_ok).pack(side="right")
+        ttk.Button(btn_box, text="Huỷ", command=win.destroy).pack(side="right", padx=6)
+
+    def import_grid_file(self) -> None:
+        """Nạp file lưới .xopp đã viết tay để thêm mẫu ký tự vào kho."""
+        path = filedialog.askopenfilename(
+            title="Chọn file lưới .xopp",
+            filetypes=[("Xournal++", "*.xopp"), ("Tất cả", "*.*")],
+            parent=self,
+        )
+        if not path:
+            return
+        try:
+            r = self.ctl.import_grid(path)
+            msg = f"Đã nạp file lưới thành công!\n- Thêm mới: {r.added_samples} mẫu\n- Trùng lặp: {r.duplicate_samples} mẫu"
+            if r.skipped_multi_char:
+                msg += f"\n- Bỏ qua cụm từ cũ: {r.skipped_multi_char} ô"
+            if r.rejected_cells:
+                msg += f"\n- Ô không hợp lệ: {r.rejected_cells} ô"
+            if r.updated_xh:
+                msg += f"\n- Cập nhật x-height: {r.updated_xh:.2f} pt"
+            messagebox.showinfo("Kết quả nạp lưới", msg)
+            self._refresh()
+        except Exception as e:  # noqa: BLE001
+            report_error("Lỗi khi nạp file lưới", e, _log)
+
     def add_minimal_essentials(self) -> None:
         todo = self.ctl.missing_minimal_essentials(exclude=self.queue)
         if not todo:
-            messagebox.showinfo("Đầy đủ", "Kho mẫu đã có đủ bộ tối thiểu (chữ số, dấu câu và các từ phổ biến).")
+            messagebox.showinfo("Đầy đủ", "Kho mẫu đã có đủ bộ tối thiểu.")
             return
         self.queue.extend(todo)
         self._refresh()
-        messagebox.showinfo("Đã nạp", "Đã thêm %d mục tối thiểu vào hàng đợi." % len(todo))
+        messagebox.showinfo("Đã nạp", "Đã thêm %d mục vào hàng đợi." % len(todo))
 
     def add_seed(self) -> None:
-        n = simpledialog.askinteger("Nạp từ thông dụng", "Nạp bao nhiêu từ còn thiếu?",
-                                    initialvalue=50, minvalue=1, maxvalue=5000, parent=self)
-        if not n:
-            return
-        todo = self.ctl.missing_seed_words(n, exclude=self.queue)
-        self.queue.extend(todo)
-        self._refresh()
-        messagebox.showinfo("Đã nạp", "Đã thêm %d từ vào hàng đợi." % len(todo))
+        self.add_char_catalog()
 
     def clear_queue(self) -> None:
         self.queue = []
@@ -165,8 +216,8 @@ class TeachTab(ttk.Frame):
         rel, width = self.canvas.to_bank_strokes(self.ctl.session_scale)
         use_deferred = (self.ctl.bank_size >= 30) if self.ctl else False
         try:
-            if not self._calib_pending and self.ctl.is_letter_token(label):
-                outcome = self.ctl.teach_letter(label, rel, width, deferred_save=use_deferred)
+            if not self._calib_pending:
+                outcome = self.ctl.teach_char(label, rel, width, deferred_save=use_deferred)
             else:
                 outcome = self.ctl.teach_word(
                     label, rel, width,

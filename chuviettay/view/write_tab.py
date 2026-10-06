@@ -96,7 +96,7 @@ class WriteTab(ttk.Frame):
         self.v_background = tk.StringVar(value="Trắng (Plain)")
         self.v_spacing = tk.StringVar(value="")
         self.v_mode = tk.StringVar(value="Tự do (Semantic)")
-        self.v_assemble = tk.BooleanVar(value=False)
+        self.v_assemble = tk.BooleanVar(value=True)
         self.v_missing_grid = tk.BooleanVar(value=True)
         self.custom_paper_width: float | None = None
         self.custom_paper_height: float | None = None
@@ -132,11 +132,9 @@ class WriteTab(ttk.Frame):
         self.miss_list.pack(side="left", fill="both", expand=True)
         act_box = ttk.Frame(misswrap)
         act_box.pack(side="left", padx=6, anchor="n", pady=4)
-        ttk.Button(act_box, text="Dạy các từ này →",
-                   command=self.teach_missing).pack(fill="x", pady=2)
         ttk.Button(act_box, text="Dạy chữ cái thiếu →",
                    command=self.teach_missing_letters).pack(fill="x", pady=2)
-        ttk.Button(act_box, text="Dạy bộ tối thiểu →",
+        ttk.Button(act_box, text="Dạy bộ ký tự cơ bản →",
                    command=self.teach_minimal_essentials).pack(fill="x", pady=2)
 
     def _build_options(self, right: ttk.Frame) -> None:
@@ -544,9 +542,9 @@ class WriteTab(ttk.Frame):
         self.on_teach_missing([w for w, _n in self.last_missing])
 
     def teach_minimal_essentials(self) -> None:
-        todo = self.ctl.missing_minimal_essentials()
+        todo = self.ctl.get_missing_chars("co_ban")
         if not todo:
-            messagebox.showinfo("Đầy đủ", "Kho mẫu đã có đủ bộ tối thiểu (chữ số, dấu câu và các từ phổ biến).")
+            messagebox.showinfo("Đầy đủ", "Kho mẫu đã có đủ bộ ký tự cơ bản.")
             return
         self.on_teach_missing(todo)
 

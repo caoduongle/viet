@@ -585,6 +585,18 @@ class AppController:
         _log.info("Xoá từ khỏi kho: %s", removed)
         return DropResult(removed=removed)
 
+    def drop_letter(self, letter: str) -> DropResult:
+        """Xoá một chữ cái khỏi kho mẫu."""
+        return self.drop_words([letter], category="letters")
+
+    def drop_char(self, char: str) -> DropResult:
+        """Xoá ký tự khỏi danh mục tương ứng (letters, digits, punct, symbols, marks)."""
+        cat = classify_char(char)
+        if cat == "marks":
+            tone_code = xopp.HW3_TONE_MAP.get(char.lower(), char)
+            return self.drop_words([tone_code], category="marks")
+        return self.drop_words([char], category=cat)
+
     def export_check(self, out_path: str) -> CheckResult:
         """Lệnh `check`: xuất file lưới ô xem lại toàn bộ chữ đã học (kèm chữ gõ)."""
         bank = self._require_bank()
