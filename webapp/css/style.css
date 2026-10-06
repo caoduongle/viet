@@ -10,10 +10,44 @@
   --status-busy: #f59e0b;
   --status-error: #ef4444;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* Canvas and guide tokens */
+  --canvas-bg: #ffffff;
+  --canvas-border: #cbd5e1;
+  --canvas-guide-base: #a0a0a0;
+  --canvas-guide-xheight: #c8c8c8;
+}
+
+:root[data-theme="light"] {
+  --primary: #1976d2;
+  --primary-hover: #1565c0;
+  --bg-color: #f8fafc;
+  --surface-color: #ffffff;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --border-color: #e2e8f0;
+  --canvas-bg: #ffffff;
+  --canvas-border: #cbd5e1;
+  --canvas-guide-base: #a0a0a0;
+  --canvas-guide-xheight: #c8c8c8;
+}
+
+:root[data-theme="dark"] {
+  --primary: #3b82f6;
+  --primary-hover: #60a5fa;
+  --bg-color: #0f172a;
+  --surface-color: #1e293b;
+  --text-primary: #f8fafc;
+  --text-secondary: #94a3b8;
+  --border-color: #334155;
+  --canvas-bg: #1e293b;
+  --canvas-border: #475569;
+  --canvas-guide-base: #64748b;
+  --canvas-guide-xheight: #475569;
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --primary: #3b82f6;
     --primary-hover: #60a5fa;
     --bg-color: #0f172a;
@@ -21,6 +55,10 @@
     --text-primary: #f8fafc;
     --text-secondary: #94a3b8;
     --border-color: #334155;
+    --canvas-bg: #1e293b;
+    --canvas-border: #475569;
+    --canvas-guide-base: #64748b;
+    --canvas-guide-xheight: #475569;
   }
 }
 
@@ -502,7 +540,7 @@ main {
   border: 1px solid var(--border-color);
   border-radius: 8px;
   overflow: hidden;
-  background: #ffffff;
+  background: var(--canvas-bg);
   position: relative;
   width: 100%;
   max-width: 760px;
@@ -547,10 +585,19 @@ main {
   transition: transform 0.1s ease, box-shadow 0.1s ease, border-color 0.1s ease;
 }
 
+.bank-card {
+  position: relative;
+}
+
 .bank-card:hover {
   transform: translateY(-2px);
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.08);
   border-color: var(--primary);
+}
+
+.bank-card.selected {
+  border-color: var(--primary);
+  background-color: rgba(25, 118, 210, 0.06);
 }
 
 .bank-card-thumb {
@@ -559,7 +606,7 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f8fafc;
+  background: var(--bg-color);
   border-radius: 4px;
   overflow: hidden;
 }
@@ -595,6 +642,20 @@ main {
 .coverage-good {
   background: #dcfce7;
   color: #166534;
+}
+
+:root[data-theme="dark"] .coverage-low {
+  background: #713f12;
+  color: #fef08a;
+}
+
+:root[data-theme="dark"] .coverage-good {
+  background: #14532d;
+  color: #bbf7d0;
+}
+
+:root[data-theme="dark"] .bank-card.selected {
+  background-color: rgba(59, 130, 246, 0.15);
 }
 
 .label-samples-grid {

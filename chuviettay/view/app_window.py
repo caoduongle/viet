@@ -23,6 +23,7 @@ from chuviettay.controller.app_controller import AppController
 from chuviettay.view.bank_tab import BankTab
 from chuviettay.view.dialogs import report_error
 from chuviettay.view.teach_tab import TeachTab
+from chuviettay.view.theme import apply_theme, get_current_theme, save_current_theme
 from chuviettay.view.write_tab import WriteTab
 
 _log = logging.getLogger(__name__)
@@ -37,10 +38,18 @@ class MainWindow(tk.Tk):
         self.title("Chữ viết tay của bạn")
         self.geometry("1180x760")
 
+        self.current_theme = get_current_theme()
+
         top = ttk.Frame(self, padding=(10, 6))
         top.pack(fill="x")
         self.path_lbl = ttk.Label(top, foreground="#555555")
         self.path_lbl.pack(side="left")
+
+        # Nút chuyển đổi giao diện Sáng / Tối
+        theme_icon = "🌙 Tối" if self.current_theme == "light" else "☀️ Sáng"
+        self.btn_theme = ttk.Button(top, text=theme_icon, width=8, command=self.toggle_theme)
+        self.btn_theme.pack(side="right", padx=(6, 0))
+
         ttk.Button(top, text="Tạo kho mẫu mới...", command=self.new_bank).pack(side="right", padx=(6, 0))
         ttk.Button(top, text="Chọn kho mẫu khác...", command=self.choose_bank).pack(side="right")
 
@@ -56,6 +65,71 @@ class MainWindow(tk.Tk):
         except Exception as e:  # noqa: BLE001
             report_error("Không mở được kho mẫu", e, _log)
         self._sync_ui()
+        self._apply_current_theme()
+
+    def toggle_theme(self) -> None:
+        self.current_theme = "dark" if self.current_theme == "light" else "light"
+        save_current_theme(self.current_theme)
+        theme_icon = "🌙 Tối" if self.current_theme == "light" else "☀️ Sáng"
+        self.btn_theme.configure(text=theme_icon)
+        self._apply_current_theme()
+
+    def _apply_current_theme(self) -> None:
+        palette = apply_theme(self, self.current_theme)
+        if self._tabs_built:
+            if hasattr(self, "teach_tab"):
+                if hasattr(self.teach_tab, "canvas"):
+                    self.teach_tab.canvas.apply_palette(palette)
+                if hasattr(self.teach_tab, "qlist"):
+                    try:
+                        self.teach_tab.qlist.configure(
+                            bg=palette["listbox_bg"],
+                            fg=palette["listbox_fg"],
+                            selectbackground=palette["listbox_sel_bg"],
+                            selectforeground=palette["listbox_sel_fg"],
+                        )
+                    except Exception:
+                        pass
+
+            if hasattr(self, "bank_tab") and hasattr(self.bank_tab, "word_list"):
+                try:
+                    self.bank_tab.word_list.configure(
+                        bg=palette["listbox_bg"],
+                        fg=palette["listbox_fg"],
+                        selectbackground=palette["listbox_sel_bg"],
+                        selectforeground=palette["listbox_sel_fg"],
+                    )
+                except Exception:
+                    pass
+
+            if hasattr(self, "write_tab"):
+                if hasattr(self.write_tab, "text"):
+                    try:
+                        self.write_tab.text.configure(
+                            bg=palette["entry_bg"],
+                            fg=palette["entry_fg"],
+                            insertbackground=palette["entry_fg"],
+                        )
+                    except Exception:
+                        pass
+                if hasattr(self.write_tab, "status"):
+                    try:
+                        self.write_tab.status.configure(
+                            bg=palette["entry_bg"],
+                            fg=palette["entry_fg"],
+                        )
+                    except Exception:
+                        pass
+                if hasattr(self.write_tab, "miss_list"):
+                    try:
+                        self.write_tab.miss_list.configure(
+                            bg=palette["listbox_bg"],
+                            fg=palette["listbox_fg"],
+                            selectbackground=palette["listbox_sel_bg"],
+                            selectforeground=palette["listbox_sel_fg"],
+                        )
+                    except Exception:
+                        pass
 
     def _on_close(self) -> None:
         try:
@@ -84,6 +158,7 @@ class MainWindow(tk.Tk):
         self.placeholder.pack_forget()
         if not self._tabs_built:
             self._build_tabs()
+            self._apply_current_theme()
         else:
             self.teach_tab.on_bank_changed()
             self.bank_tab.refresh()

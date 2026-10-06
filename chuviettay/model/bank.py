@@ -717,6 +717,83 @@ class Bank:
 
             return count
 
+    def drop_batch(self, items: list[str | tuple[str, str | None]]) -> dict[str, int]:
+        """Xoá hàng loạt danh sách các mục (từ/ký tự) trong MỘT lock duy nhất.
+        `items` có thể là danh sách các nhãn: `['a', 'b', '1']` hoặc tuple `(nhãn, category)`.
+        Tái lập chỉ mục `tl` và `marks` một lần duy nhất nếu có từ bị xoá.
+        KHÔNG tự save() -- caller quyết định thời điểm lưu đĩa.
+        Trả về dict `{nhãn: số_mẫu_đã_xoá}`."""
+        with self._lock:
+            now = time.time()
+            words_affected: list[str] = []
+            removed_map: dict[str, int] = {}
+
+            for item in items:
+                if isinstance(item, tuple):
+                    word, category = item
+                else:
+                    word, category = item, None
+
+                if category is not None:
+                    cat = category
+                    target_dict = getattr(self, cat, None)
+                    if target_dict is None or word not in target_dict:
+                        removed_map[word] = removed_map.get(word, 0)
+                        continue
+                else:
+                    if word in self.words:
+                        cat = "words"
+                        target_dict = self.words
+                    elif word in self.symbols:
+                        cat = "symbols"
+                        target_dict = self.symbols
+                    elif word in self.digits:
+                        cat = "digits"
+                        target_dict = self.digits
+                    elif word in self.punct:
+                        cat = "punct"
+                        target_dict = self.punct
+                    elif word in getattr(self, "letters", {}):
+                        cat = "letters"
+                        target_dict = self.letters
+                    else:
+                        removed_map[word] = removed_map.get(word, 0)
+                        continue
+
+                self._mutation_seq += 1
+                self._generation += 1
+                self.d["generation"] = self._generation
+                tomb_key = f"{cat}:{word}"
+                self._deleted_words.add(tomb_key)
+                self._tombstones[tomb_key] = {"deleted_at": now, "generation": self._generation}
+                self._readded_words.pop(tomb_key, None)
+                self._readded_words.pop(word, None)
+
+                removed_samples = target_dict.pop(word, [])
+                count = len(removed_samples)
+                if count > 0:
+                    self._dirty = True
+                removed_map[word] = removed_map.get(word, 0) + count
+
+                if cat == "words":
+                    words_affected.append(word)
+
+            if words_affected:
+                # Dọn dẹp chỉ mục thay thế thân chữ self.tl
+                for word in words_affected:
+                    tk = strip_tone(word)
+                    if tk in self.tl:
+                        self.tl[tk] = [entry for entry in self.tl[tk] if entry[0] != word]
+                        if not self.tl[tk]:
+                            del self.tl[tk]
+
+                    T = tone_info(word)[0]
+                    if T and T in self._raw_marks:
+                        self._raw_marks[T] = [m for m in self._raw_marks[T] if m.get("_src") != word]
+                        self._refresh_tone_marks(T)
+
+            return removed_map
+
     def drop_word(self, word: str) -> int:
         """Xoá toàn bộ mẫu của `word` khỏi kho words và ghi nhận tombstone 'words:{word}'."""
         return self.drop(word, category="words")

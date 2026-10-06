@@ -455,6 +455,19 @@ class BrowserBridge:
         except Exception as e:
             return _err_res(e)
 
+    def drop_chars(self, chars: list[str]) -> dict[str, Any]:
+        """Xoá hàng loạt danh sách các ký tự khỏi kho mẫu."""
+        try:
+            res = self._ctl.drop_chars(chars)
+            return {
+                "ok": True,
+                "data": _clean_json(res),
+                "total_removed_chars": res.total_removed_chars,
+                "total_removed_samples": res.total_removed_samples,
+            }
+        except Exception as e:
+            return _err_res(e)
+
     def flush_save(self) -> dict[str, Any]:
         """Ép lưu các thay đổi đang hoãn xuống đĩa."""
         try:

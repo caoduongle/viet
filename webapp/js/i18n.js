@@ -30,6 +30,12 @@ const DICTIONARY = {
     guide_title: "Hướng dẫn sử dụng & Lưu ý khi vẽ",
     guide_btn_understood: "Đã hiểu",
     guide_help_btn: "Trợ giúp",
+    btn_select_all: "Chọn tất cả",
+    btn_deselect_all: "Bỏ chọn",
+    btn_delete_selected: "Xoá đã chọn ({count})",
+    confirm_batch_delete: "Bạn có chắc muốn xoá {count} ký tự đã chọn (tổng cộng {samples} mẫu nét) khỏi kho mẫu? Thao tác này không thể hoàn tác.",
+    theme_light: "Giao diện sáng",
+    theme_dark: "Giao diện tối",
   },
   en: {
     app_title: "Your Handwriting",
@@ -58,6 +64,12 @@ const DICTIONARY = {
     guide_title: "User Guide & Drawing Tips",
     guide_btn_understood: "Understood",
     guide_help_btn: "Help",
+    btn_select_all: "Select all",
+    btn_deselect_all: "Deselect",
+    btn_delete_selected: "Delete selected ({count})",
+    confirm_batch_delete: "Are you sure you want to delete {count} selected characters ({samples} stroke samples) from the bank? This action cannot be undone.",
+    theme_light: "Light theme",
+    theme_dark: "Dark theme",
   },
 };
 

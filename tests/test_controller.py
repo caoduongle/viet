@@ -163,3 +163,20 @@ def test_hieu_chinh_lan_hai_khong_cong_don(ctl):
 def test_hieu_chinh_tu_chua_co_mau_thi_bo_qua_nhung_van_luu(ctl):
     out = ctl.teach_word("moi", [[0, 0, 4, -5]], 4.0, calibrating=True)
     assert not out.recalibrated and ctl.session_scale == 1.0 and "moi" in ctl.bank.words
+
+
+def test_drop_batch_va_drop_chars_single_lock(ctl, tiny_bank_path):
+    # tiny_bank có letters ("b", "a", "x", "i", "n", "c", "h", "o"), digits ("1", "2"), punct (",", ".")
+    res = ctl.drop_chars(["b", "1", ",", "khong_co"])
+    assert res.removed["b"] > 0
+    assert res.removed["1"] > 0
+    assert res.removed[","] > 0
+    assert res.removed["khong_co"] == 0
+    assert res.total_removed_chars == 3
+    assert res.total_removed_samples >= 3
+
+    # Kiểm tra đã lưu xuống đĩa
+    reloaded = Bank(tiny_bank_path)
+    assert "b" not in reloaded.letters
+    assert "1" not in reloaded.digits
+    assert "," not in reloaded.punct

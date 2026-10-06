@@ -55,6 +55,9 @@ export class TeachCanvas {
     this.onChange = options.onChange || null;
 
     this._bindEvents();
+    if (typeof window !== "undefined") {
+      window.addEventListener("themechange", () => this.redraw());
+    }
     this.resize();
   }
 
@@ -321,18 +324,20 @@ export class TeachCanvas {
 
     ctx.clearRect(0, 0, w, h);
 
+    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+
     // 1. Vẽ đường dóng chuẩn
-    this._drawGuides(ctx, w, h);
+    this._drawGuides(ctx, w, h, isDark);
 
     // 2. Vẽ chữ mẫu mờ (Ghost sample)
     if (this.showGhost && this.currentLabel) {
-      this._drawGhost(ctx, w);
+      this._drawGhost(ctx, w, isDark);
     }
 
     // 3. Vẽ các nét chữ đã xác nhận
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "#111827"; // Màu mực đen tự nhiên
+    ctx.strokeStyle = isDark ? "#f8fafc" : "#111827"; // Nét mực tương phản cao theo theme
     ctx.lineWidth = this.penWidth;
 
     for (const st of this.strokes) {
@@ -341,16 +346,21 @@ export class TeachCanvas {
 
     // 4. Vẽ nét đang viết dở
     if (this.currentStroke && this.currentStroke.length > 0) {
-      ctx.strokeStyle = "#2563eb"; // Nét đang viết hiện xanh dương nhạt phản hồi tức thì
+      ctx.strokeStyle = isDark ? "#60a5fa" : "#2563eb"; // Nét đang viết hiện xanh dương nhạt phản hồi tức thì
       this._renderStroke(ctx, this.currentStroke);
     }
   }
 
-  _drawGuides(ctx, w, h) {
+  _drawGuides(ctx, w, h, isDark = false) {
     const gl = this.spec.guidelines || {};
     const base = gl.baseline || 170.0;
     const xhLine = gl.xh_line || 90.6;
     const hw3 = gl.hw3_lines || {};
+
+    const guideBase = isDark ? "#64748b" : "#94a3b8";
+    const guideSub = isDark ? "#475569" : "#cbd5e1";
+    const guideDashed = isDark ? "#334155" : "#e2e8f0";
+    const guideText = isDark ? "#94a3b8" : "#94a3b8";
 
     ctx.save();
 
@@ -359,7 +369,7 @@ export class TeachCanvas {
       // Top (Ascender)
       ctx.beginPath();
       ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = "#e2e8f0";
+      ctx.strokeStyle = guideDashed;
       ctx.lineWidth = 1;
       ctx.moveTo(15, hw3.top || 30.0);
       ctx.lineTo(w - 15, hw3.top || 30.0);
@@ -368,7 +378,7 @@ export class TeachCanvas {
       // Mean (x-height)
       ctx.beginPath();
       ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = "#cbd5e1";
+      ctx.strokeStyle = guideSub;
       ctx.lineWidth = 1;
       ctx.moveTo(15, hw3.mean || xhLine);
       ctx.lineTo(w - 15, hw3.mean || xhLine);
@@ -377,7 +387,7 @@ export class TeachCanvas {
       // Base (Chân chữ - đậm)
       ctx.beginPath();
       ctx.setLineDash([]);
-      ctx.strokeStyle = "#94a3b8";
+      ctx.strokeStyle = guideBase;
       ctx.lineWidth = 1.5;
       ctx.moveTo(15, hw3.base || base);
       ctx.lineTo(w - 15, hw3.base || base);
@@ -386,7 +396,7 @@ export class TeachCanvas {
       // Bottom (Descender)
       ctx.beginPath();
       ctx.setLineDash([3, 3]);
-      ctx.strokeStyle = "#e2e8f0";
+      ctx.strokeStyle = guideDashed;
       ctx.lineWidth = 1;
       ctx.moveTo(15, hw3.bottom || 210.0);
       ctx.lineTo(w - 15, hw3.bottom || 210.0);
@@ -394,7 +404,7 @@ export class TeachCanvas {
 
       // Nhãn chú thích bên lề
       ctx.font = "9px sans-serif";
-      ctx.fillStyle = "#94a3b8";
+      ctx.fillStyle = guideText;
       ctx.fillText("Ascender", 18, (hw3.top || 30.0) - 4);
       ctx.fillText("x-height", 18, (hw3.mean || xhLine) - 4);
       ctx.fillText("Baseline", 18, (hw3.base || base) + 12);
@@ -403,7 +413,7 @@ export class TeachCanvas {
       // Chế độ dạy từ thông thường: Dòng chân chữ + vạch mốc chiều cao
       ctx.beginPath();
       ctx.setLineDash([]);
-      ctx.strokeStyle = "#cbd5e1";
+      ctx.strokeStyle = guideSub;
       ctx.lineWidth = 1.25;
       ctx.moveTo(15, base);
       ctx.lineTo(w - 15, base);
@@ -412,7 +422,7 @@ export class TeachCanvas {
       // Vạch x-height bên trái
       ctx.beginPath();
       ctx.setLineDash([4, 3]);
-      ctx.strokeStyle = "#94a3b8";
+      ctx.strokeStyle = guideBase;
       ctx.lineWidth = 1;
       ctx.moveTo(15, xhLine);
       ctx.lineTo(160, xhLine);
@@ -420,7 +430,7 @@ export class TeachCanvas {
 
       // Nhãn chú thích
       ctx.font = "10px sans-serif";
-      ctx.fillStyle = "#94a3b8";
+      ctx.fillStyle = guideText;
       ctx.fillText("Chân chữ (baseline)", 170, base + 12);
       ctx.fillText("Độ cao chữ thường (~8pt)", 15, xhLine - 5);
     }
@@ -428,10 +438,10 @@ export class TeachCanvas {
     ctx.restore();
   }
 
-  _drawGhost(ctx, w) {
+  _drawGhost(ctx, w, isDark = false) {
     ctx.save();
     ctx.font = "72px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-    ctx.fillStyle = "rgba(100, 116, 139, 0.12)";
+    ctx.fillStyle = isDark ? "rgba(148, 163, 184, 0.18)" : "rgba(100, 116, 139, 0.12)";
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
 

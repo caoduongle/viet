@@ -136,6 +136,17 @@ def test_drop_label(bridge_with_tiny_bank):
     assert not any(w[0] == "xin" for w in words["data"])
 
 
+def test_drop_chars(bridge_with_tiny_bank):
+    res = bridge_with_tiny_bank.drop_chars(["b", "1", "khong_co"])
+    assert res["ok"] is True
+    assert is_json_serializable(res)
+    assert res["total_removed_chars"] == 2
+    assert res["total_removed_samples"] >= 2
+    assert "data" in res
+    assert res["data"]["removed"]["b"] > 0
+    assert res["data"]["removed"]["1"] > 0
+
+
 def test_error_handling_returns_standard_dict():
     bridge = BrowserBridge(bank_path="/nonexistent/dir/bank.json.gz")
     # Chưa load bank mà gọi get_stats

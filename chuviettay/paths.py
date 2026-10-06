@@ -71,3 +71,33 @@ def user_log_dir() -> str:
         return os.path.expanduser("~/Library/Logs/Chuviettay")
     state = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
     return os.path.join(state, "chuviettay")
+
+
+def user_config_path() -> str:
+    """Đường dẫn tệp cấu hình tùy chọn người dùng (user_config.json)."""
+    return os.path.join(user_data_dir(), "user_config.json")
+
+
+def load_user_config() -> dict:
+    """Đọc tệp cấu hình người dùng, trả về dict rỗng nếu chưa tồn tại hoặc lỗi đọc."""
+    cfg_file = user_config_path()
+    if not os.path.isfile(cfg_file):
+        return {}
+    try:
+        import json
+        with open(cfg_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_user_config(config: dict) -> None:
+    """Lưu tệp cấu hình người dùng an toàn nguyên tử."""
+    cfg_file = user_config_path()
+    os.makedirs(os.path.dirname(os.path.abspath(cfg_file)), exist_ok=True)
+    tmp_file = f"{cfg_file}.tmp"
+    import json
+    with open(tmp_file, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_file, cfg_file)

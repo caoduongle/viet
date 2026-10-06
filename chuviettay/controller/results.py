@@ -34,9 +34,17 @@ class CheckResult:
 
 @dataclass
 class DropResult:
-    """Kết quả xoá một hoặc nhiều từ khỏi kho. removed: {từ: số mẫu đã xoá} (0 nếu
-    từ đó chưa từng có trong kho)."""
+    """Kết quả xoá một hoặc nhiều từ/ký tự khỏi kho. removed: {từ/ký tự: số mẫu đã xoá} (0 nếu
+    chưa từng có trong kho)."""
     removed: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def total_removed_samples(self) -> int:
+        return sum(self.removed.values())
+
+    @property
+    def total_removed_chars(self) -> int:
+        return sum(1 for v in self.removed.values() if v > 0)
 
 
 @dataclass

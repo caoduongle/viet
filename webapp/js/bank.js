@@ -20,6 +20,7 @@ let currentCategoryFilter = "all";
 let currentSearchQuery = "";
 let currentDetailLabel = null;
 let currentDetailCategory = "letters";
+const selectedLabels = new Set(); // Nhãn các ký tự được chọn để thao tác hàng loạt
 
 export function initBankTab(sendWorkerMessage) {
   sendWorkerFn = sendWorkerMessage;
@@ -72,7 +73,21 @@ export function initBankTab(sendWorkerMessage) {
     });
   }
 
-  // 3. Modal chi tiết nhãn
+  // 3. Thanh thao tác xóa hàng loạt
+  const chkSelectAll = document.getElementById("chk-bank-select-all");
+  const btnDeleteSelected = document.getElementById("btn-bank-delete-selected");
+
+  if (chkSelectAll) {
+    chkSelectAll.addEventListener("change", (e) => {
+      toggleSelectAll(e.target.checked);
+    });
+  }
+
+  if (btnDeleteSelected) {
+    btnDeleteSelected.addEventListener("click", handleDeleteSelected);
+  }
+
+  // 4. Modal chi tiết nhãn
   setupDetailModal();
 }
 
@@ -232,9 +247,16 @@ function applyFiltersAndRender() {
     return;
   }
 
+  const visibleLabels = filtered.map((item) => item.label);
+  updateBatchBar(visibleLabels);
+
   for (const item of filtered) {
     const card = document.createElement("div");
     card.className = "bank-card";
+    const isChecked = selectedLabels.has(item.label);
+    if (isChecked) {
+      card.classList.add("selected");
+    }
 
     // Phân loại độ phủ
     const isLow = item.count < 2;
@@ -242,6 +264,9 @@ function applyFiltersAndRender() {
     const badgeText = isLow ? `${item.count} mẫu (ít)` : `${item.count} mẫu`;
 
     card.innerHTML = `
+      <div style="position: absolute; top: 8px; left: 8px; z-index: 2;">
+        <input type="checkbox" class="chk-card-item" data-label="${encodeURIComponent(item.label)}" ${isChecked ? "checked" : ""} style="cursor: pointer; width: 16px; height: 16px;">
+      </div>
       <div class="bank-card-thumb" id="thumb-${encodeURIComponent(item.label)}">
         <span style="font-size: 1.4rem; color: #94a3b8;">${item.label}</span>
       </div>
@@ -250,6 +275,24 @@ function applyFiltersAndRender() {
         <span class="coverage-badge ${badgeClass}">${badgeText}</span>
       </div>
     `;
+
+    // Bắt sự kiện checkbox riêng biệt, không mở modal detail
+    const chk = card.querySelector(".chk-card-item");
+    if (chk) {
+      chk.addEventListener("click", (e) => {
+        e.stopPropagation();
+      });
+      chk.addEventListener("change", (e) => {
+        if (e.target.checked) {
+          selectedLabels.add(item.label);
+          card.classList.add("selected");
+        } else {
+          selectedLabels.delete(item.label);
+          card.classList.remove("selected");
+        }
+        updateBatchBar(visibleLabels);
+      });
+    }
 
     card.addEventListener("click", () => {
       openLabelDetail(item.label, item.category, item.count);
@@ -260,6 +303,96 @@ function applyFiltersAndRender() {
 
   // Nạp lười thumbnail mẫu đầu tiên cho các thẻ nhìn thấy
   loadThumbnailsLazy(filtered.slice(0, 40));
+}
+
+function updateBatchBar(visibleLabels = []) {
+  const chkSelectAll = document.getElementById("chk-bank-select-all");
+  const countLabel = document.getElementById("bank-selected-count-label");
+  const btnDeleteSelected = document.getElementById("btn-bank-delete-selected");
+
+  const totalSelected = selectedLabels.size;
+  if (countLabel) {
+    countLabel.textContent = `(Đã chọn ${totalSelected})`;
+  }
+
+  if (btnDeleteSelected) {
+    btnDeleteSelected.disabled = totalSelected === 0;
+    btnDeleteSelected.textContent = `🗑 Xoá đã chọn (${totalSelected})`;
+  }
+
+  if (chkSelectAll && visibleLabels.length > 0) {
+    const allVisibleSelected = visibleLabels.every((lbl) => selectedLabels.has(lbl));
+    chkSelectAll.checked = allVisibleSelected;
+  } else if (chkSelectAll) {
+    chkSelectAll.checked = false;
+  }
+}
+
+function toggleSelectAll(selectAll) {
+  const filtered = allBankItems.filter((item) => {
+    if (currentCategoryFilter !== "all" && item.category !== currentCategoryFilter) {
+      return false;
+    }
+    if (currentSearchQuery && !item.label.toLowerCase().includes(currentSearchQuery)) {
+      return false;
+    }
+    return true;
+  });
+
+  for (const item of filtered) {
+    if (selectAll) {
+      selectedLabels.add(item.label);
+    } else {
+      selectedLabels.delete(item.label);
+    }
+  }
+
+  applyFiltersAndRender();
+}
+
+async function handleDeleteSelected() {
+  const count = selectedLabels.size;
+  if (count === 0 || !sendWorkerFn) return;
+
+  const labelsToDelete = Array.from(selectedLabels);
+
+  // Tính tổng số mẫu nét bị ảnh hưởng
+  let totalSamples = 0;
+  for (const item of allBankItems) {
+    if (selectedLabels.has(item.label)) {
+      totalSamples += item.count || 0;
+    }
+  }
+
+  const promptText = (
+    `Bạn có chắc chắn muốn xoá ${count} ký tự đã chọn ` +
+    `(tổng cộng ${totalSamples} mẫu nét) khỏi kho mẫu không?\n\n` +
+    `Lưu ý: Toàn bộ mẫu nét này sẽ bị gỡ bỏ và kho mẫu sẽ được cập nhật vĩnh viễn.`
+  );
+
+  if (!confirm(promptText)) {
+    return;
+  }
+
+  try {
+    const res = await sendWorkerFn("drop_chars", { chars: labelsToDelete });
+    if (!res || !res.ok) {
+      throw new Error((res && res.error) || "Không thể xoá hàng loạt.");
+    }
+
+    selectedLabels.clear();
+
+    // Đồng bộ lưu ngay xuống IndexedDB và phát sóng đa tab theo storage-protocol
+    try {
+      await storage.syncAndSaveActiveProfile(sendWorkerFn);
+    } catch (saveErr) {
+      console.warn("Lỗi lưu trữ sau khi xoá hàng loạt:", saveErr);
+    }
+
+    await refreshBankTab();
+  } catch (err) {
+    alert("Lỗi khi xoá hàng loạt: " + err.message);
+  }
 }
 
 async function loadThumbnailsLazy(items) {

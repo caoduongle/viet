@@ -581,23 +581,45 @@ class AppController:
         return copy.deepcopy(raw_samples)
 
     def drop_words(self, words: list[str], category: str = "words") -> DropResult:
-        """Xoá hết mẫu của các từ đã cho, rồi rebuild + lưu MỘT lần."""
+        """Xoá hết mẫu của các từ đã cho trong phân loại `category`, rồi rebuild + lưu MỘT lần."""
         bank = self._require_bank()
-        removed: dict[str, int] = {}
-        for w in words:
-            removed[w] = removed.get(w, 0) + bank.drop(w, category=category)   # trùng từ -> cộng dồn, không ghi đè
+        items = [(w, category) for w in words]
+        removed = bank.drop_batch(items)
         bank.rebuild()
         bank.save()
-        _log.info("Xoá từ khỏi kho: %s", removed)
+        _log.info("Xoá từ khỏi kho (%s): %s", category, removed)
         return DropResult(removed=removed)
 
     def drop_char(self, char: str) -> DropResult:
         """Xoá ký tự khỏi danh mục tương ứng (letters, digits, punct, symbols, marks)."""
-        cat = classify_char(char)
-        if cat == "marks":
-            tone_code = xopp.HW3_TONE_MAP.get(char.lower(), char)
-            return self.drop_words([tone_code], category="marks")
-        return self.drop_words([char], category=cat)
+        return self.drop_chars([char])
+
+    def drop_chars(self, chars: list[str]) -> DropResult:
+        """Xoá hàng loạt danh sách ký tự/nhãn bất kỳ khỏi kho mẫu, tự động phân loại từng ký tự,
+        thực thi trong 1 giao dịch lock, rebuild và lưu đĩa 1 lần duy nhất."""
+        bank = self._require_bank()
+        items: list[tuple[str, str]] = []
+        for ch in chars:
+            cat = classify_char(ch)
+            if cat == "marks":
+                tone_code = xopp.HW3_TONE_MAP.get(ch.lower(), ch)
+                items.append((tone_code, "marks"))
+            else:
+                items.append((ch, cat))
+
+        removed_map = bank.drop_batch(items)
+        # Giữ đúng nhãn đầu vào `chars` nếu là dấu thanh (mapping ngược tone_code -> ch nếu cần)
+        final_removed: dict[str, int] = {}
+        # Tạo map ngược tone_code -> ch
+        rev_tones = {xopp.HW3_TONE_MAP.get(ch.lower(), ch): ch for ch in chars if classify_char(ch) == "marks"}
+        for k, v in removed_map.items():
+            orig_k = rev_tones.get(k, k)
+            final_removed[orig_k] = final_removed.get(orig_k, 0) + v
+
+        bank.rebuild()
+        bank.save()
+        _log.info("Xoá hàng loạt ký tự khỏi kho: %s", final_removed)
+        return DropResult(removed=final_removed)
 
     def export_check(self, out_path: str) -> CheckResult:
         """Lệnh `check`: xuất file lưới ô xem lại toàn bộ ký tự đã học (kèm chữ gõ)."""

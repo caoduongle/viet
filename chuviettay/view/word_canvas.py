@@ -31,7 +31,10 @@ class WordCanvas(ttk.Frame):
     def __init__(self, master, get_xh: Callable[[], float]):
         super().__init__(master)
         self.get_xh = get_xh
-        self.canvas = tk.Canvas(self, width=CANVAS_W, height=CANVAS_H, bg="white",
+        self.canvas_bg = "white"
+        self.ink_color = "#000000"
+        self.guide_color = "#c8c8c8"
+        self.canvas = tk.Canvas(self, width=CANVAS_W, height=CANVAS_H, bg=self.canvas_bg,
                                 cursor="pencil", highlightthickness=1, highlightbackground="#aaaaaa")
         self.canvas.pack(fill="both", expand=True)
         self.strokes: list[PxStroke] = []     # các nét đã xong
@@ -41,6 +44,15 @@ class WordCanvas(ttk.Frame):
         self.canvas.bind("<B1-Motion>", lambda e: self.move(e.x, e.y))
         self.canvas.bind("<ButtonRelease-1>", lambda e: self.end())
         self.draw_guides()
+
+    def apply_palette(self, palette: dict[str, str]) -> None:
+        """Cập nhật màu nền, màu đường kẻ và màu mực theo theme."""
+        self.canvas_bg = palette.get("canvas_bg", "white")
+        self.guide_color = palette.get("canvas_baseline", "#c8c8c8")
+        self.ink_color = palette.get("fg_main", "#000000")
+        self.canvas.configure(bg=self.canvas_bg, highlightbackground=palette.get("border", "#aaaaaa"))
+        self.draw_guides()
+        self.redraw()
 
     # -- logic vẽ (không phụ thuộc sự kiện Tk nên gọi trực tiếp để test được) ----------
     def start(self, x: float, y: float) -> None:
@@ -54,7 +66,7 @@ class WordCanvas(ttk.Frame):
         lx, ly = self._last_pt
         if (x - lx) ** 2 + (y - ly) ** 2 < MIN_POINT_DIST ** 2:
             return  # lọc bớt điểm quá gần nhau cho dữ liệu gọn
-        self.canvas.create_line(lx, ly, x, y, fill="#000000", width=2,
+        self.canvas.create_line(lx, ly, x, y, fill=self.ink_color, width=2,
                                 capstyle="round", smooth=True, tags="ink")
         self._cur.append((x, y))
         self._last_pt = (x, y)
@@ -78,16 +90,16 @@ class WordCanvas(ttk.Frame):
         self.canvas.delete("ink")
         for st in self.strokes:
             for (x0, y0), (x1, y1) in zip(st, st[1:]):
-                self.canvas.create_line(x0, y0, x1, y1, fill="#000000", width=2,
+                self.canvas.create_line(x0, y0, x1, y1, fill=self.ink_color, width=2,
                                         capstyle="round", smooth=True, tags="ink")
 
     def draw_guides(self) -> None:
         """Vẽ 2 đường kẻ mờ làm mốc: dòng kẻ chân chữ + mốc chiều cao chữ thường."""
         self.canvas.delete("guide")
         c = self.canvas
-        c.create_line(15, BASE_PX, CANVAS_W - 15, BASE_PX, fill="#c8c8c8", width=1, tags="guide")
+        c.create_line(15, BASE_PX, CANVAS_W - 15, BASE_PX, fill=self.guide_color, width=1, tags="guide")
         xh_px = self.get_xh() * ZOOM
-        c.create_line(15, BASE_PX - xh_px, 130, BASE_PX - xh_px, fill="#c8c8c8", width=1,
+        c.create_line(15, BASE_PX - xh_px, 130, BASE_PX - xh_px, fill=self.guide_color, width=1,
                       dash=(3, 2), tags="guide")
         c.tag_lower("guide")
 

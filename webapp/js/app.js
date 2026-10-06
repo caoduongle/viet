@@ -8,6 +8,7 @@ import { t } from "./i18n.js";
 import { initBankTab, loadBankFromBytes, refreshBankView, exportCurrentBank } from "./bank.js";
 import { initWriteTab } from "./write.js";
 import { TeachController } from "./teach.js";
+import { initTheme } from "./theme.js";
 
 let worker = null;
 let reqId = 1;
@@ -428,6 +429,7 @@ function initServiceWorker() {
 // Khởi chạy ứng dụng khi DOM sẵn sàng
 if (typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", () => {
+    initTheme();
     initTabs();
     initWorker();
     initServiceWorker();

@@ -77,6 +77,7 @@
       <button class="tab-btn" data-tab="bank">Kho mẫu</button>
     </nav>
     <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <button id="btn-theme-toggle" class="btn-tool" title="Chuyển đổi giao diện Sáng / Tối" style="font-size: 1rem; padding: 0.3rem 0.6rem; user-select: none;">☀️</button>
       <button id="btn-header-guide" class="btn-tool" title="Hướng dẫn sử dụng & lưu ý khi vẽ" style="font-size: 0.85rem; padding: 0.3rem 0.6rem;">Trợ giúp</button>
       <div class="status-bar">
         <span id="status-indicator" class="status-dot loading"></span>
@@ -314,6 +315,22 @@
             <button class="btn-tool" data-cat="punct">Dấu câu (<span id="cat-count-punct">0</span>)</button>
             <button class="btn-tool" data-cat="symbols">Ký hiệu (<span id="cat-count-symbols">0</span>)</button>
             <button class="btn-tool" data-cat="marks">Dấu thanh (<span id="cat-count-marks">0</span>)</button>
+          </div>
+        </div>
+
+        <!-- Thanh thao tác chọn hàng loạt (Batch Action Bar) -->
+        <div id="bank-batch-bar" style="display: flex; justify-content: space-between; align-items: center; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.75rem; margin-bottom: 0.85rem; font-size: 0.88rem;">
+          <div style="display: flex; align-items: center; gap: 0.6rem;">
+            <label style="display: flex; align-items: center; gap: 0.35rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="chk-bank-select-all" style="cursor: pointer; width: 16px; height: 16px;">
+              <span>Chọn tất cả hiển thị</span>
+            </label>
+            <span id="bank-selected-count-label" style="color: var(--text-secondary); margin-left: 0.5rem;">(Đã chọn 0)</span>
+          </div>
+          <div>
+            <button id="btn-bank-delete-selected" class="btn btn-outline" style="color: #dc2626; border-color: #fca5a5; font-size: 0.82rem; padding: 0.3rem 0.75rem;" disabled>
+              🗑 Xoá đã chọn (0)
+            </button>
           </div>
         </div>
 

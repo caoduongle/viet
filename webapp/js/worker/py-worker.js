@@ -249,6 +249,15 @@ _tchar_res = _bridge.teach_char(
       pyodide.globals.set("_drop_lbl", label || "");
       pyodide.globals.set("_drop_cat", category || "words");
       result = pyodide.runPython(`_bridge.drop_label(_drop_lbl, category=_drop_cat)`).toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "drop_chars") {
+      const { chars } = params || {};
+      pyodide.globals.set("_drop_chars_json", JSON.stringify(chars || []));
+      pyodide.runPython(`
+import json
+_chars_list = json.loads(_drop_chars_json)
+_batch_drop_res = _bridge.drop_chars(_chars_list)
+`);
+      result = pyodide.globals.get("_batch_drop_res").toJs({ dict_converter: Object.fromEntries });
     } else if (method === "get_latex_symbols") {
       result = pyodide.runPython(`_bridge.get_latex_symbols()`).toJs({ dict_converter: Object.fromEntries });
     } else if (method === "import_docx") {
