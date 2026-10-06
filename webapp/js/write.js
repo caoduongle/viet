@@ -4,7 +4,14 @@
  */
 
 import { sendWorkerMessage } from "./app.js";
-import { decompressXoppBase64, parseXoppXml, renderPageSvgElement, renderPageSvgString } from "./paper.js";
+import {
+  decompressXoppBase64,
+  parseXoppXml,
+  renderPageSvgElement,
+  renderPageSvgString,
+  PT_TO_PX,
+  getPaperPixelDimensions,
+} from "./paper.js";
 import { exportXopp, exportSvg, exportPng, createZipArchive, downloadBlob } from "./export.js";
 import { t } from "./i18n.js";
 
@@ -19,6 +26,13 @@ let isRendering = false;
 let hasPendingRequest = false;
 let pendingParams = null;
 
+// Quản lý thu phóng (Zoom State: 50% - 300%)
+let currentZoom = 1.0;
+let isFitMode = false;
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3.0;
+const ZOOM_STEP = 0.1;
+
 // Tùy chọn viết chữ mặc định
 const writeOptions = {
   scale: 1.0,
@@ -30,7 +44,7 @@ const writeOptions = {
   seed: 42,
   paper: "a4",
   orientation: "portrait",
-  background: "plain",
+  background: "lined",
   stable_variants: true,
 };
 
@@ -191,6 +205,50 @@ function showRenderingIndicator(loading) {
   }
 }
 
+function calculateFitZoom() {
+  const stage = document.getElementById("preview-stage");
+  if (!stage || !currentDoc || !currentDoc.pages.length) return 1.0;
+
+  const page = currentDoc.pages[currentPageIndex] || currentDoc.pages[0];
+  const baseWidthPx = (page.width || 595.28) * PT_TO_PX;
+  const padding = 64; // Đệm hai bên an toàn (1.5rem = 48px + 16px đệm)
+  const availableWidth = Math.max(100, stage.clientWidth - padding);
+  const fitZoom = availableWidth / baseWidthPx;
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, Math.floor(fitZoom * 100) / 100));
+}
+
+function applyPaperZoom(zoom, isFit = false) {
+  currentZoom = Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+  isFitMode = isFit;
+
+  const displayEl = document.getElementById("zoom-percent-display");
+  if (displayEl) {
+    displayEl.textContent = `${Math.round(currentZoom * 100)}%`;
+  }
+
+  const selectZoom = document.getElementById("select-zoom");
+  if (selectZoom) {
+    const roundedStr = currentZoom.toFixed(2);
+    for (const opt of selectZoom.options) {
+      if (opt.value === roundedStr || Math.abs(parseFloat(opt.value) - currentZoom) < 0.05) {
+        selectZoom.value = opt.value;
+        break;
+      }
+    }
+  }
+
+  const wrapper = document.getElementById("paper-svg-wrapper");
+  if (!wrapper || !currentDoc || !currentDoc.pages.length) return;
+
+  const page = currentDoc.pages[currentPageIndex] || currentDoc.pages[0];
+  const dims = getPaperPixelDimensions(page.width || 595.28, page.height || 841.89, currentZoom);
+
+  // Đặt kích thước layout pixel thật, loại bỏ transform scale
+  wrapper.style.transform = "";
+  wrapper.style.width = `${dims.widthPx}px`;
+  wrapper.style.height = `${dims.heightPx}px`;
+}
+
 function renderCurrentPage() {
   const wrapper = document.getElementById("paper-svg-wrapper");
   const placeholder = document.getElementById("preview-placeholder");
@@ -212,6 +270,13 @@ function renderCurrentPage() {
 
   // Thay thế nội dung wrapper an toàn
   wrapper.replaceChildren(svgEl);
+
+  // Áp dụng kích thước hình học pixel chuẩn theo mức zoom hiện tại
+  if (isFitMode) {
+    applyPaperZoom(calculateFitZoom(), true);
+  } else {
+    applyPaperZoom(currentZoom, false);
+  }
 }
 
 function updatePaginationControls() {
@@ -410,8 +475,10 @@ async function handleFileImport(file, textarea) {
 function setupPreviewNavigation() {
   const btnPrev = document.getElementById("btn-page-prev");
   const btnNext = document.getElementById("btn-page-next");
+  const btnZoomIn = document.getElementById("btn-zoom-in");
+  const btnZoomOut = document.getElementById("btn-zoom-out");
+  const btnZoomFit = document.getElementById("btn-zoom-fit");
   const selectZoom = document.getElementById("select-zoom");
-  const wrapper = document.getElementById("paper-svg-wrapper");
 
   if (btnPrev) {
     btnPrev.addEventListener("click", () => {
@@ -433,13 +500,54 @@ function setupPreviewNavigation() {
     });
   }
 
-  if (selectZoom && wrapper) {
+  if (btnZoomIn) {
+    btnZoomIn.addEventListener("click", () => {
+      const nextZoom = Math.min(MAX_ZOOM, Math.round((currentZoom + ZOOM_STEP) * 10) / 10);
+      applyPaperZoom(nextZoom, false);
+    });
+  }
+
+  if (btnZoomOut) {
+    btnZoomOut.addEventListener("click", () => {
+      const nextZoom = Math.max(MIN_ZOOM, Math.round((currentZoom - ZOOM_STEP) * 10) / 10);
+      applyPaperZoom(nextZoom, false);
+    });
+  }
+
+  if (btnZoomFit) {
+    btnZoomFit.addEventListener("click", () => {
+      applyPaperZoom(calculateFitZoom(), true);
+    });
+  }
+
+  // Tự động căn lại độ rộng khi ở chế độ Fit và kích thước viewport thay đổi
+  const stage = document.getElementById("preview-stage");
+  if (stage && typeof ResizeObserver !== "undefined") {
+    const resizeObserver = new ResizeObserver(() => {
+      if (isFitMode && currentDoc && currentDoc.pages.length) {
+        applyPaperZoom(calculateFitZoom(), true);
+      }
+    });
+    resizeObserver.observe(stage);
+  } else {
+    window.addEventListener("resize", () => {
+      if (isFitMode && currentDoc && currentDoc.pages.length) {
+        applyPaperZoom(calculateFitZoom(), true);
+      }
+    });
+  }
+
+  // Fallback đồng bộ với select-zoom nếu có tương tác
+  if (selectZoom) {
     selectZoom.addEventListener("change", (e) => {
       const val = e.target.value;
       if (val === "fit") {
-        wrapper.style.transform = "scale(0.8)";
+        applyPaperZoom(calculateFitZoom(), true);
       } else {
-        wrapper.style.transform = `scale(${val})`;
+        const parsed = parseFloat(val);
+        if (!isNaN(parsed)) {
+          applyPaperZoom(parsed, false);
+        }
       }
     });
   }
@@ -555,7 +663,7 @@ function setupOptionsModal() {
       writeOptions.seed = 42;
       writeOptions.paper = "a4";
       writeOptions.orientation = "portrait";
-      writeOptions.background = "plain";
+      writeOptions.background = "lined";
 
       // Reset DOM elements
       document.getElementById("opt-scale").value = 1.0;
@@ -571,7 +679,7 @@ function setupOptionsModal() {
       document.getElementById("opt-seed").value = 42;
       document.getElementById("opt-paper").value = "a4";
       document.getElementById("opt-orientation").value = "portrait";
-      document.getElementById("opt-background").value = "plain";
+      document.getElementById("opt-background").value = "lined";
 
       triggerPreviewImmediate();
     });

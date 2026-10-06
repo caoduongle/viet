@@ -11,6 +11,23 @@
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+/** Hệ số quy đổi PostScript point (pt) sang CSS pixel (px): 1 pt = 96/72 px = 4/3 px */
+export const PT_TO_PX = 96 / 72;
+
+/**
+ * Tính toán kích thước pixel hiển thị chuẩn theo khổ trang (pt) và hệ số zoom.
+ * @param {number} widthPt - Chiều rộng khổ giấy theo pt
+ * @param {number} heightPt - Chiều cao khổ giấy theo pt
+ * @param {number} zoom - Hệ số thu phóng (mặc định 1.0)
+ * @returns {{ widthPx: number, heightPx: number }}
+ */
+export function getPaperPixelDimensions(widthPt, heightPt, zoom = 1.0) {
+  return {
+    widthPx: Math.round(widthPt * PT_TO_PX * zoom),
+    heightPx: Math.round(heightPt * PT_TO_PX * zoom),
+  };
+}
+
 /**
  * Giải nén chuỗi base64 của file .xopp thành chuỗi XML.
  * @param {string} base64Str
@@ -211,7 +228,7 @@ export function renderPageSvgString(pageData, options = {}) {
     for (let y = spacing; y < height; y += spacing) {
       lines.push(`  <line class="paper-bg-line" x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="#cfd8dc" stroke-width="0.5"/>`);
     }
-    if (style === "ruled") {
+    if (style === "lined") {
       lines.push(`  <line class="paper-bg-margin" x1="${margin}" y1="0" x2="${margin}" y2="${height}" stroke="#ff8a80" stroke-width="1"/>`);
     }
   } else if (style === "graph") {
@@ -281,6 +298,7 @@ export function renderPageSvgElement(pageData, options = {}) {
   if (style === "lined" || style === "ruled") {
     for (let y = spacing; y < height; y += spacing) {
       const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("class", "paper-bg-line");
       line.setAttribute("x1", "0");
       line.setAttribute("y1", String(y));
       line.setAttribute("x2", String(width));
@@ -289,8 +307,9 @@ export function renderPageSvgElement(pageData, options = {}) {
       line.setAttribute("stroke-width", "0.5");
       svg.appendChild(line);
     }
-    if (style === "ruled") {
+    if (style === "lined") {
       const mLine = document.createElementNS(SVG_NS, "line");
+      mLine.setAttribute("class", "paper-bg-margin");
       mLine.setAttribute("x1", String(margin));
       mLine.setAttribute("y1", "0");
       mLine.setAttribute("x2", String(margin));
@@ -302,6 +321,7 @@ export function renderPageSvgElement(pageData, options = {}) {
   } else if (style === "graph") {
     for (let y = spacing; y < height; y += spacing) {
       const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("class", "paper-bg-line");
       line.setAttribute("x1", "0");
       line.setAttribute("y1", String(y));
       line.setAttribute("x2", String(width));
@@ -312,6 +332,7 @@ export function renderPageSvgElement(pageData, options = {}) {
     }
     for (let x = spacing; x < width; x += spacing) {
       const line = document.createElementNS(SVG_NS, "line");
+      line.setAttribute("class", "paper-bg-line");
       line.setAttribute("x1", String(x));
       line.setAttribute("y1", "0");
       line.setAttribute("x2", String(x));
@@ -324,6 +345,7 @@ export function renderPageSvgElement(pageData, options = {}) {
     for (let y = spacing; y < height; y += spacing) {
       for (let x = spacing; x < width; x += spacing) {
         const dot = document.createElementNS(SVG_NS, "circle");
+        dot.setAttribute("class", "paper-bg-dot");
         dot.setAttribute("cx", String(x));
         dot.setAttribute("cy", String(y));
         dot.setAttribute("r", "0.75");

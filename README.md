@@ -66,7 +66,7 @@ python3 scripts/build_web.py
 
 # 2. Khởi chạy HTTP Server hỗ trợ Web Worker & Cache headers
 node scripts/serve.mjs
-# Mở trình duyệt tại http://localhost:8080
+# Mở trình duyệt tại http://localhost:8000
 ```
 
 ### Triển khai lên Render (Static Site)

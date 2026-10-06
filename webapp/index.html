@@ -165,8 +165,12 @@
               <span id="page-indicator" style="font-weight: 500; min-width: 80px; text-align: center;">Trang 1 / 1</span>
               <button id="btn-page-next" class="btn-tool" title="Trang sau">▶</button>
             </div>
-            <div style="display: flex; align-items: center; gap: 0.35rem;">
-              <select id="select-zoom" class="form-control" style="padding: 0.2rem 0.4rem; font-size: 0.82rem;">
+            <div class="zoom-controls">
+              <button id="btn-zoom-out" class="btn-tool" title="Thu nhỏ (−)" aria-label="Thu nhỏ">−</button>
+              <span id="zoom-percent-display" class="zoom-display" title="Mức thu phóng hiện tại">100%</span>
+              <button id="btn-zoom-in" class="btn-tool" title="Phóng to (+)" aria-label="Phóng to">+</button>
+              <button id="btn-zoom-fit" class="btn-tool" title="Vừa bề rộng khung (Fit)" style="padding: 0.2rem 0.5rem; font-size: 0.82rem;">Fit</button>
+              <select id="select-zoom" class="form-control" style="display: none;" aria-hidden="true">
                 <option value="0.75">75%</option>
                 <option value="1.0" selected>100%</option>
                 <option value="1.25">125%</option>
@@ -416,11 +420,11 @@
       <div class="form-group">
         <label>Nền giấy:</label>
         <select id="opt-background" class="form-control">
-          <option value="plain" selected>Trắng trơn (Plain)</option>
-          <option value="lined">Dòng kẻ ngang (Lined)</option>
-          <option value="ruled">Dòng kẻ có lề đỏ (Ruled)</option>
-          <option value="graph">Lưới caro ô vuông (Graph)</option>
-          <option value="dotted">Lưới chấm mờ (Dotted)</option>
+          <option value="lined" selected>Dòng kẻ & lề (Lined)</option>
+          <option value="ruled">Chỉ dòng kẻ (Ruled)</option>
+          <option value="plain">Trắng trơn (Plain)</option>
+          <option value="graph">Ô ly vuông (Graph)</option>
+          <option value="dotted">Chấm bi (Dotted)</option>
         </select>
       </div>
 

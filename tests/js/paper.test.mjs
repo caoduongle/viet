@@ -2,7 +2,7 @@
  * paper.test.mjs -- Kiểm thử module dựng SVG từ dữ liệu .xopp (Node.js thuần, không framework).
  */
 import assert from "node:assert";
-import { parseXoppXml, renderPageSvgString } from "../../webapp/js/paper.js";
+import { parseXoppXml, renderPageSvgString, getPaperPixelDimensions, PT_TO_PX } from "../../webapp/js/paper.js";
 
 console.log("[Test Paper] Bắt đầu kiểm tra parser và renderer SVG...");
 
@@ -54,7 +54,16 @@ assert.ok(svg1.includes('stroke-linecap="round"'), "SVG phải có bo tròn nét
 assert.ok(svg1.includes('class="paper-bg-line"'), "SVG lined phải có các đường kẻ ngang");
 assert.ok(svg1.includes('class="missing-token-underline"'), "SVG phải có đường gạch đỏ từ thiếu mẫu");
 
-// Test 3: Dựng SVG cho nền ruled (có đường lề đỏ)
+// Test 3: Dựng SVG cho nền lined (có đường lề đỏ) và ruled (chỉ có dòng ngang)
+const linedPage = {
+  width: 500,
+  height: 700,
+  background: { style: "lined", color: "#ffffffff", spacing: 25, margin: 70 },
+  strokes: [],
+};
+const svgLined = renderPageSvgString(linedPage);
+assert.ok(svgLined.includes('class="paper-bg-margin"'), "Nền lined phải có đường lề đứng");
+
 const ruledPage = {
   width: 500,
   height: 700,
@@ -62,7 +71,8 @@ const ruledPage = {
   strokes: [],
 };
 const svgRuled = renderPageSvgString(ruledPage);
-assert.ok(svgRuled.includes('class="paper-bg-margin"'), "Nền ruled phải có đường lề đứng");
+assert.ok(!svgRuled.includes('class="paper-bg-margin"'), "Nền ruled không được có đường lề đứng");
+assert.ok(svgRuled.includes('class="paper-bg-line"'), "Nền ruled phải có dòng kẻ ngang");
 
 // Test 4: Dựng SVG cho nền dotted (có các chấm mờ)
 const dottedPage = {
@@ -73,5 +83,14 @@ const dottedPage = {
 };
 const svgDotted = renderPageSvgString(dottedPage);
 assert.ok(svgDotted.includes('class="paper-bg-dot"'), "Nền dotted phải có các chấm mờ");
+
+// Test 5: Kiểm tra kích thước pixel theo chuẩn A4 595.28 pt x 841.89 pt
+const a4Dims100 = getPaperPixelDimensions(595.28, 841.89, 1.0);
+assert.strictEqual(a4Dims100.widthPx, 794, "A4 100% width phải là 794px (~793.7px)");
+assert.strictEqual(a4Dims100.heightPx, 1123, "A4 100% height phải là 1123px (~1122.5px)");
+
+const a4Dims50 = getPaperPixelDimensions(595.28, 841.89, 0.5);
+assert.strictEqual(a4Dims50.widthPx, 397, "A4 50% width phải là 397px");
+assert.strictEqual(a4Dims50.heightPx, 561, "A4 50% height phải là 561px");
 
 console.log("[Test Paper] PASS 100%! Toàn bộ các phép kiểm tra SVG đều chính xác.");
