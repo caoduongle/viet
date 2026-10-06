@@ -330,6 +330,18 @@ class BrowserBridge:
         except Exception as e:
             return _err_res(e)
 
+    def list_char_catalogs(self) -> dict[str, Any]:
+        """Trả về danh sách tóm tắt tất cả các nhóm catalog ký tự có sẵn."""
+        try:
+            groups = self._ctl.list_char_catalogs()
+            res_data = [
+                {"id": g.id, "name": g.name, "description": g.description, "count": len(g.chars)}
+                for g in groups
+            ]
+            return {"ok": True, "data": res_data}
+        except Exception as e:
+            return _err_res(e)
+
     def export_char_grid(self, group_id: str = "co_ban", target_xh: float = 7.94) -> dict[str, Any]:
         """Sinh file lưới ô chuẩn hw3 cho nhóm ký tự để tải về."""
         try:
@@ -371,6 +383,37 @@ class BrowserBridge:
         except Exception as e:
             return _err_res(e)
 
+    def get_missing_chars(
+        self,
+        group_id: str = "co_ban",
+        exclude: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Lấy danh sách các ký tự còn thiếu theo nhóm catalog."""
+        try:
+            ex = set(exclude or [])
+            tokens = self._ctl.get_missing_chars(group_id=group_id, exclude=ex)
+            return {"ok": True, "tokens": tokens}
+        except Exception as e:
+            return _err_res(e)
+
+    def list_category_items(self, category: str = "letters") -> dict[str, Any]:
+        """Liệt kê danh sách [nhãn, số mẫu] của một danh mục cụ thể."""
+        try:
+            bank = self._ctl._require_bank()
+            cat_map = {
+                "words": bank.words,
+                "letters": getattr(bank, "letters", {}),
+                "digits": bank.digits,
+                "punct": bank.punct,
+                "symbols": getattr(bank, "symbols", {}),
+                "marks": bank.marks,
+            }
+            target = cat_map.get(category, {})
+            items = sorted([k, len(v)] for k, v in target.items())
+            return {"ok": True, "data": items}
+        except Exception as e:
+            return _err_res(e)
+
     def list_words(self) -> dict[str, Any]:
         """Liệt kê danh sách các từ và số mẫu."""
         try:
@@ -398,8 +441,8 @@ class BrowserBridge:
     def drop_label(self, label: str, category: str = "words") -> dict[str, Any]:
         """Xoá toàn bộ mẫu của một nhãn."""
         try:
-            if category == "letters":
-                res = self._ctl.drop_letter(label)
+            if category in ("letters", "digits", "punct", "symbols", "marks"):
+                res = self._ctl.drop_char(label)
             else:
                 res = self._ctl.drop_words([label], category=category)
             return {"ok": True, "data": _clean_json(res)}

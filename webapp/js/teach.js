@@ -45,10 +45,22 @@ export class TeachController {
       section: document.getElementById("tab-teach"),
       inputAdd: document.getElementById("input-teach-add"),
       btnAdd: document.getElementById("btn-teach-add"),
+      btnChars: document.getElementById("btn-teach-chars"),
       btnEssentials: document.getElementById("btn-teach-essentials"),
       btnSeed: document.getElementById("btn-teach-seed"),
+      btnImportGrid: document.getElementById("btn-import-grid"),
+      inputGridFile: document.getElementById("input-grid-file"),
+      btnExportCharGrid: document.getElementById("btn-export-char-grid"),
       btnClearQueue: document.getElementById("btn-teach-clear-queue"),
       btnCalibrate: document.getElementById("btn-teach-calibrate"),
+
+      // Modal chọn bộ ký tự
+      modalCharGroups: document.getElementById("modal-char-groups"),
+      btnCloseCharGroups: document.getElementById("btn-close-char-groups"),
+      selectCharGroup: document.getElementById("select-char-group"),
+      charGroupDesc: document.getElementById("char-group-desc"),
+      btnCharGroupsAddQueue: document.getElementById("btn-char-groups-add-queue"),
+      btnCharGroupsExport: document.getElementById("btn-char-groups-export"),
 
       queueCount: document.getElementById("teach-queue-count"),
       queueList: document.getElementById("teach-queue-list"),
@@ -100,9 +112,25 @@ export class TeachController {
       }
     });
 
-    // 2. Nạp hàng đợi tự động
-    this.dom.btnEssentials.addEventListener("click", () => this.addMinimalEssentials());
-    this.dom.btnSeed.addEventListener("click", () => this.addSeedWords());
+    // 2. Nạp hàng đợi tự động & Lưới ô
+    if (this.dom.btnChars) {
+      this.dom.btnChars.addEventListener("click", () => this.openCharGroupsModal());
+    }
+    if (this.dom.btnEssentials) {
+      this.dom.btnEssentials.addEventListener("click", () => this.openCharGroupsModal());
+    }
+    if (this.dom.btnSeed) {
+      this.dom.btnSeed.addEventListener("click", () => this.addSeedWords());
+    }
+    if (this.dom.btnExportCharGrid) {
+      this.dom.btnExportCharGrid.addEventListener("click", () => this.openCharGroupsModal());
+    }
+    if (this.dom.btnImportGrid && this.dom.inputGridFile) {
+      this.dom.btnImportGrid.addEventListener("click", () => this.dom.inputGridFile.click());
+      this.dom.inputGridFile.addEventListener("change", (e) => this.handleImportGridFile(e));
+    }
+    this._bindCharGroupsModalEvents();
+
     this.dom.btnClearQueue.addEventListener("click", () => this.clearQueue());
     this.dom.btnCalibrate.addEventListener("click", () => this.startCalibration());
     this.dom.btnSkip.addEventListener("click", () => this.skipWord());
@@ -203,48 +231,160 @@ export class TeachController {
     this.refresh();
   }
 
-  async addMinimalEssentials() {
-    try {
-      const res = await this.worker.request("get_missing_queue", {
-        kind: "essentials",
-        exclude: this.queue,
-      });
-      if (res && res.ok && Array.isArray(res.tokens)) {
-        if (res.tokens.length === 0) {
-          alert("Kho mẫu đã có đủ bộ tối thiểu (chữ số, dấu câu và các từ phổ biến).");
-          return;
-        }
-        this.loadQueue(res.tokens);
-        alert(`Đã thêm ${res.tokens.length} mục tối thiểu vào hàng đợi.`);
+  // ------------------------------------------------------------ Modal Bộ Ký Tự (R3) & Nạp Lưới (R2)
+  _bindCharGroupsModalEvents() {
+    if (!this.dom.modalCharGroups) return;
+
+    if (this.dom.btnCloseCharGroups) {
+      this.dom.btnCloseCharGroups.addEventListener("click", () => this.closeCharGroupsModal());
+    }
+    this.dom.modalCharGroups.addEventListener("click", (e) => {
+      if (e.target === this.dom.modalCharGroups) {
+        this.closeCharGroupsModal();
       }
-    } catch (err) {
-      alert("Lỗi khi nạp bộ tối thiểu: " + err.message);
+    });
+
+    if (this.dom.selectCharGroup) {
+      this.dom.selectCharGroup.addEventListener("change", () => this._updateCharGroupDesc());
+    }
+
+    if (this.dom.btnCharGroupsAddQueue) {
+      this.dom.btnCharGroupsAddQueue.addEventListener("click", () => this.addCharGroupToQueue());
+    }
+
+    if (this.dom.btnCharGroupsExport) {
+      this.dom.btnCharGroupsExport.addEventListener("click", () => this.exportCharGroupGrid());
     }
   }
 
-  async addSeedWords(limit = 50) {
-    const input = prompt("Nạp bao nhiêu từ thông dụng còn thiếu?", String(limit));
-    if (!input) return;
-    const n = parseInt(input, 10);
-    if (isNaN(n) || n <= 0) return;
+  openCharGroupsModal() {
+    if (this.dom.modalCharGroups) {
+      this._updateCharGroupDesc();
+      this.dom.modalCharGroups.style.display = "flex";
+    }
+  }
+
+  closeCharGroupsModal() {
+    if (this.dom.modalCharGroups) {
+      this.dom.modalCharGroups.style.display = "none";
+    }
+  }
+
+  _updateCharGroupDesc() {
+    if (!this.dom.selectCharGroup || !this.dom.charGroupDesc) return;
+    const descriptions = {
+      co_ban: "Chữ cái cơ bản tiếng Việt gồm cả chữ thường, chữ hoa và các chữ cái mượn phổ biến (85 chữ cái).",
+      chu_hoa: "33 chữ cái viết hoa tiếng Việt và các chữ cái ngoại lai chuẩn (A, Ă, Â... Z).",
+      chu_thuong: "33 chữ cái viết thường tiếng Việt và các chữ cái ngoại lai chuẩn (a, ă, â... z).",
+      chu_so: "10 chữ số từ 0 đến 9.",
+      dau_cau: "Các dấu câu cơ bản tiếng Việt: dấu phẩy, chấm, hai chấm, chấm phẩy, chấm than, hỏi, gạch nối, ba chấm.",
+      dau_cau_mo_rong: "Dấu câu mở rộng: các loại ngoặc đơn/kép/vuông/nhọn, gạch chéo, nháy đơn/kép.",
+      ky_hieu_toan: "Ký hiệu toán học và đơn vị phổ biến: cộng, trừ, bằng, nhân, chia, phần trăm, tiền tệ...",
+      dau_thanh: "5 dấu thanh rời tiếng Việt (huyền, sắc, hỏi, ngã, nặng) dùng để ghép thanh linh hoạt.",
+      toan_hy_lap: "Toàn bộ bảng ký tự toán học và chữ cái Hy Lạp thường và hoa.",
+      day_du: "Tất cả các bộ ký tự trên gom lại đầy đủ.",
+    };
+    const val = this.dom.selectCharGroup.value;
+    this.dom.charGroupDesc.textContent = descriptions[val] || "Bộ ký tự chọn lọc.";
+  }
+
+  async addCharGroupToQueue() {
+    if (!this.dom.selectCharGroup) return;
+    const groupId = this.dom.selectCharGroup.value;
 
     try {
-      const res = await this.worker.request("get_missing_queue", {
-        kind: "seed",
-        limit: n,
+      const res = await this.worker.request("get_missing_chars", {
+        groupId,
         exclude: this.queue,
       });
       if (res && res.ok && Array.isArray(res.tokens)) {
         if (res.tokens.length === 0) {
-          alert("Kho mẫu đã có đủ các từ thông dụng.");
+          alert("Kho mẫu đã có đủ tất cả các ký tự trong nhóm này.");
+          this.closeCharGroupsModal();
           return;
         }
         this.loadQueue(res.tokens);
-        alert(`Đã thêm ${res.tokens.length} từ thông dụng vào hàng đợi.`);
+        this.closeCharGroupsModal();
+        alert(`Đã thêm ${res.tokens.length} ký tự còn thiếu vào hàng đợi.`);
       }
     } catch (err) {
-      alert("Lỗi khi nạp từ thông dụng: " + err.message);
+      alert("Lỗi khi nạp bộ ký tự: " + err.message);
     }
+  }
+
+  async exportCharGroupGrid() {
+    if (!this.dom.selectCharGroup) return;
+    const groupId = this.dom.selectCharGroup.value;
+
+    try {
+      const res = await this.worker.request("export_char_grid", { groupId });
+      if (!res || !res.ok || !res.xopp_base64) {
+        throw new Error((res && res.error) || "Không thể tạo file lưới.");
+      }
+
+      const binaryString = atob(res.xopp_base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const blob = new Blob([bytes], { type: "application/x-xopp" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `luoi_tap_viet_${groupId}.xopp`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      this.closeCharGroupsModal();
+    } catch (err) {
+      alert("Lỗi xuất lưới: " + err.message);
+    }
+  }
+
+  async handleImportGridFile(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = Array.from(new Uint8Array(arrayBuffer));
+
+      const res = await this.worker.request("import_grid", { bytes, dedup: true });
+      if (!res || !res.ok || !res.data) {
+        throw new Error((res && res.error) || "Không thể xử lý file lưới .xopp.");
+      }
+
+      const r = res.data;
+      const msg = [
+        `Nạp file lưới hoàn tất!`,
+        `- Đã thêm mẫu mới: ${r.added_samples}`,
+        `- Trùng lặp (bỏ qua): ${r.duplicate_samples}`,
+        `- Bỏ qua ô đa ký tự: ${r.skipped_multi_char}`,
+        `- Loại bỏ (trống/lỗi nét): ${r.rejected_cells}`,
+      ].join("\n");
+      alert(msg);
+
+      // Thông báo làm mới kho và lưu tự động
+      if (typeof window.__notifySampleTaught === "function") {
+        window.__notifySampleTaught();
+      }
+      this.refresh();
+    } catch (err) {
+      alert("Lỗi nạp file lưới: " + err.message);
+    } finally {
+      e.target.value = "";
+    }
+  }
+
+  addMinimalEssentials() {
+    this.openCharGroupsModal();
+  }
+
+  addSeedWords() {
+    this.openCharGroupsModal();
   }
 
   clearQueue() {
@@ -305,12 +445,22 @@ export class TeachController {
       this.dom.btnSave.disabled = true;
       this.dom.btnSave.textContent = "Đang lưu...";
 
-      const res = await this.worker.request("teach_sample", {
-        label,
-        pixel_strokes: pixelStrokes,
-        calibrating: wasCalibrating,
-        deferred_save: true,
-      });
+      let res;
+      const isSingleChar = label.length === 1 || ["sắc", "huyền", "hỏi", "ngã", "nặng", "dấu sắc", "dấu huyền", "dấu hỏi", "dấu ngã", "dấu nặng"].includes(label.toLowerCase());
+      if (isSingleChar && !wasCalibrating) {
+        res = await this.worker.request("teach_char", {
+          label,
+          pixel_strokes: pixelStrokes,
+          deferred_save: true,
+        });
+      } else {
+        res = await this.worker.request("teach_sample", {
+          label,
+          pixel_strokes: pixelStrokes,
+          calibrating: wasCalibrating,
+          deferred_save: true,
+        });
+      }
 
       if (!res || !res.ok) {
         throw new Error((res && res.error) || "Lỗi không xác định khi lưu mẫu.");

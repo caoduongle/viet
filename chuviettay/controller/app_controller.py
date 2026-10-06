@@ -457,6 +457,11 @@ class AppController:
         """Lấy danh mục ký tự mẫu theo nhóm id ('co_ban', 'toan_hy_lap', 'mo_rong', 'day_du')."""
         return get_catalog_group(group_id)
 
+    def list_char_catalogs(self) -> list[CharCatalogGroup]:
+        """Trả về danh sách tất cả các nhóm catalog ký tự có sẵn."""
+        from chuviettay.model.char_catalog import CHAR_CATALOGS
+        return list(CHAR_CATALOGS.values())
+
     def get_missing_chars(
         self,
         group_id: str = "co_ban",

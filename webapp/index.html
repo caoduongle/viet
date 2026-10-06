@@ -204,11 +204,14 @@
       <div class="card" style="max-width: 1040px; margin: 0 auto; width: 100%;">
         <!-- Thanh công cụ hàng đợi phía trên -->
         <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding-bottom: 0.85rem; border-bottom: 1px solid var(--border-color);">
-          <span style="font-weight: 500; font-size: 0.9rem;">Thêm từ vào hàng đợi:</span>
-          <input type="text" id="input-teach-add" class="form-control" placeholder="Từ hoặc cụm từ..." style="width: 180px; padding: 0.35rem 0.6rem;">
+          <span style="font-weight: 500; font-size: 0.9rem;">Thêm vào hàng đợi:</span>
+          <input type="text" id="input-teach-add" class="form-control" placeholder="Ký tự hoặc từ..." style="width: 160px; padding: 0.35rem 0.6rem;">
           <button id="btn-teach-add" class="btn btn-outline" style="padding: 0.35rem 0.75rem;">Thêm</button>
-          <button id="btn-teach-essentials" class="btn btn-outline" style="padding: 0.35rem 0.75rem;" title="Nạp bộ chữ số, dấu câu và các từ tối thiểu">Bộ tối thiểu</button>
-          <button id="btn-teach-seed" class="btn btn-outline" style="padding: 0.35rem 0.75rem;" title="Nạp các từ thông dụng tiếng Việt còn thiếu">Từ thông dụng...</button>
+          <button id="btn-teach-chars" class="btn btn-outline" style="padding: 0.35rem 0.75rem;" title="Nạp các ký tự còn thiếu theo bộ chọn (chữ cái, chữ số, dấu câu, ký hiệu...)">Bộ ký tự…</button>
+          <button id="btn-teach-essentials" class="btn btn-outline" style="display: none;" title="Alias bộ tối thiểu">Bộ tối thiểu</button>
+          <input type="file" id="input-grid-file" accept=".xopp" style="display: none;">
+          <button id="btn-import-grid" class="btn btn-outline" style="padding: 0.35rem 0.75rem;" title="Nạp file lưới ô tập viết (.xopp) đã làm để trích xuất mẫu chữ">Nạp file lưới…</button>
+          <button id="btn-export-char-grid" class="btn btn-outline" style="padding: 0.35rem 0.75rem;" title="Xuất file lưới ô .xopp để tập viết tay trên máy tính bảng hoặc in ra giấy">Xuất lưới (.xopp)</button>
           <button id="btn-teach-clear-queue" class="btn btn-outline" style="padding: 0.35rem 0.75rem;">Xoá hàng đợi</button>
           <button id="btn-teach-calibrate" class="btn btn-outline" style="padding: 0.35rem 0.75rem; margin-left: auto;" title="Viết một từ mốc để cân chỉnh tỷ lệ cỡ tay của bạn">Hiệu chỉnh cỡ tay</button>
         </div>
@@ -292,6 +295,7 @@
 
           <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
             <button id="btn-export-check" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;" title="Xuất file lưới ô .xopp kiểm tra toàn bộ mẫu chữ đã học">Xuất file kiểm tra (.xopp)</button>
+            <button id="btn-bank-import-grid" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;" title="Nạp file lưới ô tập viết .xopp đã làm">Nạp lưới (.xopp)</button>
             <input type="file" id="input-import-bank" accept=".json.gz" style="display: none;">
             <button id="btn-import-bank" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;">Nhập kho (.json.gz)</button>
             <button id="btn-export-bank" class="btn btn-primary" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;">Sao lưu kho (.json.gz)</button>
@@ -305,11 +309,12 @@
           </div>
           <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;" id="bank-category-filters">
             <button class="btn-tool active" data-cat="all">Tất cả (<span id="cat-count-all">0</span>)</button>
-            <button class="btn-tool" data-cat="words">Từ vựng (<span id="cat-count-words">0</span>)</button>
             <button class="btn-tool" data-cat="letters">Chữ cái (<span id="cat-count-letters">0</span>)</button>
             <button class="btn-tool" data-cat="digits">Chữ số (<span id="cat-count-digits">0</span>)</button>
             <button class="btn-tool" data-cat="punct">Dấu câu (<span id="cat-count-punct">0</span>)</button>
             <button class="btn-tool" data-cat="symbols">Ký hiệu (<span id="cat-count-symbols">0</span>)</button>
+            <button class="btn-tool" data-cat="marks">Dấu thanh (<span id="cat-count-marks">0</span>)</button>
+            <button class="btn-tool" data-cat="words">Từ vựng (<span id="cat-count-words">0</span>)</button>
           </div>
         </div>
 
@@ -447,6 +452,44 @@
       </p>
       <div id="latex-symbols-container" style="display: flex; flex-direction: column; gap: 1rem;">
         <!-- Ký hiệu sẽ render tự động từ worker get_latex_symbols -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Chọn bộ ký tự (R3, D9) -->
+  <div id="modal-char-groups" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 850; align-items: center; justify-content: center;">
+    <div class="card" style="max-width: 540px; width: 90%; max-height: 85vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color);">
+        <h3 id="modal-char-groups-title" style="margin: 0;">Chọn bộ ký tự</h3>
+        <button id="btn-close-char-groups" class="btn-tool" style="font-size: 1.1rem; border: none;">✕</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+        Chọn nhóm ký tự bạn muốn thêm vào hàng đợi học hoặc xuất file lưới ô .xopp để tập viết tay.
+      </p>
+
+      <div class="form-group" style="margin-bottom: 1rem;">
+        <label for="select-char-group" style="font-weight: 500; margin-bottom: 0.4rem; display: block;">Nhóm ký tự:</label>
+        <select id="select-char-group" class="form-control" style="width: 100%; padding: 0.45rem 0.6rem;">
+          <option value="co_ban">Chữ cái cơ bản (85 chữ cái tiếng Việt & mượn f, j, w, z)</option>
+          <option value="chu_hoa">Chữ cái viết hoa (33 chữ)</option>
+          <option value="chu_thuong">Chữ cái viết thường (33 chữ)</option>
+          <option value="chu_so">Chữ số (0–9)</option>
+          <option value="dau_cau">Dấu câu cơ bản (, . : ; ! ? - ...)</option>
+          <option value="dau_cau_mo_rong">Dấu câu mở rộng (ngoặc, gạch, nháy...)</option>
+          <option value="ky_hieu_toan">Ký hiệu toán & đơn vị (+ - = &lt; &gt; % $...)</option>
+          <option value="dau_thanh">Dấu thanh rời (huyền, sắc, hỏi, ngã, nặng)</option>
+          <option value="toan_hy_lap">Toàn bộ ký hiệu toán & Hy Lạp</option>
+          <option value="day_du">Tất cả các ký tự (Đầy đủ)</option>
+        </select>
+      </div>
+
+      <div id="char-group-desc" style="font-size: 0.82rem; color: #475569; background: #f8fafc; border: 1px solid #e2e8f0; padding: 0.6rem 0.75rem; border-radius: 6px; margin-bottom: 1.25rem;">
+        Chữ cái cơ bản tiếng Việt gồm cả chữ thường, chữ hoa và các chữ cái mượn phổ biến.
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+        <button id="btn-char-groups-export" class="btn btn-outline">Xuất lưới .xopp</button>
+        <button id="btn-char-groups-add-queue" class="btn btn-primary">Thêm vào hàng đợi</button>
       </div>
     </div>
   </div>

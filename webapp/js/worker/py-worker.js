@@ -178,6 +178,61 @@ _q_ex = json.loads(_q_ex_json)
 _q_res = _bridge.get_missing_queue(kind=_q_kind, limit=_q_limit, exclude=_q_ex)
 `);
       result = pyodide.globals.get("_q_res").toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "get_missing_chars") {
+      const { groupId, exclude } = params || {};
+      pyodide.globals.set("_mc_grp", groupId || "co_ban");
+      pyodide.globals.set("_mc_ex_json", JSON.stringify(exclude || []));
+      pyodide.runPython(`
+import json
+_mc_ex = json.loads(_mc_ex_json)
+_mc_res = _bridge.get_missing_chars(group_id=_mc_grp, exclude=_mc_ex)
+`);
+      result = pyodide.globals.get("_mc_res").toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "import_grid") {
+      const { bytes, dedup } = params || {};
+      const uint8 = new Uint8Array(bytes);
+      pyodide.FS.writeFile("/tmp/input_grid.xopp", uint8);
+      pyodide.runPython(`
+with open("/tmp/input_grid.xopp", "rb") as f:
+    _grid_bytes = f.read()
+_grid_res = _bridge.import_grid(_grid_bytes, dedup=${dedup !== false ? "True" : "False"})
+`);
+      result = pyodide.globals.get("_grid_res").toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "teach_char") {
+      const { label, strokes, width, pixel_strokes, deferred_save } = params || {};
+      pyodide.globals.set("_tchar_label", label || "");
+      pyodide.globals.set("_tchar_strokes_json", JSON.stringify(strokes || null));
+      pyodide.globals.set("_tchar_px_strokes_json", JSON.stringify(pixel_strokes || null));
+      pyodide.globals.set("_tchar_width", width != null ? width : 0);
+      pyodide.globals.set("_tchar_deferred", deferred_save !== false);
+      pyodide.runPython(`
+import json
+_tc_strokes = json.loads(_tchar_strokes_json) if _tchar_strokes_json != "null" else None
+_tc_px = json.loads(_tchar_px_strokes_json) if _tchar_px_strokes_json != "null" else None
+_tchar_res = _bridge.teach_char(
+    _tchar_label,
+    strokes=_tc_strokes,
+    width=_tchar_width,
+    pixel_strokes=_tc_px,
+    deferred_save=_tchar_deferred,
+)
+`);
+      result = pyodide.globals.get("_tchar_res").toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "get_char_catalog") {
+      const { groupId } = params || {};
+      pyodide.globals.set("_cat_grp", groupId || "co_ban");
+      result = pyodide.runPython(`_bridge.get_char_catalog(group_id=_cat_grp)`).toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "list_char_catalogs") {
+      result = pyodide.runPython(`_bridge.list_char_catalogs()`).toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "export_char_grid") {
+      const { groupId, targetXh } = params || {};
+      pyodide.globals.set("_exp_grp", groupId || "co_ban");
+      pyodide.globals.set("_exp_xh", targetXh || 7.94);
+      result = pyodide.runPython(`_bridge.export_char_grid(group_id=_exp_grp, target_xh=_exp_xh)`).toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "list_category_items") {
+      const { category } = params || {};
+      pyodide.globals.set("_cat_name", category || "letters");
+      result = pyodide.runPython(`_bridge.list_category_items(category=_cat_name)`).toJs({ dict_converter: Object.fromEntries });
     } else if (method === "list_words") {
       result = pyodide.runPython(`_bridge.list_words()`).toJs({ dict_converter: Object.fromEntries });
     } else if (method === "list_letters") {

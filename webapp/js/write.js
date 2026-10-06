@@ -46,6 +46,7 @@ const writeOptions = {
   orientation: "portrait",
   background: "lined",
   stable_variants: true,
+  assemble_letters: true,
 };
 
 let currentFormat = "md"; // "md" hoặc "txt"

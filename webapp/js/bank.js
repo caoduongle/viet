@@ -29,12 +29,21 @@ export function initBankTab(sendWorkerMessage) {
   const btnImport = document.getElementById("btn-import-bank");
   const fileInput = document.getElementById("input-import-bank");
   const btnExportCheck = document.getElementById("btn-export-check");
+  const btnBankImportGrid = document.getElementById("btn-bank-import-grid");
   const btnRenameProfile = document.getElementById("btn-rename-profile");
 
   if (btnExport) btnExport.addEventListener("click", exportCurrentBank);
   if (btnImport && fileInput) {
     btnImport.addEventListener("click", () => fileInput.click());
     fileInput.addEventListener("change", handleFileInput);
+  }
+  if (btnBankImportGrid) {
+    btnBankImportGrid.addEventListener("click", () => {
+      const gridInput = document.getElementById("input-grid-file");
+      if (gridInput) {
+        gridInput.click();
+      }
+    });
   }
   if (btnExportCheck) btnExportCheck.addEventListener("click", exportCheckFile);
   if (btnRenameProfile) btnRenameProfile.addEventListener("click", handleRenameProfile);
@@ -159,6 +168,33 @@ export async function refreshBankView() {
       allBankItems.push({ label: p, count, category: "punct" });
     }
 
+    // Ký hiệu (symbols)
+    try {
+      const symRes = await sendWorkerFn("list_category_items", { category: "symbols" });
+      if (symRes && symRes.ok && Array.isArray(symRes.data)) {
+        for (const [sym, count] of symRes.data) {
+          allBankItems.push({ label: sym, count, category: "symbols" });
+        }
+      }
+    } catch (_) {}
+
+    // Dấu thanh (marks)
+    try {
+      const marksRes = await sendWorkerFn("list_category_items", { category: "marks" });
+      if (marksRes && marksRes.ok && Array.isArray(marksRes.data)) {
+        for (const [m, count] of marksRes.data) {
+          allBankItems.push({ label: m, count, category: "marks" });
+        }
+      } else {
+        const toneCounts = stats.tone_mark_counts || {};
+        for (const [t, count] of Object.entries(toneCounts)) {
+          if (count > 0) {
+            allBankItems.push({ label: t, count, category: "marks" });
+          }
+        }
+      }
+    } catch (_) {}
+
     // Cập nhật số lượng trên các nút lọc
     updateCategoryCounts();
 
@@ -170,7 +206,7 @@ export async function refreshBankView() {
 }
 
 function updateCategoryCounts() {
-  const counts = { all: allBankItems.length, words: 0, letters: 0, digits: 0, punct: 0, symbols: 0 };
+  const counts = { all: allBankItems.length, words: 0, letters: 0, digits: 0, punct: 0, symbols: 0, marks: 0 };
   for (const item of allBankItems) {
     if (counts[item.category] !== undefined) {
       counts[item.category]++;

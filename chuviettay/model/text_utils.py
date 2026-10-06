@@ -336,6 +336,10 @@ def classify_char(label: str, known_symbols: Any = None) -> str:
     if len(lbl) == 1 and lbl.isalpha():
         return "letters"
 
+    # Từ gồm nhiều chữ cái
+    if len(lbl) > 1 and lbl.isalpha():
+        return "words"
+
     # Fallback theo Unicode category
     if len(lbl) == 1:
         cat = unicodedata.category(lbl)
