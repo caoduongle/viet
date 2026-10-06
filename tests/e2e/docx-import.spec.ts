@@ -11,9 +11,12 @@ test.describe("B2 Regression: Mở file .docx trong Web Client", () => {
 
     // 2. Nếu xuất hiện welcome modal (do kho trống), bấm tạo kho trống hoặc đóng
     const welcomeModal = page.locator("#welcome-modal");
-    if (await welcomeModal.isVisible()) {
+    try {
+      await welcomeModal.waitFor({ state: "visible", timeout: 4000 });
       await page.click("#btn-welcome-create");
       await expect(welcomeModal).toBeHidden({ timeout: 15000 });
+    } catch {
+      // Bỏ qua nếu không xuất hiện modal chào
     }
 
     // 3. Tab Viết chữ đã được chọn mặc định
