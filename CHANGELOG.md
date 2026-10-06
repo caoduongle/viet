@@ -1,5 +1,35 @@
 # Nhật ký thay đổi
 
+## Chưa phát hành — Static Web Client & PWA (Spec 020)
+
+Chuyển đổi ứng dụng thành Static Web App chạy 100% phía trình duyệt (Client-side) không cần máy chủ tính toán, bảo toàn 100% thuật toán gốc qua Pyodide 314.0.7 (WebAssembly):
+
+### Runtime WebAssembly & Cấu trúc Client-Side
+- **Pyodide 314.0.7 trong Web Worker**: Đóng gói mã nguồn `chuviettay` vào `chuviettay.zip` và nạp vào Pyodide Web Worker không chặn giao diện chính (Zero Blocking UI).
+- **Zero Remote CDN**: Tự host 100% tài nguyên gồm WASM, stdlib, wheels (`markdown_it_py`, `mdit_py_plugins`) và frontend trong `webapp/dist/`.
+- **Golden Master 8/8 byte-to-byte**: Xác thực mã băm SHA-256 các file `.xopp` sinh ra từ Pyodide trùng khớp từng byte với bản CPython gốc.
+
+### Trình soạn thảo & Xuất bản (Tab Viết chữ)
+- **Soạn thảo thời gian thực 2 cột**: Hỗ trợ văn bản thuần, Markdown, bảng, công thức toán học LaTeX inline `$x$` và block `$$E=mc^2$$`.
+- **Xem trước Vector SVG**: Phân tích cú pháp trang giấy `paper.js` và hiển thị nét mực chân thực kèm tỷ lệ phóng thu 75% - 125%.
+- **Đa định dạng xuất bản**: Xuất tệp `.xopp`, xuất ảnh PNG, vector SVG, tải nén ZIP toàn bộ trang và in trực tiếp ra giấy / lưu PDF trình duyệt.
+
+### Dạy chữ trên Canvas (Tab Dạy chữ)
+- **Pointer Events & Palm Rejection**: Hỗ trợ bút cảm ứng, màn hình cảm ứng và chuột với cơ chế chống tỳ tay và loại bỏ chạm vô tình.
+- **Tương đương 100% thuật toán GUI**: Đạt 8/8 bài kiểm tra parity `tests/test_teach_parity.py` trong việc chuẩn hoá mẫu, tính toán toạ độ và phân loại nét.
+
+### Quản lý kho mẫu & Toàn vẹn đa tab (Tab Kho mẫu)
+- **Lưới mẫu & Tìm kiếm tức thì**: Lọc theo danh mục (`words`, `letters`, `digits`, `punct`, `symbols`), hiển thị hình thu nhỏ SVG và số lượng mẫu.
+- **Xoá nhãn an toàn**: Xác nhận rõ ràng, hỗ trợ Hoàn tác (Undo) và cơ chế tombstone đồng bộ tránh hồi sinh.
+- **Giao thức lưu 4 bước Web Locks**: Kiểm soát truy cập độc quyền kho mẫu giữa các tab, đồng bộ dữ liệu hai chiều tức thì qua BroadcastChannel và lưu vào IndexedDB.
+- **Cảnh báo dung lượng & Nhắc nhở sao lưu**: Cảnh báo khi bộ nhớ trình duyệt vượt quá 80% hạn ngạch và nhắc nhở sao lưu định kỳ sau 20 mẫu dạy mới.
+
+### PWA Offline & Triển khai đám mây
+- **PWA Service Worker Cache-First**: Cài đặt ứng dụng như Native App trên máy tính và điện thoại; hoạt động hoàn toàn ngoại tuyến khi mất mạng.
+- **Render Blueprint & CI**: Tích hợp `render.yaml` tự động build và triển khai lên Render Static Site với Cache-Control immutable 1 năm cho tài nguyên WASM; bổ sung CI kiểm thử Playwright E2E và Python 3.14.
+
+---
+
 ## Chưa phát hành — Giai đoạn 1: Nền tảng (P1)
 
 ### Định dạng tài liệu & Tương thích Xournal++ (F7)

@@ -4,10 +4,13 @@ from __future__ import annotations
 import math
 import os
 import random
+from collections.abc import Callable
+from dataclasses import dataclass, field
+import gzip
+import tempfile
 from typing import TYPE_CHECKING
 
 from chuviettay.model.composer import WriteOptions, WriteResult
-
 from chuviettay.document.ir import (
     Document,
     Heading,
@@ -35,13 +38,31 @@ if TYPE_CHECKING:
     from chuviettay.model.bank import Bank
 
 
+@dataclass
+class TokenBox:
+    """Bounding box và metadata của một token trên trang (dùng cho D2)."""
+    page: int
+    token: str
+    x: float
+    y: float
+    width: float
+    height: float
+    missing: list[str] = field(default_factory=list)
+
+
 class DocumentLayoutEngine:
     """Điều phối bố cục các khối (Paragraph, Heading, Table, PageBreak...) và sinh nét vẽ."""
 
-    def __init__(self, bank: Bank, opts: WriteOptions):
+    def __init__(
+        self,
+        bank: Bank,
+        opts: WriteOptions,
+        token_layout_callback: Callable[[TokenBox], None] | None = None,
+    ):
         self.bank = bank
         self.opts = opts
         self.opts.validate()
+        self.token_layout_callback = token_layout_callback
         self.page_format = opts.resolve_page_format()
         self.rnd = random.Random(opts.seed)
         self.J = opts.jitter
@@ -73,6 +94,8 @@ class DocumentLayoutEngine:
             assemble_letters=opts.assemble_letters,
             letter_gap=getattr(opts, "letter_gap", 1.0),
             pen_clearance_factor=getattr(opts, "pen_clearance_factor", 0.8),
+            stable_variants=getattr(opts, "stable_variants", False),
+            seed=opts.seed,
         )
         # id(danh sách nét của mục công thức inline) -> (ascent, descent) theo toạ độ kho (S=1): để nới chiều cao dòng
         self._math_extent: dict[int, tuple[float, float]] = {}
@@ -140,7 +163,7 @@ class DocumentLayoutEngine:
                         nmiss += 1
                         for m in miss:
                             self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                    items.append((st, w * self.S * scale_mult, miss))
+                    items.append((st, w * self.S * scale_mult, miss, tok))
 
             elif isinstance(inline, Symbol):
                 sym = inline.symbol
@@ -153,7 +176,7 @@ class DocumentLayoutEngine:
                             missing_symbols[m] = missing_symbols.get(m, 0) + 1
                         else:
                             self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                items.append((st, w * self.S * scale_mult, miss))
+                items.append((st, w * self.S * scale_mult, miss, sym))
 
             elif isinstance(inline, MathInline):
                 math_ast = inline.ast or parse_latex_math(inline.latex)
@@ -196,12 +219,12 @@ class DocumentLayoutEngine:
 
                     self._math_extent[id(math_strokes)] = (m_item.size.ascent, m_item.size.descent)
                     items.append((math_strokes, m_item.size.width * self.S * scale_mult,
-                                  list(math_engine.missing_symbols.keys())))
+                                  list(math_engine.missing_symbols.keys()), inline.latex))
                     if k < len(pieces) - 1:
-                        items.append(([], 0.0, ["__LINE_BREAK__"]))
+                        items.append(([], 0.0, ["__LINE_BREAK__"], ""))
 
             elif isinstance(inline, LineBreak):
-                items.append(([], 0.0, ["__LINE_BREAK__"]))
+                items.append(([], 0.0, ["__LINE_BREAK__"], ""))
 
         return items, ntok, nmiss
 
@@ -229,7 +252,6 @@ class DocumentLayoutEngine:
             cur_page = []
             cur_y = pf.content_top
 
-
         def render_paragraph_inlines(inlines: list[Inline], scale_mult: float = 1.0, prefix: str = "",
                                      indent: float = 0.0):
             nonlocal ntok, nmiss
@@ -243,7 +265,7 @@ class DocumentLayoutEngine:
             nmiss += n_m
 
             eff_line_h = self.line_h * scale_mult
-            cur_line: list[tuple[float, list[Stroke], float]] = []
+            cur_line: list[tuple[float, list[Stroke], float, list[str], str]] = []
             curw = 0.0
             line_asc = line_desc = 0.0     # chiều cao lớn nhất của công thức inline trên dòng hiện tại
 
@@ -257,7 +279,28 @@ class DocumentLayoutEngine:
                 line_h_total = eff_line_h + extra_top + extra_bot
                 if cur_y + line_h_total > max_page_y:
                     new_page()
-                line_strokes = self._render_text_line(cur_line, cur_y + extra_top + eff_line_h, self.x0 + indent,
+
+                line_start_x = self.x0 + indent
+                if self.token_layout_callback is not None:
+                    page_idx = pb.n_pages
+                    for start, _, w, miss, tok_str in cur_line:
+                        if tok_str:
+                            box_x = line_start_x + start
+                            box_y = cur_y + extra_top
+                            self.token_layout_callback(
+                                TokenBox(
+                                    page=page_idx,
+                                    token=tok_str,
+                                    x=round(box_x, 2),
+                                    y=round(box_y, 2),
+                                    width=round(w, 2),
+                                    height=round(eff_line_h, 2),
+                                    missing=miss,
+                                )
+                            )
+
+                render_items = [(start, st, w) for start, st, w, _, _ in cur_line]
+                line_strokes = self._render_text_line(render_items, cur_y + extra_top + eff_line_h, line_start_x,
                                                       scale_mult=scale_mult)
                 cur_page.extend(line_strokes)
                 total_strokes += len(line_strokes)
@@ -267,7 +310,9 @@ class DocumentLayoutEngine:
                 curw = 0.0
                 line_asc = line_desc = 0.0
 
-            for st, w, miss in items:
+            for item in items:
+                st, w, miss = item[0], item[1], item[2]
+                tok_str = item[3] if len(item) > 3 else ""
                 if miss == ["__LINE_BREAK__"]:
                     flush_line()
                     continue
@@ -277,7 +322,7 @@ class DocumentLayoutEngine:
                     flush_line()
 
                 start = curw + (sp if cur_line else 0.0)
-                cur_line.append((start, st, w))
+                cur_line.append((start, st, w, miss, tok_str))
                 curw = start + w
                 ext = self._math_extent.get(id(st))
                 if ext is not None:
@@ -406,7 +451,8 @@ class DocumentLayoutEngine:
                         cell_lines: list[list[tuple[float, list[Stroke], float]]] = []
                         cur_l: list[tuple[float, list[Stroke], float]] = []
                         cur_lw = 0.0
-                        for st, w, miss in items:
+                        for item in items:
+                            st, w, miss = item[0], item[1], item[2]
                             if miss == ["__LINE_BREAK__"]:
                                 if cur_l:
                                     cell_lines.append(cur_l)
@@ -583,4 +629,25 @@ class DocumentLayoutEngine:
             result.missing_grid_path = grid_path
 
         return result
+
+    def layout(self, document: Document, out_path: str | None = None) -> tuple[str, WriteResult]:
+        """Bố cục Document và trả về chuỗi XML .xoj và kết quả WriteResult."""
+        if out_path:
+            res = self.render(document, out_path)
+            with open(out_path, "rb") as f:
+                content = gzip.decompress(f.read()).decode("utf-8")
+            return content, res
+        with tempfile.NamedTemporaryFile(suffix=".xopp", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            res = self.render(document, tmp_path)
+            with open(tmp_path, "rb") as f:
+                content = gzip.decompress(f.read()).decode("utf-8")
+            return content, res
+        finally:
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
 

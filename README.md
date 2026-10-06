@@ -1,18 +1,19 @@
 # Chữ viết tay của bạn
 
-Gõ chữ → ra **nét viết tay của chính bạn** cho Xournal++. Có hai cách dùng, cùng chạy trên
+Gõ chữ → ra **nét viết tay của chính bạn** cho Xournal++. Có ba cách dùng, cùng chạy trên
 một lõi chung:
 
-- **Giao diện đồ hoạ**: `python3 hw_gui.py`
+- **Web Client (Static Web App / PWA)**: Chạy 100% trong trình duyệt qua WebAssembly (Pyodide 314.0.7) tại `webapp/` (triển khai trên Render hoặc chạy cục bộ).
+- **Giao diện đồ hoạ desktop**: `python3 hw_gui.py`
 - **Dòng lệnh**: `python3 hw_note.py write -f van_ban.txt -o ra.xopp`
 
-Giao diện có ba tab:
+Giao diện có ba tab chính:
 
 | Tab | Làm gì | Có cần Xournal++ không |
 |---|---|---|
-| **Viết chữ** | Gõ/dán văn bản → tạo file `.xopp` bằng nét viết tay của bạn | Có — mở file `.xopp` ra, Ctrl+A, Ctrl+C, dán vào sổ như trước giờ |
-| **Dạy từ mới** | Vẽ trực tiếp từng từ bằng chuột/bút cảm ứng, bấm Lưu là xong | **Không** — không cần xuất/nạp file `.xopp` nữa |
-| **Kho mẫu** | Xem thống kê, tìm/xoá từ, xuất file xem lại toàn bộ kho | Xuất file xem lại vẫn qua Xournal++ (chỉ để xem, không bắt buộc) |
+| **Viết chữ** | Gõ/dán văn bản (Markdown, Math LaTeX, Bảng) → tạo file `.xopp`, ảnh PNG/SVG, in PDF | Có (khi muốn sửa tiếp trong Xournal++) hoặc tải trực tiếp ảnh/PDF |
+| **Dạy chữ / Dạy từ mới** | Vẽ trực tiếp từng từ/chữ cái bằng chuột/bút cảm ứng, bấm Lưu là xong | **Không** — không cần xuất/nạp file `.xopp` nữa |
+| **Kho mẫu** | Xem thống kê, tìm/xoá từ an toàn, xem thumbnail, sao lưu/nhập `.json.gz` | Xuất file xem lại vẫn qua Xournal++ (chỉ để xem, không bắt buộc) |
 
 ## Cài đặt
 
@@ -52,6 +53,33 @@ python3 hw_note.py stats          # dòng lệnh: thống kê kho mẫu
 Cửa sổ tự tìm `chu_cua_ban.json.gz` cùng thư mục. Muốn dùng kho mẫu khác thì bấm **"Chọn kho
 mẫu khác..."** ở góc trên; muốn bắt đầu một kho **trống** để dạy từ đầu thì bấm **"Tạo kho
 mẫu mới..."** (chọn file đã có thì app chỉ mở nó ra, **không bao giờ ghi đè**).
+
+## Web Client (Ứng dụng web chạy trong trình duyệt)
+
+Web Client là phiên bản tĩnh 100% client-side (SPA / PWA) chạy Python qua **Pyodide 314.0.7** (WASM) trong Web Worker, dữ liệu kho mẫu lưu trữ an toàn trong IndexedDB của trình duyệt mà không cần máy chủ backend.
+
+### Chạy thử cục bộ (Local Development)
+
+```bash
+# 1. Đóng gói mã nguồn và dependencies vào webapp/dist/
+python3 scripts/build_web.py
+
+# 2. Khởi chạy HTTP Server hỗ trợ Web Worker & Cache headers
+node scripts/serve.mjs
+# Mở trình duyệt tại http://localhost:8080
+```
+
+### Triển khai lên Render (Static Site)
+
+Dự án đã cấu hình sẵn Blueprint [`render.yaml`](render.yaml):
+1. Đẩy mã nguồn lên repository GitHub/GitLab.
+2. Trên [Render Dashboard](https://dashboard.render.com/), chọn **New +** → **Blueprint** và chọn repo này.
+3. Render tự động chạy `python scripts/build_web.py` và triển khai thư mục `webapp/dist/` dưới dạng Static Site.
+4. Tệp Blueprint đã tích hợp sẵn:
+   - Header bảo mật CSP (`Content-Security-Policy`), chống sniff MIME (`X-Content-Type-Options: nosniff`), Web Locks & Service Worker hỗ trợ.
+   - Header bộ đệm dài hạn `Cache-Control: public, max-age=31536000, immutable` cho các file tĩnh và tài nguyên WASM / wheels.
+
+---
 
 ## Dạy từ mới — lưu ý khi vẽ
 
@@ -275,8 +303,8 @@ Hơn 1.020 ca kiểm thử tự động, chia nhóm:
   cho `AppController`; kho mẫu thử là một kho **nhỏ tự dựng** (`tests/conftest.py`) nên tự tính tay được đáp án.
 - **Giao diện thật** (`test_gui.py`): dựng `MainWindow`, điều khiển như người dùng (gõ, vẽ, bấm nút), hộp
   thoại được giả lập.
-- **Golden-master** (`test_golden_master.py`): mã băm SHA-256 của file `.xopp` sinh ra **bởi bản gốc trước
-  khi tái cấu trúc** — đầu ra thuật toán phải khớp từng byte. Sửa thuật toán làm đổi nét vẽ thì test này
+- **Golden-master** (`test_golden_master_real_path.py`): mã băm SHA-256 của file `.xopp` sinh ra **bởi bản gốc trước
+  khi tái cấu trúc** — đầu ra thuật toán phải khớp từng byte (bao gồm cả 8 ca kiểm thử tương thích trong Pyodide 314.0.7 qua `node scripts/test_golden_pyodide.mjs`). Sửa thuật toán làm đổi nét vẽ thì test này
   đỏ; nếu là cố ý, kiểm tra bằng mắt trong Xournal++ rồi cập nhật hằng số.
 - **Kiến trúc** (`test_architecture.py`): giữ các luật MVC ở trên.
 

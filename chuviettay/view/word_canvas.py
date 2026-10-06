@@ -12,32 +12,16 @@ from __future__ import annotations
 import tkinter as tk
 from collections.abc import Callable
 from tkinter import ttk
-
-ZOOM = 10.0            # px trên màn hình cho mỗi "đơn vị" trong kho mẫu, để vẽ bằng chuột cho thoải mái
-BASE_PX = 170          # vị trí dòng kẻ (đường cơ sở) trên canvas, tính bằng px
-CANVAS_W, CANVAS_H = 760, 230
-MIN_POINT_DIST = 2.5   # bỏ qua điểm gần điểm trước hơn ngần này px (cho dữ liệu gọn)
-
-PxStroke = list[tuple[float, float]]   # một nét: các điểm (x, y) theo pixel màn hình
-
-
-def strokes_to_bank_units(strokes: list[PxStroke], scale: float) -> tuple[list[list[float]], float]:
-    """Đổi các nét vẽ (pixel) sang đơn vị kho mẫu: gốc x = điểm trái nhất, gốc y = dòng
-    kẻ chân chữ (BASE_PX), chia ZOOM rồi nhân hệ số cỡ tay `scale`.
-    -> (danh sách nét phẳng [x0,y0,x1,y1,...], độ rộng). Công thức y hệt hw_note.cmd_learn."""
-    if not strokes:
-        raise ValueError("Chưa có nét nào để quy đổi.")
-    xs = [x for st in strokes for (x, _y) in st]
-    left_px, right_px = min(xs), max(xs)
-    rel: list[list[float]] = []
-    for st in strokes:
-        flat: list[float] = []
-        for (x, y) in st:
-            flat.append(round((x - left_px) / ZOOM * scale, 2))
-            flat.append(round((y - BASE_PX) / ZOOM * scale, 2))
-        rel.append(flat)
-    width = round((right_px - left_px) / ZOOM * scale, 2)
-    return rel, width
+from chuviettay.controller.teach_geometry import (
+    BASE_PX,
+    CANVAS_H,
+    CANVAS_W,
+    MIN_POINT_DIST,
+    PxStroke,
+    ZOOM,
+    filter_stroke_points,  # noqa: F401
+    strokes_to_bank_units,
+)
 
 
 class WordCanvas(ttk.Frame):

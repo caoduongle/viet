@@ -1,0 +1,73 @@
+/**
+ * print.css -- Stylesheet định dạng cho chế độ In / Xuất PDF trên trình duyệt.
+ */
+
+@media print {
+  /* Ẩn toàn bộ thành phần giao diện không cần thiết */
+  header,
+  .tabs,
+  .status-bar,
+  #modal-container,
+  #splash-screen,
+  #welcome-modal,
+  .editor-column,
+  .preview-toolbar,
+  .toolbar-markdown,
+  .btn,
+  .toast {
+    display: none !important;
+  }
+
+  /* Định dạng trang in */
+  @page {
+    size: auto;
+    margin: 0;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  main {
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+  }
+
+  #tab-write {
+    display: block !important;
+    height: auto !important;
+  }
+
+  .preview-column {
+    width: 100% !important;
+    height: auto !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  .print-page-wrapper {
+    page-break-after: always !important;
+    break-after: page !important;
+    width: 100% !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    margin-bottom: 0 !important;
+  }
+
+  .print-page-wrapper svg {
+    max-width: 100% !important;
+    height: auto !important;
+    box-shadow: none !important;
+  }
+}

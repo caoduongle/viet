@@ -7,10 +7,22 @@ import pytest
 from chuviettay import logging_setup, paths
 
 
-def test_duong_dan_mac_dinh_khi_chay_tu_ma_nguon():
+def test_duong_dan_mac_dinh_khi_chay_tu_ma_nguon(monkeypatch, tmp_path):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     assert paths.app_base_dir() == root
-    assert paths.default_bank_path() == os.path.join(root, "chu_cua_ban.json.gz")
+
+    # Nhánh 1: Nếu file cục bộ tồn tại ở app_base_dir -> ưu tiên dùng file cục bộ
+    fake_app_dir = tmp_path / "app_source"
+    fake_app_dir.mkdir()
+    local_bank = fake_app_dir / "chu_cua_ban.json.gz"
+    local_bank.write_text("fake_bank_data", encoding="utf-8")
+    monkeypatch.setattr(paths, "app_base_dir", lambda: str(fake_app_dir))
+    assert paths.default_bank_path() == str(local_bank)
+
+    # Nhánh 2: Nếu không có file cục bộ -> dùng thư mục dữ liệu người dùng (user_data_dir)
+    local_bank.unlink()
+    expected_user_path = os.path.join(paths.user_data_dir(), "chu_cua_ban.json.gz")
+    assert paths.default_bank_path() == expected_user_path
 
 
 def test_duong_dan_mac_dinh_khi_da_dong_goi_dung_thu_muc_cua_file_exe(monkeypatch, tmp_path):

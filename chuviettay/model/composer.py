@@ -50,6 +50,7 @@ class WriteOptions:
     color: str | None = None      # đổi màu mực, ví dụ "#1a237e"; None = màu mặc định trong kho mẫu
     seed: int | None = None       # cố định số ngẫu nhiên (để tái tạo lại đúng kết quả)
     strict_case: bool = False     # không tự hạ chữ hoa đầu từ khi tìm mẫu thay thế
+    stable_variants: bool = False # ổn định kiểu chữ giữa các lần gõ/sửa (D3)
 
     # Cấu hình khổ giấy, lề và nền trang (áp dụng cho DocumentLayoutEngine)
     paper: str = "a4"             # a5, a4, a3, letter, legal, 16:9, 4:3, custom

@@ -20,10 +20,12 @@ Giờ cả cli.py lẫn view/ đều chỉ gọi các phương thức ở đây.
 """
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import threading
 from collections.abc import Callable, Iterable
+from typing import Any
 
 from chuviettay import paths
 from chuviettay.config import TONES
@@ -33,7 +35,7 @@ from chuviettay.controller.results import (
 )
 from chuviettay.document.ir import Document
 from chuviettay.importer.base import ImportResult
-from chuviettay.layout.engine import DocumentLayoutEngine
+from chuviettay.layout.engine import DocumentLayoutEngine, TokenBox
 from chuviettay.model import learning, xopp
 from chuviettay.model.bank import (  # noqa: F401  (re-export cho cli.py/view)
     Bank, BankCorruptedError, BankError, BankNotFoundError, BankValidationError, UnsupportedSchemaVersionError,
@@ -53,9 +55,14 @@ class AppController:
     và cung cấp các thao tác nghiệp vụ. Một Controller cho mỗi tiến trình: CLI tạo mới
     mỗi lần chạy lệnh, GUI tạo một lần khi mở cửa sổ và giữ suốt phiên làm việc."""
 
-    def __init__(self, bank_path: str | None = None):
+    def __init__(
+        self,
+        bank_path: str | None = None,
+        timer_factory: Callable[..., Any] = threading.Timer,
+    ):
         self.bank_path: str = bank_path or paths.default_bank_path()
         self.bank: Bank | None = None
+        self.timer_factory = timer_factory
         # Hệ số cỡ tay của PHIÊN dạy hiện tại (1.0 = chưa hiệu chỉnh). Là trạng thái
         # nghiệp vụ chứ không phải trạng thái giao diện nên để ở Controller.
         self.session_scale: float = 1.0
@@ -70,9 +77,13 @@ class AppController:
         with self._save_lock:
             if self._save_timer is not None:
                 self._save_timer.cancel()
-            self._save_timer = threading.Timer(self.debounce_delay, self._on_debounce_save)
-            self._save_timer.daemon = True
-            self._save_timer.start()
+            timer = self.timer_factory(self.debounce_delay, self._on_debounce_save)
+            if timer is not None:
+                self._save_timer = timer
+                self._save_timer.daemon = True
+                self._save_timer.start()
+            else:
+                self._save_timer = None
 
     def _on_debounce_save(self) -> None:
         try:
@@ -140,18 +151,30 @@ class AppController:
         return self.bank
 
     # ------------------------------------------------------------------ viết chữ
-    def write_text(self, text: str, opts: WriteOptions, out_path: str) -> WriteResult:
+    def write_text(
+        self,
+        text: str,
+        opts: WriteOptions,
+        out_path: str,
+        token_layout_callback: Callable[[TokenBox], None] | None = None,
+    ) -> WriteResult:
         """Đổi văn bản thuần thành file .xopp nét viết tay qua Document IR và DocumentLayoutEngine."""
         from chuviettay.importer.txt_importer import TxtImporter
 
         doc = TxtImporter().import_text(text).document
-        return self.write_document(doc, opts, out_path)
+        return self.write_document(doc, opts, out_path, token_layout_callback=token_layout_callback)
 
-    def write_document(self, document: Document, opts: WriteOptions, out_path: str) -> WriteResult:
+    def write_document(
+        self,
+        document: Document,
+        opts: WriteOptions,
+        out_path: str,
+        token_layout_callback: Callable[[TokenBox], None] | None = None,
+    ) -> WriteResult:
         """Đổi Document IR thành file .xopp nét viết tay qua DocumentLayoutEngine."""
         opts.validate()
         bank = self._require_bank()
-        engine = DocumentLayoutEngine(bank, opts)
+        engine = DocumentLayoutEngine(bank, opts, token_layout_callback=token_layout_callback)
         result = engine.render(document, out_path)
         _log.info("Viết document %s: %d dòng, %d nét, thiếu mẫu %d/%d token",
                   out_path, result.n_lines, result.n_strokes,
@@ -311,9 +334,8 @@ class AppController:
 
     def is_letter_token(self, token: str) -> bool:
         """Kiểm tra token có phải là chữ cái hoặc dấu thanh đơn lẻ hay không."""
-        from chuviettay.model.text_utils import PUNCT_CHARS
         t = token.strip()
-        if len(t) == 1 and not t.isdigit() and t not in PUNCT_CHARS:
+        if len(t) == 1 and t.isalpha():
             return True
         return t in TONES
 
@@ -427,6 +449,24 @@ class AppController:
         bank = self._require_bank()
         letters = getattr(bank, "letters", {})
         return sorted((ch, len(insts)) for ch, insts in letters.items())
+
+    def list_label_samples(self, label: str, category: str = "words") -> list[dict]:
+        """Trả về danh sách bản sao các mẫu của một nhãn thuộc phân loại cụ thể (words, letters, digits, punct, symbols, marks).
+        Hỗ trợ web client hiển thị thư viện mẫu mà không làm thay đổi trực tiếp dữ liệu kho trong bộ nhớ."""
+        bank = self._require_bank()
+        cat_map = {
+            "words": bank.words,
+            "letters": getattr(bank, "letters", {}),
+            "digits": bank.digits,
+            "punct": bank.punct,
+            "symbols": getattr(bank, "symbols", {}),
+            "marks": bank.marks,
+        }
+        if category not in cat_map:
+            raise ValueError(f"Không hỗ trợ phân loại {category!r}. Hỗ trợ: {', '.join(cat_map.keys())}")
+
+        raw_samples = cat_map[category].get(label, [])
+        return copy.deepcopy(raw_samples)
 
     def drop_words(self, words: list[str], category: str = "words") -> DropResult:
         """Xoá hết mẫu của các từ đã cho, rồi rebuild + lưu MỘT lần."""

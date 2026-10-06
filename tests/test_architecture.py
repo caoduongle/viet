@@ -16,9 +16,12 @@ import pytest
 PKG = pathlib.Path(__file__).resolve().parent.parent / "chuviettay"
 
 
-def py_files(sub=None):
+def py_files(sub=None, recursive=False):
     base = PKG / sub if sub else PKG
-    return sorted(base.glob("*.py"))
+    if not base.exists():
+        return []
+    pattern = "**/*.py" if recursive else "*.py"
+    return sorted(base.glob(pattern))
 
 
 def imported_modules(path):
@@ -86,11 +89,12 @@ def test_khong_print_hay_input_trong_cac_lop_loi():
         py_files("model")
         + py_files("controller")
         + py_files("view")
-        + py_files("document")
-        + py_files("importer")
-        + py_files("layout")
-        + py_files("math")
-        + py_files("fidelity")
+        + py_files("document", recursive=True)
+        + py_files("importer", recursive=True)
+        + py_files("layout", recursive=True)
+        + py_files("math", recursive=True)
+        + py_files("fidelity", recursive=True)
+        + py_files("browser", recursive=True)
     )
     bad = print_calls(core_files)
     assert not bad, ("Chỉ cli.py được in ra màn hình; các lớp còn lại trả dữ liệu / ghi log:\n  "
@@ -103,11 +107,12 @@ def test_khong_dung_sys_exit_trong_cac_lop_loi():
         py_files("model")
         + py_files("controller")
         + py_files("view")
-        + py_files("document")
-        + py_files("importer")
-        + py_files("layout")
-        + py_files("math")
-        + py_files("fidelity")
+        + py_files("document", recursive=True)
+        + py_files("importer", recursive=True)
+        + py_files("layout", recursive=True)
+        + py_files("math", recursive=True)
+        + py_files("fidelity", recursive=True)
+        + py_files("browser", recursive=True)
     )
     for f in core_files:
         for node in ast.walk(ast.parse(f.read_text(encoding="utf-8"))):
@@ -115,6 +120,29 @@ def test_khong_dung_sys_exit_trong_cac_lop_loi():
                     and isinstance(node.value, ast.Name) and node.value.id == "sys"):
                 bad.append("%s:%d sys.exit" % (f.relative_to(PKG.parent), node.lineno))
     assert not bad, "Thoát chương trình là việc của cli.py/hw_*.py, không phải của lõi:\n  " + "\n  ".join(bad)
+
+
+def test_browser_khong_phu_thuoc_model_view_cli_gui_fidelity_tkinter_argparse():
+    """Tầng browser/ chỉ giao tiếp qua Controller, cấm chạm trực tiếp Model, View, CLI, Tkinter."""
+    forbidden = [
+        "chuviettay.model",
+        "chuviettay.view",
+        "chuviettay.cli",
+        "chuviettay.gui",
+        "chuviettay.fidelity",
+        "tkinter",
+        "argparse",
+    ]
+    bad = violations(py_files("browser", recursive=True), forbidden)
+    assert not bad, "Browser bridge phải độc lập với Model, View, CLI, GUI, Tkinter:\n  " + "\n  ".join(bad)
+
+
+def test_model_va_controller_khong_phu_thuoc_browser_pyodide_js():
+    """Model và Controller là lõi thuần túy, tuyệt đối không biết gì về Pyodide, JS hay Browser bridge."""
+    forbidden = ["js", "pyodide", "pyodide_js", "chuviettay.browser"]
+    bad = violations(py_files("model") + py_files("controller"), forbidden)
+    assert not bad, "Model và Controller không được phụ thuộc vào môi trường Browser/Pyodide:\n  " + "\n  ".join(bad)
+
 
 
 def test_fidelity_khong_phu_thuoc_view_hay_cli():

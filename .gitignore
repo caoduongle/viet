@@ -25,3 +25,11 @@ chu_cua_ban.json.gz
 local_data/
 local data/
 docs/img/*.xopp
+
+# Web build & Node dependencies
+node_modules/
+webapp/dist/
+.cache/
+test-results/
+tests/scratch/
+test_sample.xopp

@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chữ viết tay của bạn</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/print.css" media="print">
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#1976d2">
+</head>
+<body>
+  <!-- Splash Loading Screen -->
+  <div id="splash-screen">
+    <div class="loading-card">
+      <h2 id="splash-title">Chữ viết tay của bạn</h2>
+      <p id="splash-status" style="margin-top: 0.5rem; color: var(--text-secondary);">Đang khởi tạo ứng dụng...</p>
+      <div class="loading-bar-container">
+        <div id="splash-bar" class="loading-bar-fill"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Welcome / Onboarding Modal (Kho trống lần đầu) -->
+  <div id="welcome-modal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 900; align-items: center; justify-content: center;">
+    <div class="card" style="max-width: 480px; width: 90%; text-align: center; display: flex; flex-direction: column; gap: 1rem;">
+      <h2>Chào mừng bạn</h2>
+      <p style="color: var(--text-secondary); line-height: 1.5;">
+        Ứng dụng chuyển đổi văn bản thành chữ viết tay thật của chính bạn. Toàn bộ nét chữ được lưu trữ an toàn trong trình duyệt này, không gửi về bất kỳ máy chủ nào.
+      </p>
+      <div style="display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem;">
+        <input type="file" id="input-welcome-file" accept=".json.gz" style="display: none;">
+        <button id="btn-welcome-import" class="btn btn-primary">Nhập kho có sẵn (.json.gz)</button>
+        <button id="btn-welcome-create" class="btn btn-outline">Tạo kho chữ trống mới</button>
+        <button id="btn-welcome-guide" class="btn btn-outline">Xem hướng dẫn sử dụng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guide Modal -->
+  <div id="guide-modal" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 950; align-items: center; justify-content: center;">
+    <div class="card" style="max-width: 640px; width: 92%; max-height: 85vh; overflow-y: auto; display: flex; flex-direction: column; gap: 1rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <h3 style="margin: 0;">Hướng dẫn sử dụng & Lưu ý khi vẽ</h3>
+        <button id="btn-close-guide-x" class="btn-tool" style="font-size: 1.1rem; border: none;" title="Đóng">✕</button>
+      </div>
+      <div style="color: var(--text-secondary); line-height: 1.6; text-align: left; font-size: 0.92rem; display: flex; flex-direction: column; gap: 0.75rem;">
+        <div>
+          <h4 style="color: var(--text-primary); margin-bottom: 0.35rem;">1. Quy trình sử dụng chính</h4>
+          <p>• <strong>Dạy chữ:</strong> Vào tab <em>Dạy chữ</em> để vẽ các mẫu từ, chữ cái, dấu thanh hoặc chữ số bằng chuột/bút cảm ứng.</p>
+          <p>• <strong>Soạn thảo:</strong> Vào tab <em>Viết chữ</em> gõ nội dung (hỗ trợ Markdown, bảng, công thức toán LaTeX). Hệ thống tự chọn ngẫu nhiên các mẫu nét chữ của bạn để tạo trang viết tự nhiên.</p>
+          <p>• <strong>Xuất file:</strong> Xuất file <code>.xopp</code> (mở chỉnh sửa trong Xournal++), xuất ảnh PNG, SVG, tải ZIP toàn bộ trang hoặc in ra PDF.</p>
+          <p>• <strong>Kho mẫu:</strong> Quản lý danh sách từ, xem mẫu chữ, tìm kiếm tức thì, xoá nhãn an toàn, sao lưu hoặc nhập kho <code>.json.gz</code>.</p>
+        </div>
+
+        <div>
+          <h4 style="color: var(--text-primary); margin-bottom: 0.35rem;">2. Lưu ý quan trọng khi vẽ chữ (Dạy chữ)</h4>
+          <p>• <strong>Hai đường kẻ căn mốc:</strong> Đường dưới là <em>dòng kẻ chính (baseline)</em> — đặt chân chữ lên đó; đường ngắn phía trên bên trái là <em>mốc chiều cao chữ thường (x-height)</em> (như "a", "o", "c").</p>
+          <p>• <strong>Dấu thanh tiếng Việt:</strong> Viết dấu thanh (sắc, huyền, hỏi, ngã, nặng) thành <em>nét riêng biệt</em>, không nối liền vào thân chữ để hệ thống nhận diện đúng thành phần.</p>
+          <p>• <strong>Cụm từ viết liền:</strong> Muốn dạy một cụm nhiều từ dính nhau (ví dụ "cà phê" nối một nét), gõ nguyên cụm vào ô "Từ cần dạy" — hệ thống không tự tách theo khoảng trắng.</p>
+          <p>• <strong>Hiệu chỉnh cỡ tay:</strong> Nếu bạn vẽ bằng chuột hoặc bút cảm ứng to/nhỏ khác với chữ cũ, bấm "Hiệu chỉnh cỡ tay" một lần — app sẽ đưa ra từ mẫu để bạn viết tự nhiên, từ đó tự tính hệ số tỷ lệ cho phiên vẽ.</p>
+          <p>• <strong>Lưu trữ tự động & đa tab:</strong> Nét chữ được lưu tức thì vào trình duyệt an toàn (IndexedDB) qua Web Locks, tự động đồng bộ giữa các tab đang mở mà không sợ mất nét.</p>
+        </div>
+      </div>
+      <button id="btn-close-guide" class="btn btn-primary" style="align-self: flex-end;">Đã hiểu</button>
+    </div>
+  </div>
+
+  <!-- App Header -->
+  <header>
+    <div class="brand">
+      <h1>Chữ viết tay của bạn</h1>
+    </div>
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="write">Viết chữ</button>
+      <button class="tab-btn" data-tab="teach">Dạy chữ</button>
+      <button class="tab-btn" data-tab="bank">Kho mẫu</button>
+    </nav>
+    <div style="display: flex; align-items: center; gap: 0.5rem;">
+      <button id="btn-header-guide" class="btn-tool" title="Hướng dẫn sử dụng & lưu ý khi vẽ" style="font-size: 0.85rem; padding: 0.3rem 0.6rem;">Trợ giúp</button>
+      <div class="status-bar">
+        <span id="status-indicator" class="status-dot loading"></span>
+        <span id="status-text">Đang tải...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Banner Cảnh báo Bộ nhớ đầy (T067) -->
+  <div id="storage-quota-warning" style="display: none; background: #fee2e2; border-bottom: 1px solid #ef4444; color: #b91c1c; padding: 0.6rem 1rem; font-size: 0.88rem; text-align: center; justify-content: center; align-items: center; gap: 1rem;">
+    <span>⚠️ <strong>Cảnh báo:</strong> Bộ nhớ trình duyệt sắp đầy (&gt; 80% hạn ngạch). Hãy xuất file sao lưu kho mẫu (.json.gz) về máy tính để tránh mất dữ liệu!</span>
+    <button id="btn-quota-backup" class="btn btn-primary" style="padding: 0.2rem 0.6rem; font-size: 0.8rem; background: #dc2626;">Sao lưu ngay</button>
+  </div>
+
+  <!-- Toast Nhắc nhở Sao lưu sau N lần dạy (T067) -->
+  <div id="backup-reminder-toast" style="display: none; position: fixed; bottom: 20px; right: 20px; background: #1e293b; color: #fff; padding: 0.9rem 1.2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); z-index: 1000; max-width: 380px;">
+    <div style="font-size: 0.88rem; margin-bottom: 0.6rem; line-height: 1.4;">
+      💡 Bạn đã dạy thêm 20 mẫu mới! Hãy sao lưu kho mẫu về máy tính để lưu giữ an toàn.
+    </div>
+    <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+      <button id="btn-toast-dismiss" class="btn btn-outline" style="color: #94a3b8; border-color: #475569; padding: 0.25rem 0.6rem; font-size: 0.8rem;">Tắt nhắc nhở</button>
+      <button id="btn-toast-backup" class="btn btn-primary" style="padding: 0.25rem 0.6rem; font-size: 0.8rem;">Sao lưu ngay</button>
+    </div>
+  </div>
+
+  <!-- Toast Thông báo có bản cập nhật mới (T069) -->
+  <div id="update-available-toast" style="display: none; position: fixed; top: 20px; right: 20px; background: #0f172a; color: #fff; padding: 0.9rem 1.2rem; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 1000; max-width: 380px;">
+    <div style="font-size: 0.88rem; margin-bottom: 0.6rem; line-height: 1.4;">
+      🚀 <strong>Có bản mới:</strong> Ứng dụng đã có bản cập nhật mới!
+    </div>
+    <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+      <button id="btn-update-dismiss" class="btn btn-outline" style="color: #94a3b8; border-color: #475569; padding: 0.25rem 0.6rem; font-size: 0.8rem;">Để sau</button>
+      <button id="btn-update-reload" class="btn btn-primary" style="padding: 0.25rem 0.6rem; font-size: 0.8rem;">Tải lại ngay</button>
+    </div>
+  </div>
+
+  <!-- App Main Content -->
+  <main>
+    <!-- Tab 1: Viết chữ -->
+    <section id="tab-write" class="tab-panel active">
+      <div class="write-container">
+        <!-- Cột trái: Soạn thảo -->
+        <div class="editor-column">
+          <!-- Toolbar Markdown / Text -->
+          <div class="toolbar-markdown">
+            <select id="select-format" class="form-control" style="padding: 0.25rem 0.5rem; font-size: 0.82rem; font-weight: 500;">
+              <option value="md">Markdown</option>
+              <option value="txt">Văn bản thuần</option>
+            </select>
+            <button id="btn-md-h1" class="btn-tool" title="Tiêu đề 1">H1</button>
+            <button id="btn-md-h2" class="btn-tool" title="Tiêu đề 2">H2</button>
+            <button id="btn-md-h3" class="btn-tool" title="Tiêu đề 3">H3</button>
+            <button id="btn-md-ul" class="btn-tool" title="Danh sách gạch đầu dòng">•</button>
+            <button id="btn-md-ol" class="btn-tool" title="Danh sách số thứ tự">1.</button>
+            <button id="btn-md-table" class="btn-tool" title="Chèn bảng 3 hàng 3 cột">Bảng</button>
+            <button id="btn-md-math-inline" class="btn-tool" title="Công thức toán trong dòng">$...$</button>
+            <button id="btn-md-math-block" class="btn-tool" title="Công thức toán dạng khối">$$...$$</button>
+            <button id="btn-md-pagebreak" class="btn-tool" title="Ngắt trang mới">Ngắt trang</button>
+            <button id="btn-open-latex-symbols" class="btn-tool" title="Bảng ký hiệu LaTeX">Ký hiệu</button>
+            <button id="btn-open-write-options" class="btn-tool" title="Cấu hình tuỳ chọn viết">Tùy chọn</button>
+            <input type="file" id="input-open-file" accept=".txt,.md,.markdown,.docx" style="display: none;">
+            <button id="btn-open-file" class="btn-tool" title="Mở file từ máy (.txt, .md, .docx)">Mở file</button>
+          </div>
+
+          <!-- Textarea Editor -->
+          <div class="editor-textarea-wrapper">
+            <textarea id="editor-text" placeholder="Gõ văn bản tại đây để chuyển thành chữ viết tay của bạn... (Hỗ trợ Markdown và công thức $x^2 + y^2 = z^2$)"></textarea>
+          </div>
+
+          <!-- Cảnh báo & Danh sách từ thiếu mẫu -->
+          <div class="editor-info-panel">
+            <div id="editor-warnings" style="display: none; padding: 0.5rem 0.75rem; background: #fff3e0; border: 1px solid #ffe0b2; border-radius: 4px; color: #e65100;"></div>
+            <div id="missing-tokens-box" style="display: none;">
+              <div style="font-weight: 500; margin-bottom: 0.25rem; color: var(--text-secondary);">Từ thiếu mẫu trong kho (bấm để dạy ngay):</div>
+              <div id="missing-tokens-list" class="missing-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cột phải: Xem trước (Preview Stage) -->
+        <div class="preview-column">
+          <!-- Toolbar Xem trước -->
+          <div class="preview-toolbar">
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <button id="btn-page-prev" class="btn-tool" title="Trang trước">◀</button>
+              <span id="page-indicator" style="font-weight: 500; min-width: 80px; text-align: center;">Trang 1 / 1</span>
+              <button id="btn-page-next" class="btn-tool" title="Trang sau">▶</button>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <select id="select-zoom" class="form-control" style="padding: 0.2rem 0.4rem; font-size: 0.82rem;">
+                <option value="0.75">75%</option>
+                <option value="1.0" selected>100%</option>
+                <option value="1.25">125%</option>
+              </select>
+            </div>
+            <div style="display: flex; align-items: center; gap: 0.35rem;">
+              <button id="btn-export-xopp" class="btn btn-primary" style="padding: 0.35rem 0.75rem; font-size: 0.82rem;">Xuất .xopp</button>
+              <button id="btn-export-png" class="btn btn-outline" style="padding: 0.35rem 0.55rem; font-size: 0.82rem;" title="Tải ảnh PNG trang hiện tại">PNG</button>
+              <button id="btn-export-svg" class="btn btn-outline" style="padding: 0.35rem 0.55rem; font-size: 0.82rem;" title="Tải file SVG trang hiện tại">SVG</button>
+              <button id="btn-export-zip" class="btn btn-outline" style="padding: 0.35rem 0.55rem; font-size: 0.82rem;" title="Tải tất cả trang ảnh dạng ZIP">ZIP ảnh</button>
+              <button id="btn-print-pdf" class="btn btn-outline" style="padding: 0.35rem 0.55rem; font-size: 0.82rem;" title="In hoặc xuất PDF">In / PDF</button>
+            </div>
+          </div>
+
+          <!-- Stage hiển thị SVG -->
+          <div id="preview-stage" class="preview-stage">
+            <div id="paper-svg-wrapper" class="paper-frame"></div>
+            <div id="preview-placeholder" style="color: #9e9e9e; text-align: center; margin-top: 4rem;">
+              Bản xem trước trang giấy sẽ xuất hiện tại đây khi bạn gõ văn bản.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Vùng chứa các trang in ngầm khi bấm In / Xuất PDF -->
+    <div id="print-container"></div>
+
+    <!-- Tab 2: Dạy chữ -->
+    <section id="tab-teach" class="tab-panel">
+      <div class="card" style="max-width: 1040px; margin: 0 auto; width: 100%;">
+        <!-- Thanh công cụ hàng đợi phía trên -->
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; padding-bottom: 0.85rem; border-bottom: 1px solid var(--border-color);">
+          <span style="font-weight: 500; font-size: 0.9rem;">Thêm từ vào hàng đợi:</span>
+          <input type="text" id="input-teach-add" class="form-control" placeholder="Từ hoặc cụm từ..." style="width: 180px; padding: 0.35rem 0.6rem;">
+          <button id="btn-teach-add" class="btn btn-outline" style="padding: 0.35rem 0.75rem;">Thêm</button>
+          <button id="btn-teach-essentials" class="btn btn-outline" style="padding: 0.35rem 0.75rem;" title="Nạp bộ chữ số, dấu câu và các từ tối thiểu">Bộ tối thiểu</button>
+          <button id="btn-teach-seed" class="btn btn-outline" style="padding: 0.35rem 0.75rem;" title="Nạp các từ thông dụng tiếng Việt còn thiếu">Từ thông dụng...</button>
+          <button id="btn-teach-clear-queue" class="btn btn-outline" style="padding: 0.35rem 0.75rem;">Xoá hàng đợi</button>
+          <button id="btn-teach-calibrate" class="btn btn-outline" style="padding: 0.35rem 0.75rem; margin-left: auto;" title="Viết một từ mốc để cân chỉnh tỷ lệ cỡ tay của bạn">Hiệu chỉnh cỡ tay</button>
+        </div>
+
+        <!-- Thân 2 cột: Hàng đợi bên trái + Vùng vẽ bên phải -->
+        <div class="teach-container">
+          <!-- Cột trái: Hàng đợi -->
+          <div class="teach-queue-col">
+            <div style="font-weight: 500; font-size: 0.9rem; color: var(--text-secondary);">
+              Hàng đợi (<span id="teach-queue-count">0</span>)
+            </div>
+            <div id="teach-queue-list" class="teach-queue-list"></div>
+            <button id="btn-teach-skip" class="btn btn-outline" style="width: 100%; font-size: 0.85rem;">Bỏ qua từ này ⏭</button>
+          </div>
+
+          <!-- Cột phải: Vùng vẽ -->
+          <div class="teach-work-col">
+            <div style="display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 0.5rem;">
+              <div>
+                <h2 id="teach-target-word" style="font-size: 1.85rem; margin: 0; color: var(--primary); display: inline-block;">(hàng đợi trống)</h2>
+                <span id="teach-sample-count" style="font-size: 0.85rem; color: var(--text-secondary); margin-left: 0.75rem;"></span>
+              </div>
+              <div id="teach-scale-info" style="font-size: 0.85rem; color: var(--text-secondary);">
+                Hệ số cỡ tay: 1.00x (chưa hiệu chỉnh)
+              </div>
+            </div>
+
+            <div style="color: #64748b; font-size: 0.85rem;">
+              Viết nhỏ, tự nhiên như chữ hằng ngày; đặt chữ TRÊN đường kẻ chân chữ.
+            </div>
+
+            <!-- Canvas vẽ -->
+            <div class="teach-canvas-box">
+              <canvas id="teach-canvas" width="760" height="230"></canvas>
+            </div>
+
+            <!-- Thanh thao tác dưới canvas -->
+            <div class="teach-act-toolbar">
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <button id="btn-teach-tool-pen" class="btn-tool active" title="Bút viết">Bút</button>
+                <button id="btn-teach-tool-eraser" class="btn-tool" title="Gôm tẩy nét">Gôm</button>
+                <select id="select-teach-pen-width" class="form-control" style="padding: 0.25rem 0.5rem; font-size: 0.85rem;" title="Độ dày nét">
+                  <option value="1.5">Nét mảnh</option>
+                  <option value="2.5" selected>Nét vừa</option>
+                  <option value="4.0">Nét đậm</option>
+                </select>
+                <label style="font-size: 0.85rem; display: flex; align-items: center; gap: 0.35rem; cursor: pointer; margin-left: 0.5rem;">
+                  <input type="checkbox" id="chk-teach-ghost" checked> Chữ mẫu mờ
+                </label>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <button id="btn-teach-undo" class="btn btn-outline" style="padding: 0.4rem 0.75rem;" title="Hoàn tác nét vẽ (Ctrl+Z)">Hoàn tác</button>
+                <button id="btn-teach-redo" class="btn btn-outline" style="padding: 0.4rem 0.75rem;" title="Làm lại nét vẽ (Ctrl+Y)">Làm lại</button>
+                <button id="btn-teach-clear" class="btn btn-outline" style="padding: 0.4rem 0.75rem;" title="Xoá hết nét trên ô vẽ (Esc)">Xoá nét</button>
+                <button id="btn-teach-save" class="btn btn-primary" style="padding: 0.4rem 1rem;" title="Lưu mẫu và chuyển từ tiếp theo (Enter)">Lưu & tiếp theo →</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tab 3: Kho mẫu -->
+    <section id="tab-bank" class="tab-panel">
+      <div class="card" style="max-width: 1040px; margin: 0 auto; width: 100%;">
+        <!-- Header: Tên hồ sơ, Thống kê, Nhập/Xuất & Xuất file kiểm tra -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+          <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <div>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <h2 style="margin: 0; font-size: 1.4rem;">Quản lý kho mẫu chữ</h2>
+                <div class="profile-chip" id="profile-chip-wrapper" style="display: flex; align-items: center; gap: 0.35rem; background: var(--primary-light, #e0e7ff); padding: 0.2rem 0.6rem; border-radius: 12px; font-size: 0.82rem; color: var(--primary); font-weight: 500;">
+                  <span id="profile-name-display">Kho của tôi</span>
+                  <button id="btn-rename-profile" class="btn-tool" title="Đổi tên hồ sơ" style="border: none; padding: 0; font-size: 0.8rem; background: none; cursor: pointer;">✏️</button>
+                </div>
+              </div>
+              <p id="bank-summary" style="color: var(--text-secondary); margin: 0.25rem 0 0 0; font-size: 0.88rem;">Đang tải thông tin kho mẫu...</p>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <button id="btn-export-check" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;" title="Xuất file lưới ô .xopp kiểm tra toàn bộ mẫu chữ đã học">Xuất file kiểm tra (.xopp)</button>
+            <input type="file" id="input-import-bank" accept=".json.gz" style="display: none;">
+            <button id="btn-import-bank" class="btn btn-outline" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;">Nhập kho (.json.gz)</button>
+            <button id="btn-export-bank" class="btn btn-primary" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;">Sao lưu kho (.json.gz)</button>
+          </div>
+        </div>
+
+        <!-- Thanh tìm kiếm & bộ lọc phân loại -->
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1rem;">
+          <div style="display: flex; align-items: center; gap: 0.5rem; flex: 1; max-width: 360px;">
+            <input type="text" id="input-search-bank" class="form-control" placeholder="Tìm kiếm nhãn chữ, từ, ký hiệu..." style="width: 100%;">
+          </div>
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap;" id="bank-category-filters">
+            <button class="btn-tool active" data-cat="all">Tất cả (<span id="cat-count-all">0</span>)</button>
+            <button class="btn-tool" data-cat="words">Từ vựng (<span id="cat-count-words">0</span>)</button>
+            <button class="btn-tool" data-cat="letters">Chữ cái (<span id="cat-count-letters">0</span>)</button>
+            <button class="btn-tool" data-cat="digits">Chữ số (<span id="cat-count-digits">0</span>)</button>
+            <button class="btn-tool" data-cat="punct">Dấu câu (<span id="cat-count-punct">0</span>)</button>
+            <button class="btn-tool" data-cat="symbols">Ký hiệu (<span id="cat-count-symbols">0</span>)</button>
+          </div>
+        </div>
+
+        <!-- Lưới nhãn có thumbnail SVG và số mẫu -->
+        <div id="bank-cards-grid" class="bank-cards-grid">
+          <!-- Các card nhãn sẽ được render tại đây -->
+        </div>
+      </div>
+    </section>
+
+    <!-- Modal Xem chi tiết Thư viện mẫu của nhãn (T061) -->
+    <div id="modal-label-detail" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 900; align-items: center; justify-content: center;">
+      <div class="card" style="max-width: 680px; width: 90%; max-height: 85vh; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color);">
+          <div>
+            <h3 id="modal-label-title" style="margin: 0; font-size: 1.5rem; color: var(--primary);">Từ: hoa</h3>
+            <span id="modal-label-coverage" style="font-size: 0.85rem; color: var(--text-secondary);"></span>
+          </div>
+          <button id="btn-close-label-detail" class="btn-tool" style="font-size: 1.1rem; border: none;">✕</button>
+        </div>
+
+        <div style="margin-bottom: 1rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+          <button id="btn-label-teach-more" class="btn btn-primary" style="font-size: 0.85rem;">+ Thêm kiểu mới</button>
+          <button id="btn-label-preview-random" class="btn btn-outline" style="font-size: 0.85rem;">🎲 Xem thử ngẫu nhiên</button>
+          <button id="btn-label-delete" class="btn btn-outline" style="font-size: 0.85rem; color: #dc2626; border-color: #fca5a5; margin-left: auto;">🗑 Xoá nhãn này</button>
+        </div>
+
+        <div id="modal-random-preview-box" style="display: none; padding: 0.75rem; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 1rem;">
+          <div style="font-weight: 500; font-size: 0.85rem; margin-bottom: 0.35rem; color: var(--text-secondary);">Xem thử biến thể ngẫu nhiên với các hạt giống (seed):</div>
+          <div id="modal-random-preview-content" style="display: flex; gap: 0.75rem; flex-wrap: wrap;"></div>
+        </div>
+
+        <div style="font-weight: 500; font-size: 0.9rem; margin-bottom: 0.5rem;">Danh sách các biến thể mẫu nét (<span id="modal-label-sample-count">0</span>):</div>
+        <div id="modal-label-samples-grid" class="label-samples-grid">
+          <!-- Các thumbnail biến thể nét sẽ được render tại đây -->
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Modal Tùy chọn viết (T047) -->
+  <div id="modal-write-options" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 850; align-items: center; justify-content: center;">
+    <div class="card" style="max-width: 520px; width: 90%; max-height: 85vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3>Cấu hình tuỳ chọn viết chữ</h3>
+        <button id="btn-close-options" class="btn-tool" style="font-size: 1.1rem; border: none;">✕</button>
+      </div>
+
+      <div class="form-group">
+        <label>Cỡ chữ (Scale): <span id="val-scale">1.0</span></label>
+        <input type="range" id="opt-scale" min="0.5" max="2.0" step="0.05" value="1.0">
+      </div>
+
+      <div class="form-group">
+        <label>Khoảng cách dòng (Line height pt, trống = mặc định):</label>
+        <input type="number" id="opt-line" class="form-control" placeholder="Mặc định kho mẫu" min="10" max="100">
+      </div>
+
+      <div class="form-group">
+        <label>Khoảng cách từ (Word space): <span id="val-space">1.0</span></label>
+        <input type="range" id="opt-space" min="0.5" max="2.5" step="0.1" value="1.0">
+      </div>
+
+      <div class="form-group">
+        <label>Độ run tay (Jitter): <span id="val-jitter">1.0</span></label>
+        <input type="range" id="opt-jitter" min="0.0" max="2.5" step="0.1" value="1.0">
+      </div>
+
+      <div class="form-group">
+        <label>Độ dày nét bút (Pen weight scale): <span id="val-wscale">1.0</span></label>
+        <input type="range" id="opt-wscale" min="0.5" max="2.5" step="0.1" value="1.0">
+      </div>
+
+      <div class="form-group">
+        <label>Màu mực (Color):</label>
+        <div class="form-row">
+          <input type="color" id="opt-color" value="#000000" style="width: 40px; height: 35px; border: none; cursor: pointer;">
+          <input type="text" id="opt-color-hex" class="form-control" value="#000000ff" style="flex: 1;">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Hạt giống ngẫu nhiên (Seed):</label>
+        <div class="form-row">
+          <input type="number" id="opt-seed" class="form-control" style="flex: 1;" value="42">
+          <button id="btn-random-seed" class="btn btn-outline" title="Đổi seed ngẫu nhiên">🎲 Đổi seed</button>
+        </div>
+      </div>
+
+      <div class="form-row" style="margin-bottom: 0.85rem;">
+        <div class="form-group" style="flex: 1;">
+          <label>Khổ giấy:</label>
+          <select id="opt-paper" class="form-control">
+            <option value="a4" selected>A4</option>
+            <option value="a5">A5</option>
+            <option value="letter">Letter</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label>Hướng giấy:</label>
+          <select id="opt-orientation" class="form-control">
+            <option value="portrait" selected>Dọc (Portrait)</option>
+            <option value="landscape">Ngang (Landscape)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Nền giấy:</label>
+        <select id="opt-background" class="form-control">
+          <option value="plain" selected>Trắng trơn (Plain)</option>
+          <option value="lined">Dòng kẻ ngang (Lined)</option>
+          <option value="ruled">Dòng kẻ có lề đỏ (Ruled)</option>
+          <option value="graph">Lưới caro ô vuông (Graph)</option>
+          <option value="dotted">Lưới chấm mờ (Dotted)</option>
+        </select>
+      </div>
+
+      <div style="display: flex; justify-content: space-between; margin-top: 1.25rem;">
+        <button id="btn-reset-options" class="btn btn-outline">Đặt lại mặc định</button>
+        <button id="btn-apply-options" class="btn btn-primary">Áp dụng</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Bảng ký hiệu LaTeX (T046) -->
+  <div id="modal-latex-symbols" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 850; align-items: center; justify-content: center;">
+    <div class="card" style="max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3>Ký hiệu toán & công thức LaTeX</h3>
+        <button id="btn-close-symbols" class="btn-tool" style="font-size: 1.1rem; border: none;">✕</button>
+      </div>
+      <p style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 1rem;">
+        Bấm vào một ký hiệu bên dưới để chèn vào vị trí con trỏ của bài viết.
+      </p>
+      <div id="latex-symbols-container" style="display: flex; flex-direction: column; gap: 1rem;">
+        <!-- Ký hiệu sẽ render tự động từ worker get_latex_symbols -->
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

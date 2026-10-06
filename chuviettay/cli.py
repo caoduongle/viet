@@ -85,6 +85,7 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
         auto_xh=getattr(a, "auto_xh", False),
         pen_clearance_factor=getattr(a, "pen_clearance", 0.8),
         missing_grid=getattr(a, "missing_grid", True),
+        stable_variants=getattr(a, "stable", False),
     )
 
     target_file = getattr(a, "file", None) or getattr(a, "file_pos", None)
@@ -224,6 +225,8 @@ def build_parser() -> argparse.ArgumentParser:
                    help="hệ số sàn khe hở tối thiểu theo độ dày bút (mặc định: 0.8)")
     w.add_argument("--no-missing-grid", dest="missing_grid", action="store_false", default=True,
                    help="không tự động tạo file lưới ô từ còn thiếu (_thieu.xopp)")
+    w.add_argument("--stable", action="store_true", default=False,
+                   help="bật chế độ chọn biến thể chữ ổn định (stable_variants) khi sửa văn bản")
     w.set_defaults(fn=_cmd_write)
 
 

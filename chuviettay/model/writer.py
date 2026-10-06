@@ -21,19 +21,24 @@ class Writer:
     """Một phiên ghép chữ cho MỘT lần "write" (giữ self.last để né chọn trùng mẫu 2
     lần liên tiếp cho cùng một token, và self.missing để gom các phần chưa có mẫu)."""
 
-    def __init__(self, bank: Bank, rnd: random.Random, jitter: float = 1.0,
+    def __init__(self, bank: Bank, rnd: random.Random | None = None, jitter: float = 1.0,
                  loose_case: bool = True, space: float = 1.0,
                  assemble_letters: bool = False,
                  letter_gap: float = 1.0,
-                 pen_clearance_factor: float = 0.8):
+                 pen_clearance_factor: float = 0.8,
+                 stable_variants: bool = False,
+                 seed: int | None = None):
         self.b = bank
-        self.rnd = rnd
+        self.rnd = rnd if rnd is not None else random.Random(seed)
         self.J = jitter
         self.loose = loose_case
         self.space = space
         self.assemble_letters = assemble_letters
         self.letter_gap = letter_gap
         self.pen_clearance_factor = pen_clearance_factor
+        self.stable_variants = stable_variants
+        self.seed = seed
+        self.counts: dict[str, int] = {}
         self.last: dict[str, int] = {}       # tag -> chỉ số mẫu chọn lần trước (né lặp)
         self.missing: dict[str, int] = {}     # phần chưa có mẫu -> số lần gặp
         self.assembled: list[str] = []        # các từ đã ghép tự động từ chữ cái
@@ -42,9 +47,22 @@ class Writer:
         """Chọn ngẫu nhiên 1 phần tử trong `lst`, né KHÔNG chọn trùng chỉ số đã chọn
         lần trước cho cùng `tag` (nếu có hơn 1 lựa chọn) -- để cùng một từ xuất hiện
         nhiều lần trong văn bản không bị lặp y hệt nét viết liên tiếp."""
-        i = self.rnd.randrange(len(lst))
-        if len(lst) > 1 and self.last.get(tag) == i:
-            i = (i + 1 + self.rnd.randrange(len(lst) - 1)) % len(lst)
+        if not lst:
+            return None
+        if self.stable_variants:
+            import hashlib
+            tag_count = self.counts.get(tag, 0)
+            self.counts[tag] = tag_count + 1
+            seed_val = self.seed if self.seed is not None else 0
+            digest = hashlib.sha256(f"{seed_val}\x00{tag}\x00{tag_count}".encode("utf-8")).digest()
+            i = int.from_bytes(digest[:4], "big") % len(lst)
+            if len(lst) > 1 and self.last.get(tag) == i:
+                extra = int.from_bytes(digest[4:8], "big") % (len(lst) - 1)
+                i = (i + 1 + extra) % len(lst)
+        else:
+            i = self.rnd.randrange(len(lst))
+            if len(lst) > 1 and self.last.get(tag) == i:
+                i = (i + 1 + self.rnd.randrange(len(lst) - 1)) % len(lst)
         self.last[tag] = i
         return lst[i]
 
