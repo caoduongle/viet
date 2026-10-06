@@ -12,7 +12,7 @@ from tests.helpers import fill_grid_with_ink
 def test_repro_f2_bearing_cell_margin_causes_spacing_bug(tmp_path):
     """Tái hiện F2: parse_learn_file tính lsb/rsb theo vạch lề HW3_LEFT_MARGIN_X (12.0)
     và HW3_RIGHT_MARGIN_X (116.0), dẫn tới bearing lên tới 30-80 pt khiến chữ bị giãn 10 lần.
-    
+
     Kỳ vọng sau khi sửa F2:
     - lsb và rsb được tính theo bounding box nét vẽ hoặc contour hợp lý (nhỏ hơn 0.3 * xh).
     """

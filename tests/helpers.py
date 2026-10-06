@@ -21,10 +21,10 @@ def fill_grid_with_ink(
     width: str = "1.41",
 ) -> int:
     """Giả lập người dùng viết nét mực vào các ô của file lưới .xopp.
-    
+
     Tìm các thẻ <text> trong lưới. Nếu khớp với danh sách labels (hoặc tất cả nếu labels is None),
     chèn một nét <stroke> người dùng màu `color` vào đúng ô tương ứng.
-    
+
     Trả về số ô đã được điền mực.
     """
     root = read_xopp(grid_path)

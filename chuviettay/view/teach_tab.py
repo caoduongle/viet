@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 import tkinter as tk
 from collections.abc import Iterable
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from chuviettay.controller.app_controller import AppController
 from chuviettay.view.dialogs import report_error

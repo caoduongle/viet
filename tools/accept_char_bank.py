@@ -17,12 +17,9 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from chuviettay.controller.app_controller import AppController
-from chuviettay.model.bank import Bank
-from chuviettay.model.char_catalog import CATALOG_GROUPS, get_catalog_group
+from chuviettay.model.char_catalog import CATALOG_GROUPS
 from chuviettay.model.composer import WriteOptions
-from chuviettay.model.text_utils import classify_char
 from chuviettay.model.writer import Writer
-from chuviettay.model.xopp import import_char_grid, make_letter_grid
 from tests.helpers import fill_grid_with_ink
 
 

@@ -36,7 +36,7 @@ from chuviettay.controller.results import (
 from chuviettay.document.ir import Document
 from chuviettay.importer.base import ImportResult
 from chuviettay.layout.engine import DocumentLayoutEngine, TokenBox
-from chuviettay.model import char_catalog, learning, xopp
+from chuviettay.model import learning, xopp
 from chuviettay.model.bank import (  # noqa: F401  (re-export cho cli.py/view)
     Bank, BankCorruptedError, BankError, BankNotFoundError, BankValidationError, UnsupportedSchemaVersionError,
 )
@@ -459,8 +459,7 @@ class AppController:
 
     def list_char_catalogs(self) -> list[CharCatalogGroup]:
         """Trả về danh sách tất cả các nhóm catalog ký tự có sẵn."""
-        from chuviettay.model.char_catalog import CHAR_CATALOGS
-        return list(CHAR_CATALOGS.values())
+        return list(CATALOG_GROUPS.values())
 
     def get_missing_chars(
         self,
@@ -589,10 +588,6 @@ class AppController:
         bank.save()
         _log.info("Xoá từ khỏi kho: %s", removed)
         return DropResult(removed=removed)
-
-    def drop_letter(self, letter: str) -> DropResult:
-        """Xoá một chữ cái khỏi kho mẫu."""
-        return self.drop_words([letter], category="letters")
 
     def drop_char(self, char: str) -> DropResult:
         """Xoá ký tự khỏi danh mục tương ứng (letters, digits, punct, symbols, marks)."""

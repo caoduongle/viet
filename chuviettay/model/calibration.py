@@ -14,6 +14,7 @@ Công thức giữ NGUYÊN từ bản gốc: scale = clamp(cỡ_chữ_đã_biế
 from __future__ import annotations
 
 import statistics
+from typing import Any
 
 from chuviettay.model.text_utils import clamp
 
@@ -49,7 +50,7 @@ CALIB_CANDIDATE_CHARS = ("n", "o", "a", "m", "u", "e", "c", "r", "s", "v", "x")
 def pick_calib_char(bank: Any) -> str | None:
     """Chọn một ký tự trong kho đã có mẫu để đo cỡ tay (ưu tiên các chữ cái chuẩn x-height
     có độ rộng và hình dáng ổn định: 'n', 'o', 'a', 'm', 'u'...).
-    
+
     Nếu không có chữ cái ưu tiên, lấy bất kỳ ký tự nào trong bank.letters có >= 1 mẫu.
     Trả về None nếu kho letters rỗng.
     """

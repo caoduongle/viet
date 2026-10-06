@@ -439,13 +439,13 @@ def import_char_grid(
     dedup: bool = True,
 ) -> GridImportResult:
     """Nạp file lưới tập viết (.xopp) vào kho mẫu ký tự (Bank).
-    
+
     Hỗ trợ cả đường dẫn file hoặc bytes/chuỗi XML (trên web worker).
     Đảm bảo tính idempotent, phân loại ký tự chuẩn qua classify_char,
     bỏ qua các cụm từ cũ có báo cáo, và tự động cập nhật x-height nếu kho rỗng.
     """
     import tempfile
-    from chuviettay.model.text_utils import classify_char, sample_signature
+    from chuviettay.model.text_utils import classify_char
 
     tmp_path = None
     if isinstance(xopp_content_or_path, (bytes, bytearray)):
