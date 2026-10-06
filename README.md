@@ -344,13 +344,13 @@ Nếu tự đóng gói từ mã nguồn:
 **Windows** — build trên máy Windows:
 
 1. Cài Python từ [python.org](https://www.python.org/) (tick **"Add python.exe to PATH"**).
-2. Chạy `pip install -r requirements-dev.txt`.
+2. Chạy `pip install -r requirements-build.txt`.
 3. Bấm đúp `build_windows.bat` (hoặc chạy trong PowerShell/cmd) → tạo `hw_gui.exe` trong thư mục `dist/`.
 4. Copy `hw_gui.exe` ra một thư mục riêng, để **cạnh nó** file `chu_cua_ban.json.gz` rồi bấm đúp là chạy.
    Kho mẫu và file log luôn nằm **cạnh file `.exe`** (không nằm trong thư mục tạm của PyInstaller).
 
 **Linux / macOS**:
-1. Cài `requirements-dev.txt`.
+1. Cài `requirements-build.txt`.
 2. Chạy `./build_linux_mac.sh` (macOS phải build trên máy Mac) → tạo binary trong `dist/`.
 
 Lưu ý: file binary độc lập nặng (~15–25MB) vì gói kèm môi trường Python; Windows có thể cảnh báo "Windows protected your PC" vì chưa có chữ ký số — chọn **More info → Run anyway**.

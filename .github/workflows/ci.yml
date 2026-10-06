@@ -82,7 +82,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version-file: '.node-version'
           cache: 'npm'
 
       - name: Set up Python
@@ -94,12 +94,23 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
+          pip install pytest pytest-timeout
+
+      - name: Test Build Web (Isolated tmp_path)
+        env:
+          REQUIRE_WEB_BUILD: '1'
+        run: python -m pytest tests/test_build_web.py -vv --timeout=300 -p no:cacheprovider
 
       - name: Build Web Client Dist
         run: python scripts/build_web.py
 
       - name: Verify Golden Master in Pyodide
         run: node scripts/test_golden_pyodide.mjs
+
+      - name: Run JavaScript & Browser Bridge Unit Tests
+        run: |
+          npm run test:unit
+          npm run test:browser
 
       - name: Run Playwright E2E Tests on Dist
         run: npx playwright test --workers=2
@@ -116,7 +127,7 @@ jobs:
       - name: Set up Python 3.14
         uses: actions/setup-python@v5
         with:
-          python-version: '3.14-dev'
+          python-version: '3.14'
 
       - name: Install system dependencies (Linux)
         run: |

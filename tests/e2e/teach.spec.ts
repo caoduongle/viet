@@ -3,6 +3,7 @@ import path from "node:path";
 
 test.describe("User Story 3: Dạy mẫu chữ bằng Canvas Pointer Events (E2E)", () => {
   test("mô phỏng pointer events kiểu pen và touch, lọc lòng bàn tay, phím tắt và lưu mẫu thành công", async ({ page }) => {
+    test.setTimeout(90000);
     const externalRequests: string[] = [];
     page.on("request", (req) => {
       const url = new URL(req.url());

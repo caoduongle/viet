@@ -2,30 +2,34 @@
 """Build script đóng gói Web Client tĩnh (Static Web App) cho ChuVietTay.
 
 Thực hiện:
-  1. Chuẩn bị runtime Pyodide từ node_modules/pyodide/.
+  1. Kiểm tra môi trường runtime Pyodide từ node_modules/pyodide/.
   2. Nạp/tải và xác minh mã băm SHA-256 các vendor wheel từ scripts/vendor_lock.json.
   3. Lọc sạch mã nguồn chuviettay: CHỈ lấy các module lõi và bridge cần thiết;
      loại bỏ hoàn toàn view/, gui.py, cli.py, fidelity/, test files, kho cá nhân.
-  4. Đóng gói mã nguồn sạch thành chuviettay.zip đặt trong webapp/dist/pyodide/.
-  5. Sao chép frontend (HTML, CSS, JS, manifest, sw.js) sang webapp/dist/.
-  6. Sinh version.json ghi nhận metadata phiên bản.
-  7. Kiểm tra an toàn phân phối (Dist Sanity Check): cấm tuyệt đối file kho *.json.gz hoặc mã cấm.
+  4. Đóng gói mã nguồn sạch thành chuviettay.zip đặt trong pyodide/.
+  5. Sao chép frontend (HTML, CSS, JS, manifest, sw.js).
+  6. Sinh version.json ghi nhận metadata phiên bản (pyodide_version đọc từ package.json).
+  7. Sinh sw.js động với CACHE_NAME băm 12 ký tự và PRECACHE_URLS chính xác.
+  8. Kiểm tra an toàn phân phối (Dist Sanity Check): cấm tuyệt đối file kho *.json.gz hoặc mã cấm.
 """
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
+import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 WEBAPP_SRC = ROOT_DIR / "webapp"
-DIST_DIR = ROOT_DIR / "webapp" / "dist"
+DEFAULT_DIST_DIR = ROOT_DIR / "webapp" / "dist"
 VENDOR_LOCK_PATH = ROOT_DIR / "scripts" / "vendor_lock.json"
 NODE_MODULES_PYODIDE = ROOT_DIR / "node_modules" / "pyodide"
 CACHE_WHEEL_DIR = ROOT_DIR / ".cache" / "wheels"
@@ -72,8 +76,47 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+def require_pyodide_runtime() -> None:
+    """Kiểm tra sự tồn tại của runtime Pyodide trong node_modules trước khi tiến hành."""
+    pkg_json = NODE_MODULES_PYODIDE / "package.json"
+    wasm_file = NODE_MODULES_PYODIDE / "pyodide.asm.wasm"
+    if not pkg_json.exists() or not wasm_file.exists():
+        sys.exit(
+            "Lỗi: Không tìm thấy node_modules/pyodide hợp lệ.\n"
+            "Hãy chạy lệnh `npm ci` trước khi thực hiện build web client!"
+        )
+
+
+def prepare_dist_dir(dist_dir: Path) -> None:
+    """Kiểm tra an toàn đường dẫn và dọn sạch thư mục dist."""
+    resolved_dist = dist_dir.resolve()
+    resolved_root = ROOT_DIR.resolve()
+
+    # Kiểm tra các điều kiện đường dẫn nguy hiểm
+    if resolved_dist == resolved_root:
+        sys.exit(f"Lỗi an toàn: Thư mục đích ({resolved_dist}) trùng với thư mục gốc của repository!")
+
+    # dist_dir là tổ tiên của repo nghĩa là dist_dir nằm trong resolved_root.parents (ví dụ D:\viet hoặc D:\)
+    if resolved_dist in resolved_root.parents:
+        sys.exit(f"Lỗi an toàn: Thư mục đích ({resolved_dist}) là tổ tiên của repository!")
+
+    if resolved_dist.parent == resolved_dist:
+        sys.exit(f"Lỗi an toàn: Thư mục đích ({resolved_dist}) là thư mục gốc của ổ đĩa/hệ thống tập tin!")
+
+    resolved_webapp = (ROOT_DIR / "webapp").resolve()
+    resolved_default_dist = DEFAULT_DIST_DIR.resolve()
+    if resolved_dist.is_relative_to(resolved_webapp) and resolved_dist != resolved_default_dist:
+        sys.exit(
+            f"Lỗi an toàn: Thư mục đích ({resolved_dist}) nằm trong webapp/ nhưng không phải là webapp/dist!"
+        )
+
+    if resolved_dist.exists():
+        shutil.rmtree(resolved_dist)
+    resolved_dist.mkdir(parents=True, exist_ok=True)
+
+
 def ensure_vendor_wheels(dist_wheels_dir: Path) -> None:
-    """Tải / copy các vendor wheels theo scripts/vendor_lock.json."""
+    """Tải / copy các vendor wheels theo scripts/vendor_lock.json với retry timeout."""
     dist_wheels_dir.mkdir(parents=True, exist_ok=True)
     CACHE_WHEEL_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -91,12 +134,36 @@ def ensure_vendor_wheels(dist_wheels_dir: Path) -> None:
         if node_module_wheel.exists():
             shutil.copy2(node_module_wheel, cached_file)
 
-        # 2. Nếu chưa có trong cache, tải từ URL
+        # 2. Nếu chưa có trong cache, tải từ URL có retry (tối đa 3 lần cho lỗi mạng/5xx)
         if not cached_file.exists() or sha256_file(cached_file) != expected_sha:
             print(f"[build_web] Tải {pkg_name} ({file_name})...")
-            req = urllib.request.Request(meta["url"], headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req) as resp, open(cached_file, "wb") as out_f:
-                shutil.copyfileobj(resp, out_f)
+            url = meta["url"]
+            max_retries = 3
+            download_success = False
+            last_err = None
+
+            for attempt in range(1, max_retries + 1):
+                try:
+                    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+                    with urllib.request.urlopen(req, timeout=60) as resp, open(cached_file, "wb") as out_f:
+                        shutil.copyfileobj(resp, out_f)
+                    download_success = True
+                    break
+                except urllib.error.HTTPError as http_err:
+                    last_err = http_err
+                    # 4xx: lỗi client (404, 403...) -> không retry
+                    if 400 <= http_err.code < 500:
+                        raise RuntimeError(f"Lỗi HTTP {http_err.code} khi tải {file_name}: {http_err}") from http_err
+                    # 5xx: lỗi server -> retry
+                    print(f"[build_web] Thử lại ({attempt}/{max_retries}) sau lỗi HTTP {http_err.code}...")
+                    time.sleep(2)
+                except (urllib.error.URLError, TimeoutError, OSError) as net_err:
+                    last_err = net_err
+                    print(f"[build_web] Thử lại ({attempt}/{max_retries}) sau lỗi mạng: {net_err}...")
+                    time.sleep(2)
+
+            if not download_success:
+                raise RuntimeError(f"Không thể tải wheel {file_name} sau {max_retries} lần thử: {last_err}")
 
         # 3. Kiểm tra sha256
         actual_sha = sha256_file(cached_file)
@@ -110,9 +177,6 @@ def ensure_vendor_wheels(dist_wheels_dir: Path) -> None:
 
 def copy_pyodide_runtime(dist_pyodide_dir: Path) -> None:
     """Sao chép các file runtime Pyodide từ node_modules/pyodide/."""
-    if not NODE_MODULES_PYODIDE.exists():
-        raise RuntimeError("Không tìm thấy node_modules/pyodide. Hãy chạy `npm install` trước khi build.")
-
     dist_pyodide_dir.mkdir(parents=True, exist_ok=True)
 
     files_to_copy = [
@@ -163,15 +227,15 @@ def package_clean_core(dist_pyodide_dir: Path) -> None:
     print(f"[build_web] Đã đóng gói mã nguồn sạch vào {zip_dest.name} ({zip_dest.stat().st_size // 1024} KB)")
 
 
-def copy_frontend_assets() -> None:
-    """Sao chép các file tĩnh giao diện từ webapp/ sang webapp/dist/."""
+def copy_frontend_assets(dist_dir: Path) -> None:
+    """Sao chép các file tĩnh giao diện từ webapp/ sang dist_dir."""
     if not WEBAPP_SRC.exists():
         return
 
     for item in WEBAPP_SRC.iterdir():
         if item.name == "dist":
             continue
-        dest = DIST_DIR / item.name
+        dest = dist_dir / item.name
         if item.is_dir():
             shutil.copytree(item, dest, dirs_exist_ok=True)
         else:
@@ -179,8 +243,8 @@ def copy_frontend_assets() -> None:
     print("[build_web] Đã sao chép các file tĩnh frontend.")
 
 
-def generate_version_json() -> None:
-    """Tạo file version.json ghi nhận thông tin build."""
+def generate_version_json(dist_dir: Path) -> None:
+    """Tạo file version.json ghi nhận thông tin build (đọc pyodide_version từ package.json)."""
     git_commit = "unknown"
     try:
         git_commit = subprocess.check_output(
@@ -191,20 +255,83 @@ def generate_version_json() -> None:
     except Exception:
         pass
 
+    pyodide_ver = "314.0.7"
+    pkg_json_path = NODE_MODULES_PYODIDE / "package.json"
+    if pkg_json_path.exists():
+        try:
+            with open(pkg_json_path, "r", encoding="utf-8") as f:
+                pyodide_pkg = json.load(f)
+                pyodide_ver = pyodide_pkg.get("version", pyodide_ver)
+        except Exception:
+            pass
+
     version_info = {
         "version": "1.0.0",
         "git_commit": git_commit,
-        "pyodide_version": "314.0.7",
+        "pyodide_version": pyodide_ver,
     }
-    with open(DIST_DIR / "version.json", "w", encoding="utf-8") as f:
+    with open(dist_dir / "version.json", "w", encoding="utf-8") as f:
         json.dump(version_info, f, indent=2)
-    print("[build_web] Đã sinh version.json.")
+    print(f"[build_web] Đã sinh version.json (Pyodide v{pyodide_ver}).")
 
 
-def sanity_check_dist() -> None:
+def generate_sw_js(dist_dir: Path) -> None:
+    """Tạo file sw.js động với CACHE_NAME có băm nội dung 12 ký tự và danh sách PRECACHE_URLS thực tế."""
+    sw_template_path = WEBAPP_SRC / "sw.js"
+    if not sw_template_path.exists():
+        return
+
+    template_content = sw_template_path.read_text(encoding="utf-8")
+
+    # 1. Thu thập tất cả các tệp trong dist_dir (trừ sw.js) và tính băm tổng hợp
+    files_to_cache: list[tuple[str, str]] = []  # (rel_url, file_sha)
+    hasher = hashlib.sha256()
+
+    for root, _, files in os.walk(dist_dir):
+        for f in sorted(files):
+            if f == "sw.js":
+                continue
+            fpath = Path(root) / f
+            rel_path = fpath.relative_to(dist_dir).as_posix()
+            rel_url = f"./{rel_path}"
+            f_hash = sha256_file(fpath)
+            files_to_cache.append((rel_url, f_hash))
+            hasher.update(f_hash.encode("utf-8"))
+
+    content_hash_12 = hasher.hexdigest()[:12]
+    cache_name = f"chuviettay-cache-{content_hash_12}"
+
+    # Danh sách precache gồm gốc trang web và các tệp thực tế
+    precache_list = ["./"]
+    for url, _ in files_to_cache:
+        precache_list.append(url)
+
+    precache_json = json.dumps(precache_list, indent=2)
+
+    # Thay thế CACHE_NAME và PRECACHE_URLS trong template
+    # Pattern: const CACHE_NAME = "...";
+    import re
+
+    new_content = re.sub(
+        r'const\s+CACHE_NAME\s*=\s*"[^"]+";',
+        f'const CACHE_NAME = "{cache_name}";',
+        template_content,
+    )
+    new_content = re.sub(
+        r'const\s+PRECACHE_URLS\s*=\s*\[[\s\S]*?\];',
+        f"const PRECACHE_URLS = {precache_json};",
+        new_content,
+    )
+
+    out_sw = dist_dir / "sw.js"
+    out_sw.write_text(new_content, encoding="utf-8")
+    print(f"[build_web] Đã sinh sw.js động với {cache_name} ({len(precache_list)} URL precached).")
+
+
+def sanity_check_dist(dist_dir: Path) -> None:
     """Quét toàn bộ thư mục dist để đảm bảo không lọt dữ liệu nhạy cảm hoặc mã cấm."""
     violations = []
-    for root, dirs, files in os.walk(DIST_DIR):
+    for root, dirs, files in os.walk(dist_dir):
         for pattern in FORBIDDEN_PATTERNS:
             # Kiểm tra tên thư mục
             for d in list(dirs):
@@ -221,27 +348,37 @@ def sanity_check_dist() -> None:
         print("[build_web] LỖI BẢO MẬT: Phát hiện file cấm trong bản build dist:", file=sys.stderr)
         for v in violations:
             print(f"  - {v}", file=sys.stderr)
-        shutil.rmtree(DIST_DIR, ignore_errors=True)
+        shutil.rmtree(dist_dir, ignore_errors=True)
         sys.exit(1)
 
     print("[build_web] Kiểm tra dist sạch (Sanity Check): PASS 100%!")
 
 
-def main() -> None:
-    print("================ BẮT ĐẦU BUILD STATIC WEB CLIENT ================")
-    if DIST_DIR.exists():
-        shutil.rmtree(DIST_DIR)
-    DIST_DIR.mkdir(parents=True, exist_ok=True)
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Đóng gói Static Web Client cho ChuVietTay")
+    parser.add_argument(
+        "--dist",
+        type=Path,
+        default=DEFAULT_DIST_DIR,
+        help="Thư mục xuất bản dist (mặc định: webapp/dist)",
+    )
+    args = parser.parse_args(argv)
+    dist_dir = args.dist.resolve()
 
-    dist_pyodide = DIST_DIR / "pyodide"
+    print(f"================ BẮT ĐẦU BUILD STATIC WEB CLIENT -> {dist_dir} ================")
+    require_pyodide_runtime()
+    prepare_dist_dir(dist_dir)
+
+    dist_pyodide = dist_dir / "pyodide"
     dist_wheels = dist_pyodide / "wheels"
 
     copy_pyodide_runtime(dist_pyodide)
     ensure_vendor_wheels(dist_wheels)
     package_clean_core(dist_pyodide)
-    copy_frontend_assets()
-    generate_version_json()
-    sanity_check_dist()
+    copy_frontend_assets(dist_dir)
+    generate_version_json(dist_dir)
+    generate_sw_js(dist_dir)
+    sanity_check_dist(dist_dir)
     print("================ BUILD HOÀN TẤT THÀNH CÔNG ================")
 
 

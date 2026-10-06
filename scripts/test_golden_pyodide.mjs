@@ -65,8 +65,9 @@ async function runGoldenTests() {
 import sys
 import os
 import zipfile
+import site
 
-site_packages = "/lib/python3.14/site-packages"
+site_packages = site.getsitepackages()[0]
 os.makedirs(site_packages, exist_ok=True)
 if site_packages not in sys.path:
     sys.path.insert(0, site_packages)

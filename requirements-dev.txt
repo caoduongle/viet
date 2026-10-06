@@ -1,11 +1,11 @@
-# Chỉ cần khi PHÁT TRIỂN (chạy kiểm thử / đóng gói). Người dùng cuối không cần cài gì cả:
-# ứng dụng chỉ dùng thư viện chuẩn của Python (+ tkinter cho giao diện).
+# Dependencies for development and testing
+# Note: pyinstaller is removed because 6.12.0 restricts Requires-Python <3.14 (breaks CI on Python 3.14).
+# PyInstaller is only needed for building desktop binaries, defined in requirements-build.txt.
 pytest>=8.0.0
 pytest-timeout>=2.3.1
-pyinstaller==6.12.0
 ruff>=0.4.0
 
-# Các thư viện phụ thuộc tuỳ chọn để kiểm thử các bộ nạp tài liệu (.docx, .md)
+# Optional document loaders for tests (.docx, .md)
 python-docx>=1.1.0
 markdown-it-py>=3.0.0
 mdit-py-plugins>=0.4.0

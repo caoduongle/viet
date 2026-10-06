@@ -46,8 +46,9 @@ async function initPyodide() {
 import sys
 import os
 import zipfile
+import site
 
-site_packages = "/lib/python3.14/site-packages"
+site_packages = site.getsitepackages()[0]
 os.makedirs(site_packages, exist_ok=True)
 if site_packages not in sys.path:
     sys.path.insert(0, site_packages)
@@ -195,6 +196,7 @@ _q_res = _bridge.get_missing_queue(kind=_q_kind, limit=_q_limit, exclude=_q_ex)
       result = pyodide.runPython(`_bridge.get_latex_symbols()`).toJs({ dict_converter: Object.fromEntries });
     } else if (method === "import_docx") {
       const lazyWheels = [
+        "typing_extensions-4.15.0-py3-none-any.whl",
         "python_docx-1.1.2-py3-none-any.whl",
         "lxml-6.1.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
       ];
@@ -207,7 +209,8 @@ _q_res = _bridge.get_missing_queue(kind=_q_kind, limit=_q_limit, exclude=_q_ex)
             pyodide.FS.writeFile(`/tmp/${whl}`, new Uint8Array(buf));
             pyodide.runPython(`
 import zipfile
-site_packages = "/lib/python3.14/site-packages"
+import site
+site_packages = site.getsitepackages()[0]
 with zipfile.ZipFile("/tmp/${whl}") as z:
     z.extractall(site_packages)
 `);

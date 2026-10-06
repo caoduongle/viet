@@ -29,7 +29,11 @@ console.log(`[Test ZIP] Đã ghi ${zipBytes.length} bytes vào ${zipPath}`);
 
 // Kiểm tra bằng python -m zipfile -t
 try {
-  const result = execSync(`py -3.10 -m zipfile -t "${zipPath}"`, { encoding: "utf-8" });
+  let pythonCmd = process.env.PYTHON;
+  if (!pythonCmd) {
+    pythonCmd = process.platform === "win32" ? "py -3" : "python3";
+  }
+  const result = execSync(`${pythonCmd} -m zipfile -t "${zipPath}"`, { encoding: "utf-8" });
   console.log("[Test ZIP] python -m zipfile -t kết quả:", result.trim() || "OK");
   console.log("[Test ZIP] PASS 100%!");
 } catch (err) {

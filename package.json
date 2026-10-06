@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:unit": "node --test \"tests/js/*.test.mjs\"",
+    "test:browser": "node tests/browser/test_bridge_no_tkinter.mjs && node tests/browser/test_bank_merge_memfs.mjs",
     "test:golden": "node scripts/test_golden_pyodide.mjs",
     "test:e2e": "playwright test"
   },

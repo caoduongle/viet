@@ -37,20 +37,20 @@ const PRECACHE_URLS = [
   "./pyodide/wheels/lxml-6.1.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
 ];
 
-// 1. Cài đặt Service Worker và nạp trước toàn bộ tài nguyên
+// 1. Cài đặt Service Worker và nạp trước toàn bộ tài nguyên (B5: bắt buộc thành công)
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
-      for (const url of PRECACHE_URLS) {
-        try {
+      // Dùng Promise.all để fail fast nếu bất kỳ core asset nào lỗi
+      await Promise.all(
+        PRECACHE_URLS.map(async (url) => {
           const resp = await fetch(url, { cache: "no-cache" });
-          if (resp && resp.ok) {
-            await cache.put(url, resp);
+          if (!resp || !resp.ok) {
+            throw new Error(`[SW] Không thể nạp tài nguyên bắt buộc lúc install: ${url} (status: ${resp?.status})`);
           }
-        } catch (err) {
-          console.warn(`[SW] Bỏ qua tài nguyên không nạp được lúc install: ${url}`, err);
-        }
-      }
+          await cache.put(url, resp);
+        })
+      );
     })
   );
   self.skipWaiting();
