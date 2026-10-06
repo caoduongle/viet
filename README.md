@@ -101,31 +101,35 @@ Dự án đã cấu hình sẵn Blueprint [`render.yaml`](render.yaml):
 
 | Lệnh CLI | Chỗ tương ứng trong app |
 |---|---|
-| `write -f/-t ... -o ra.xopp` | Tab **Viết chữ** |
-| `learn ra_thieu.xopp` | Tab **Dạy từ mới** (vẽ trực tiếp, không cần file trung gian) |
-| `grid -o luoi.xopp` | Xuất tờ lưới tập viết ký tự 4 dòng kẻ (`hw3`) |
-| `seed 200` | Nút **"Nạp từ thông dụng còn thiếu..."** trong tab Dạy từ mới |
+| `write -f/-t ... -o ra.xopp` | Tab **Viết chữ** (luôn tự động ghép từ các ký tự đơn) |
+| `learn --grid luoi.xopp` | Tab **Dạy chữ** (nút **"Nạp file lưới…"**) hoặc Tab **Kho mẫu** (**"Nạp lưới (.xopp)"**) |
+| `grid --set <nhom> -o luoi.xopp` | Nút **"Bộ ký tự…"** / **"Xuất lưới (.xopp)"** trong tab Dạy chữ |
 | `check` | Nút **"Xuất file kiểm tra lại (.xopp)..."** trong tab Kho mẫu |
-| `drop từ` | Chọn từ trong tab Kho mẫu → **"Xoá từ đã chọn"** |
+| `drop ký_tự/từ` | Chọn mục trong tab Kho mẫu → **"Xoá mục đã chọn"** |
 | `stats` | Ô thống kê ở đầu tab Kho mẫu |
 
 Xem `python3 hw_note.py --help` (và `python3 hw_note.py write --help`) để biết đủ tuỳ chọn:
 `--format {auto,txt,md,docx}`, `--scale`, `--line`, `--width`, `--space`, `--jitter`, `--wscale`, `--color`, `--seed`, `--strict-case`, `--assemble`, `--auto-xh`, `--target-xh`, `--letter-gap`, `--pen-clearance`.
 
-### Cơ chế ghép chữ từ ký tự đơn (`--assemble`)
+### Mô hình thuần ký tự & Cơ chế ghép chữ tự động
 
-Khi bật cờ `--assemble`, các từ chưa có mẫu nguyên từ trong kho sẽ được tự động ghép từ các ký tự đơn (`letters`), chữ số (`digits`), dấu câu (`punct`) và ký hiệu (`symbols`):
+Ứng dụng chuyển đổi sang mô hình **thuần ký tự (Char-first)**: mọi văn bản soạn thảo đều được tự động ghép từ các ký tự đơn (`letters`), chữ số (`digits`), dấu câu (`punct`), ký hiệu (`symbols`) và dấu thanh rời (`marks`):
+- **Luôn bật tự động ghép chữ**: Không cần phải cấu hình hay bật cờ thủ công, hệ thống luôn tự động ghép từ các ký tự đã học.
 - **Khoảng cách tự nhiên & chống dính chữ**: Sử dụng đường bao biên hình học (contour pair gap) và khoảng đệm biên `lsb`/`rsb` thay cho việc chồng nét cứng. Sàn khe hở tối thiểu `--pen-clearance 0.8` (mặc định 0,8 lần nét bút) đảm bảo các chữ cái liền kề không bao giờ bị bết mực vào nhau.
 - **Ghép chữ có dấu thanh (Dual-Path Assembly)**: Ưu tiên sử dụng trực tiếp mẫu nguyên âm có sẵn dấu tiếng Việt trong kho; tự động fallback ghép nguyên âm cơ sở với dấu thanh trong `bank.marks` kèm thuật toán đặt dấu theo trọng tâm và né tránh nét vươn cao (ascender).
 - **Chuẩn hoá cỡ chữ (`--auto-xh`)**: Tự động chuẩn hoá các ký tự trong kho về cùng cỡ x-height chuẩn (mặc định 7,94 pt, có thể tinh chỉnh bằng `--target-xh`) giúp nét bút thanh mảnh tự nhiên và đúng tỉ lệ ghi chú thực tế.
-- **Hỗ trợ từ mã / kỹ thuật**: Tự động nhận diện và ghép các token chứa dấu gạch dưới (`body_mass_g`), ngoặc và toán tử (`>=`, `<=`, `<`, `>`, `=`).
+- **Bảo toàn dữ liệu kho cũ**: Nếu bạn đang có kho mẫu cũ chứa các từ nguyên khối (`words`), toàn bộ dữ liệu này vẫn được lưu giữ trọn vẹn và không bao giờ bị xóa bỏ khi cập nhật kho.
 
-### Xuất tờ lưới tập viết ký tự 4 dòng kẻ (`hw3`)
+### Xuất và nạp tờ lưới tập viết ký tự 4 dòng kẻ (`hw3`)
 
 ```bash
-python3 hw_note.py grid -o luoi_ky_tu.xopp
+# Xuất lưới ô theo nhóm ký tự: co_ban, chu_hoa, chu_thuong, chu_so, dau_cau, toan_hy_lap, day_du...
+python3 hw_note.py grid --set co_ban -o luoi_ky_tu.xopp
+
+# Sau khi viết tay trên tablet/Xournal++, nạp lại vào kho:
+python3 hw_note.py learn --grid luoi_ky_tu.xopp
 ```
-Tờ lưới `hw3` gồm 4 dòng kẻ mốc (chân chữ baseline, x-height, ascender, descender) kèm vạch lề trái/phải và hướng dẫn viết tay chi tiết bằng tiếng Việt. Lưới tạo 85 ô (29 chữ cái tiếng Việt + 4 chữ cái Latin mượn f, j, w, z × hoa/thường = 66 ô, 14 cụm phụ âm/nguyên âm đôi thông dụng `ng, nh, ch, tr, ph, th, kh, gi, qu, ươ, ưa, uy, ay, oa`, và 5 ô dấu thanh rời) và hoàn toàn không chứa chữ số. Chữ số và dấu câu được dạy thông qua "bộ tối thiểu" (`model/seed_words.MINIMAL_DIGITS`, `MINIMAL_PUNCT` qua nút ở tab Dạy hoặc lệnh `seed`). Nạp tờ lưới đã viết bằng lệnh `python3 hw_note.py learn luoi_ky_tu.xopp`.
+Tờ lưới `hw3` gồm 4 dòng kẻ mốc (chân chữ baseline, x-height, ascender, descender) kèm vạch lề trái/phải và hướng dẫn viết tay chi tiết bằng tiếng Việt. Thuật toán nạp lưới tự động tính toán chính xác khoảng đệm `lsb` và `rsb` từ nét mực thực tế của người dùng, phân loại tự động vào các ngăn ký tự tương ứng và sinh báo cáo kết quả chi tiết. Bạn cũng có thể nạp file lưới trực tiếp trên Web Client và Desktop GUI chỉ bằng một nút bấm.
 
 ### Di trú kho mẫu ký tự (`scripts/migrate_letter_bank.py`)
 

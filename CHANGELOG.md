@@ -1,5 +1,31 @@
 # Nhật ký thay đổi
 
+## Chưa phát hành — Chuyển đổi thuần ký tự & Nạp file lưới .xopp (R1 - R4)
+
+Chuyển đổi toàn diện hệ thống từ mô hình dạy/dùng mẫu theo TỪ sang mô hình thuần KÝ TỰ, bổ sung tính năng nạp file lưới tập viết `.xopp` trên mọi giao diện (Web, Desktop GUI, CLI) và sửa triệt để các lỗi bearing nền:
+
+### Mô hình thuần ký tự & Tự động ghép chữ (R1, P2)
+- **Luôn tự động ghép chữ (`assemble_letters = True`)**: `WriteOptions` và `Writer` mặc định luôn bật cờ ghép chữ. Văn bản viết ra luôn được ghép từ các ký tự đơn (`letters`, `digits`, `punct`, `symbols`, `marks`).
+- **Ưu tiên ghép chữ cho từ vựng**: Mọi từ alphabet luôn được ghép từ chữ cái và dấu thanh.
+- **Bảo toàn dữ liệu người dùng (D1)**: Trường `words` của các kho mẫu cũ được bảo lưu 100%, không bị xoá hoặc ghi đè khi lưu lại kho.
+- **Kẹp trần side bearings**: Giới hạn `min(rsb, 0.3 * xh)` khi ghép chữ để các ký tự đứng cạnh nhau tự nhiên, không bị giãn cách bất thường.
+- **Bảo vệ toán tử số học**: Giữ nguyên cơ chế MathLayoutEngine cho các ký tự toán tử `+-=<>/*` mà không bị đè bởi nét vector thô.
+
+### Nạp file lưới tập viết .xopp tạo kho ký tự (R2, F2, P1, P3, P4, P5)
+- **Nạp lưới `.xopp` trên Web, Desktop GUI và CLI**:
+  - Web: Nút "Nạp file lưới…" trong tab Dạy chữ và nút "Nạp lưới (.xopp)" trong tab Kho mẫu.
+  - Desktop GUI: Nút "Nạp file lưới…" trong tab Dạy chữ.
+  - CLI: Lệnh `hw_note.py learn --grid <file.xopp>`.
+- **Sửa triệt để lỗi bearing F2**: Tính `lsb` và `rsb` trực tiếp từ khoảng cách giữa bounding box nét mực người dùng viết với đường chân chữ và biên nét thực tế, thay vì lấy toạ độ mép ô lưới gây giãn cách 10 lần.
+- **Idempotent & Báo cáo kết quả (`GridImportResult`)**: Nạp lại nhiều lần an toàn, nhận diện trùng lặp, bỏ qua ô nhiều ký tự và báo cáo rõ ràng: số mẫu thêm mới, trùng lặp, bỏ qua, loại bỏ.
+
+### Danh mục ký tự "Bộ ký tự…" thay cho bộ từ (R3, P1, P4, P5)
+- **Thay thế nút "Bộ tối thiểu" và "Từ thông dụng"**: Nút "Bộ ký tự…" mở modal/hộp thoại chọn theo các nhóm ký tự: Cơ bản (85 chữ cái), Chữ hoa, Chữ thường, Chữ số, Dấu câu, Ký hiệu toán, Dấu thanh rời, Toàn bộ.
+- **Xuất lưới ký tự theo nhóm**: Hỗ trợ xuất file lưới `.xopp` theo từng nhóm ký tự từ Web, GUI và CLI (`hw_note.py grid --set <nhom>`).
+
+### Thư viện mẫu và bộ lọc Kho mẫu (P4, P5)
+- **Bổ sung bộ lọc Dấu thanh (`marks`) và Ký hiệu (`symbols`)**: Hiển thị đầy đủ tất cả các danh mục ký tự trong tab Kho mẫu trên Web và Desktop.
+
 ## Chưa phát hành — Static Web Client & PWA (Spec 020)
 
 Chuyển đổi ứng dụng thành Static Web App chạy 100% phía trình duyệt (Client-side) không cần máy chủ tính toán, bảo toàn 100% thuật toán gốc qua Pyodide 314.0.7 (WebAssembly):

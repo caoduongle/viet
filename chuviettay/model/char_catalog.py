@@ -99,6 +99,42 @@ CATALOG_GROUPS: dict[str, CharCatalogGroup] = {
         description="Chữ cái tiếng Việt, chữ số, dấu câu và 5 dấu thanh rời",
         chars=CO_BAN_CHARS,
     ),
+    "chu_hoa": CharCatalogGroup(
+        id="chu_hoa",
+        name="Chữ cái in hoa",
+        description="33 chữ cái in hoa tiếng Việt & mượn",
+        chars=VIETNAMESE_UPPERCASE,
+    ),
+    "chu_thuong": CharCatalogGroup(
+        id="chu_thuong",
+        name="Chữ cái viết thường",
+        description="33 chữ cái viết thường tiếng Việt & mượn",
+        chars=VIETNAMESE_LOWERCASE,
+    ),
+    "chu_so": CharCatalogGroup(
+        id="chu_so",
+        name="Chữ số",
+        description="Chữ số từ 0 đến 9",
+        chars=DIGITS,
+    ),
+    "dau_cau": CharCatalogGroup(
+        id="dau_cau",
+        name="Dấu câu",
+        description="Các dấu câu cơ bản và mở rộng",
+        chars=PUNCTUATION,
+    ),
+    "dau_thanh": CharCatalogGroup(
+        id="dau_thanh",
+        name="Dấu thanh rời",
+        description="5 dấu thanh rời tiếng Việt chuẩn hw3",
+        chars=TONE_MARKS,
+    ),
+    "ky_hieu_toan": CharCatalogGroup(
+        id="ky_hieu_toan",
+        name="Ký hiệu toán & biểu tượng",
+        description="Các toán tử số học, so sánh và ký hiệu mở rộng",
+        chars=MATH_OPERATORS + EXTENDED_SYMBOLS,
+    ),
     "toan_hy_lap": CharCatalogGroup(
         id="toan_hy_lap",
         name="Toán học & Hy Lạp",
