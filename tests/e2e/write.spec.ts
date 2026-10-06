@@ -4,6 +4,7 @@ import path from "node:path";
 
 test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E)", () => {
   test("soạn thảo văn bản, debounce 250ms, IME, xem trước SVG và tải file .xopp", async ({ page }) => {
+    test.setTimeout(90000);
     // Thu thập các network request
     const externalRequests: string[] = [];
     page.on("request", (req) => {

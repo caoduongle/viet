@@ -287,7 +287,7 @@ async function openLabelDetail(label, category, count) {
       const itemCard = document.createElement("div");
       itemCard.className = "sample-item-card";
 
-      const svgHtml = sample.s ? createSvgFromStrokes(sample.s, 140, 56) : "";
+      const svgHtml = sample.s ? createSvgFromStrokes(sample.s, 140, 56, { showBaseline: true }) : "";
       const widthVal = sample.w ? `${sample.w} pt` : "";
 
       itemCard.innerHTML = `
@@ -510,7 +510,7 @@ async function handleFileInput(e) {
 // -------------------------------------------------------------
 // Dựng SVG Thumbnail an toàn từ Stroke Coordinates
 // -------------------------------------------------------------
-function createSvgFromStrokes(strokes, width = 100, height = 50) {
+export function createSvgFromStrokes(strokes, width = 100, height = 50, options = {}) {
   if (!strokes || strokes.length === 0) return "";
 
   let minX = Infinity;
@@ -531,14 +531,51 @@ function createSvgFromStrokes(strokes, width = 100, height = 50) {
 
   if (minX === Infinity) return "";
 
-  const pad = 4;
+  const pad = 3.0;
   const strokeW = Math.max(0.1, maxX - minX);
   const strokeH = Math.max(0.1, maxY - minY);
 
-  const vbX = minX - pad;
-  const vbY = minY - pad;
-  const vbW = strokeW + pad * 2;
-  const vbH = strokeH + pad * 2;
+  const minVbHeight = options.minVbHeight != null ? options.minVbHeight : 24.0;
+  const strokeWidth = options.strokeWidth != null ? options.strokeWidth : 1.8;
+  const showBaseline = Boolean(options.showBaseline);
+
+  // Chiều cao khung nhìn tối thiểu (ngăn chặn phóng đại nét đối với chữ ngắn/hẹp)
+  let targetH = Math.max(strokeH + pad * 2, minVbHeight);
+  const aspect = width / height;
+  let targetW = Math.max(strokeW + pad * 2, targetH * aspect);
+
+  if (targetW / aspect > targetH) {
+    targetH = targetW / aspect;
+  }
+
+  // Căn giữa theo chiều ngang
+  const midX = (minX + maxX) / 2;
+  const vbX = midX - targetW / 2;
+
+  // Căn theo trục tung:
+  // Nếu có toạ độ bao phủ baseline (y=0) hoặc chữ thông thường (y từ -8 đến 0):
+  // Neo baseline ở khoảng 2/3 đến 3/4 chiều cao khung nhìn
+  let vbY;
+  if (minY <= 0 && maxY >= -15) {
+    // Ký tự đứng trên baseline: đặt baseline y=0 tại vị trí ~ 70% chiều cao
+    const baselineRatio = 0.70;
+    vbY = -targetH * baselineRatio;
+    // Kiểm tra nếu đỉnh nét (minY) hoặc đáy nét (maxY) vượt ra ngoài khung thì lùi lại
+    if (minY < vbY + pad) {
+      vbY = minY - pad;
+    } else if (maxY > vbY + targetH - pad) {
+      vbY = maxY + pad - targetH;
+    }
+  } else {
+    // Căn giữa hình học nếu toạ độ bất thường
+    const midY = (minY + maxY) / 2;
+    vbY = midY - targetH / 2;
+  }
+
+  let guidesHtml = "";
+  if (showBaseline) {
+    guidesHtml = `<line x1="${vbX}" y1="0" x2="${vbX + targetW}" y2="0" stroke="#e2e8f0" stroke-width="1" stroke-dasharray="2,2" vector-effect="non-scaling-stroke"/>`;
+  }
 
   let polylines = "";
   for (const st of strokes) {
@@ -546,8 +583,8 @@ function createSvgFromStrokes(strokes, width = 100, height = 50) {
     for (let i = 0; i < st.length; i += 2) {
       pts.push(`${st[i]},${st[i + 1]}`);
     }
-    polylines += `<polyline points="${pts.join(" ")}" fill="none" stroke="#0f172a" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+    polylines += `<polyline points="${pts.join(" ")}" fill="none" stroke="#0f172a" stroke-width="${strokeWidth}" vector-effect="non-scaling-stroke" stroke-linecap="round" stroke-linejoin="round"/>`;
   }
 
-  return `<svg viewBox="${vbX} ${vbY} ${vbW} ${vbH}" width="${width}" height="${height}" style="max-width: 100%; max-height: 100%; display: block; margin: auto;">${polylines}</svg>`;
+  return `<svg viewBox="${vbX} ${vbY} ${targetW} ${targetH}" width="${width}" height="${height}" style="max-width: 100%; max-height: 100%; display: block; margin: auto;">${guidesHtml}${polylines}</svg>`;
 }

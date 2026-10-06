@@ -80,7 +80,9 @@ export async function notifySampleTaught(label) {
 
   scheduleAutoSave();
 }
-window.__notifySampleTaught = notifySampleTaught;
+if (typeof window !== "undefined") {
+  window.__notifySampleTaught = notifySampleTaught;
+}
 
 // -------------------------------------------------------------
 // 2. Khởi tạo Worker
@@ -424,8 +426,10 @@ function initServiceWorker() {
 }
 
 // Khởi chạy ứng dụng khi DOM sẵn sàng
-document.addEventListener("DOMContentLoaded", () => {
-  initTabs();
-  initWorker();
-  initServiceWorker();
-});
+if (typeof document !== "undefined") {
+  document.addEventListener("DOMContentLoaded", () => {
+    initTabs();
+    initWorker();
+    initServiceWorker();
+  });
+}

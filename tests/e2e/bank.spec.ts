@@ -63,6 +63,15 @@ test.describe("User Story 4: Quản lý Kho mẫu chữ (E2E)", () => {
     const sampleCount = await samplesGrid.locator(".sample-item-card").count();
     expect(sampleCount).toBeGreaterThan(0);
 
+    // Khẳng định thuộc tính vector-effect="non-scaling-stroke" và stroke-width trong thumbnail
+    const firstPolyline = samplesGrid.locator(".sample-item-card svg polyline").first();
+    await expect(firstPolyline).toHaveAttribute("vector-effect", "non-scaling-stroke");
+    await expect(firstPolyline).toHaveAttribute("stroke-width", "1.8");
+
+    // Khẳng định có đường kẻ chân chữ mờ tham chiếu
+    const baselineLine = samplesGrid.locator(".sample-item-card svg line");
+    await expect(baselineLine.first()).toHaveAttribute("stroke-dasharray", "2,2");
+
     // Đóng modal chi tiết
     await page.click("#btn-close-label-detail");
     await expect(detailModal).toBeHidden();
