@@ -19,11 +19,11 @@ from tests.test_letter_assembly_quality import _create_quality_test_bank
 
 GOLDEN_REAL = {
     "co_ban": {
-        "xopp": "001683a9d8e219fb798fafddf311ea6af174f3c10f24f383c2685c2b4abe35bd",
+        "xopp": "2361f6e1a2798242545a8fdf22a92e1f8d62f251a2f14c783cab9916dcd21321",
         "thieu": "6b336106a6ca50e7ca62fe93179cc3a2530c29c5669cd15be7b73102d9fbfde3",
     },
     "tuy_chon": {
-        "xopp": "ff88562804ff4f74b93cc6b676436e19b35371c787045b78b3c75e68d8f99c5a",
+        "xopp": "51a2e21adbf797d752f1b74e8ae46bd856b17472add095f5dbfaaec6fc2a6ab9",
     },
     "nhieu_trang": {
         "xopp": "5552508f031d160fe23819e28693bf71ac2835e814639b9e0598faf7549a4542",
@@ -36,13 +36,13 @@ GOLDEN_REAL = {
         "xopp": "1d71a384018f13878f4da6abea651407b2af413b17d171c9b72ef6895a2fd589",
     },
     "math": {
-        "xopp": "7f4bc6d8f7f25b94817585958a55a9ef6bf31dd0ceb8c41cd061dcea17694d5b",
+        "xopp": "a2669fc850c02d1cfd3b47f8bfbadd818ba336dc152aa4ad975a4cec24100951",
     },
     "table": {
         "xopp": "bfa7b717d444908e1107ebc5cd6055963957ef2a047a9a3758671936ecd7b2ec",
     },
     "markdown_list": {
-        "xopp": "1537d84d1f21318955ec43ea1e8db44257f79ef0f12933142ede3978d3bbdbe2",
+        "xopp": "448890bdc4d3772b3423c09407024df7f3d90015686bc76c748c04736b5e7672",
         "thieu": "6364a7000d6c3dbbaf466d433c947a685e1ffad0c359367248df76659b1724ae",
     },
 }

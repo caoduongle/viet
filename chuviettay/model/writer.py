@@ -313,13 +313,56 @@ class Writer:
         return body_strokes, total_w
 
     # -- số
+    def _resolve_dgap(self, first: bool, is_hyphen: bool = False) -> float:
+        """Tính khoảng cách tự nhiên giữa 2 chữ số liên tiếp trong cùng một số,
+        được chuẩn hóa theo tỷ lệ chiều cao chữ xh và chống giãn cách quá xa."""
+        if first:
+            return 0.0
+        b, rnd = self.b, self.rnd
+        xh = getattr(b, "xh", 7.94) or 7.94
+        raw_gaps = b.d.get("dgaps")
+        # Lọc các khoảng cách hợp lý (tương tự như cách engine lọc wgaps: 6.0 <= g <= 20.0)
+        # Đối với chữ số: dgap chỉ nên trong khoảng 0.5 đến 0.55 * xh (tối đa ~3.8 khi xh=7.0, ~4.3 khi xh=7.94)
+        valid_gaps = [float(g) for g in raw_gaps if 0.5 <= float(g) <= 0.55 * xh] if raw_gaps else []
+        if valid_gaps:
+            gap = rnd.choice(valid_gaps)
+        elif raw_gaps:
+            # Nếu toàn bộ mẫu trong kho đều quá lớn (ví dụ kho cũ bị outlier > 5.0), clamp về dải an toàn
+            min_dgap = 0.08 * xh
+            max_dgap = 0.22 * xh
+            g_raw = rnd.choice(raw_gaps)
+            scaled = float(g_raw) * (xh / 7.94)
+            gap = clamp(scaled, min_dgap, max_dgap)
+        else:
+            gap = 0.14 * xh
+        return gap * (0.5 if is_hyphen else 1.0)
+
+    def _normalize_punct_sample(self, inst: dict) -> tuple[list[Stroke], float]:
+        """Chuẩn hóa mẫu dấu câu về gốc x = 0.0, trả về (danh sách nét đã dịch, độ rộng thực tế)."""
+        raw_s = inst.get("s", [])
+        if not raw_s:
+            return [], float(inst.get("w", 0.3))
+        xs = [pt for st in raw_s for pt in st[0::2]]
+        if not xs:
+            return [], float(inst.get("w", 0.3))
+        min_x = min(xs)
+        max_x = max(xs)
+        norm_strokes = [shift(st, -min_x, 0.0) for st in raw_s]
+        glyph_w = max_x - min_x
+        w_field = inst.get("w")
+        if w_field is not None and float(w_field) > glyph_w:
+            effective_w = float(w_field)
+        else:
+            effective_w = glyph_w
+        return norm_strokes, effective_w
+
     def number(self, s: str) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một chuỗi số/dấu chấm-phẩy-gạch ngang (đã khớp NUMRE), từng ký tự một,
         theo mẫu chữ số/dấu phẩy-chấm đã học. -> (nét, độ rộng, ký tự còn thiếu mẫu)."""
-        b, rnd = self.b, self.rnd
+        b = self.b
+        xh = getattr(b, "xh", 7.94) or 7.94
         out: list[Stroke] = []
         x, missing, first = 0.0, [], True
-        gaps = b.d.get("dgaps") or [3.5]
         for ch in s:
             if ch in ",.":
                 lib = b.punct.get(ch) or b.punct.get(",") or b.punct.get(".")
@@ -327,8 +370,11 @@ class Writer:
                     missing.append(ch)
                     continue
                 g = self.pick(lib, "p" + ch)
-                out += [shift(st, x, 0) for st in g["s"]]
-                x += max(st[i] for st in g["s"] for i in range(0, len(st), 2)) + 0.6
+                p_st, p_w = self._normalize_punct_sample(g)
+                # Dấu phẩy/chấm nằm ngay sau chữ số trước với khoảng hở nhỏ
+                p_gap = 0.08 * xh if not first else 0.0
+                out += [shift(st, x + p_gap, 0) for st in p_st]
+                x += p_gap + p_w + 0.10 * xh
                 first = True
                 continue
             lib = b.digits.get(ch)
@@ -338,9 +384,11 @@ class Writer:
                 missing.append(ch)
                 continue
             g = self.pick(lib, "d" + ch)
-            gap = 0.0 if first else clamp(rnd.choice(gaps), 0.5, 7.0) * (0.5 if ch == "-" else 1.0)
-            out += [shift(st, x + gap, 0) for st in g["s"]]
-            x += gap + g["w"]
+            gap = self._resolve_dgap(first, is_hyphen=(ch == "-"))
+            d_st, d_w = self._normalize_punct_sample(g)
+            out += [shift(st, x + gap, 0) for st in d_st]
+            w_advance = float(g.get("w", d_w))
+            x += gap + w_advance
             first = False
         return out, x, missing
 
@@ -360,7 +408,8 @@ class Writer:
             return float(w)
         sts = inst.get("s", [])
         if sts:
-            return max((st[i] for st in sts for i in range(0, len(st), 2)), default=0.0) + 0.3
+            xs = [st[i] for st in sts for i in range(0, len(st), 2)]
+            return (max(xs) - min(xs)) + 0.3 if xs else 0.3
         return 0.3
 
     # -- một token (đã tách khoảng trắng)
@@ -372,38 +421,51 @@ class Writer:
         không có mới tách ra lead (dấu mở ngoặc/nháy đầu) + core (phần thân: số hoặc
         từ) + trail (dấu đóng ngoặc/dấu câu cuối) rồi ghép từng phần."""
         b = self.b
+        xh = getattr(b, "xh", 7.94) or 7.94
+        pen_w = float(b.pen.get("width", 1.41)) if b.pen else 1.41
+
         if len(tok) == 1:
+            if getattr(b, "punct", None) and tok in b.punct:
+                inst = self.pick(b.punct[tok], "p" + tok)
+                p_st, p_w = self._normalize_punct_sample(inst)
+                return p_st, p_w + 0.15 * xh, []
             sample = self.get_letter_sample(tok)
             if sample:
-                w_tok = self._punct_w(sample) if getattr(b, "punct", None) and tok in b.punct else sample.get("w", 1.0 * b.xh)
+                w_tok = sample.get("w", 1.0 * xh)
                 return list(sample["s"]), w_tok, []
         if getattr(b, "digits", None) and tok in b.digits:
             inst = self.pick(b.digits[tok], "d" + tok)
             return list(inst["s"]), inst["w"], []
         if getattr(b, "punct", None) and tok in b.punct:
             inst = self.pick(b.punct[tok], "p" + tok)
-            return list(inst["s"]), self._punct_w(inst), []
+            p_st, p_w = self._normalize_punct_sample(inst)
+            return p_st, p_w + 0.15 * xh, []
         if getattr(b, "symbols", None) and tok in b.symbols:
             inst = self.pick(b.symbols[tok], "sym:" + tok)
             return list(inst["s"]), inst["w"], []
+
         lead, core, trail = TOKRE.match(tok).groups()
         strokes: list[Stroke] = []
         x, miss = 0.0, []
+
         for ch in lead:
             if getattr(b, "punct", None) and ch in b.punct:
                 inst = self.pick(b.punct[ch], "p" + ch)
-                strokes += [shift(st, x, 0) for st in inst["s"]]
-                x += self._punct_w(inst) + 0.15 * b.xh
+                p_st, p_w = self._normalize_punct_sample(inst)
+                strokes += [shift(st, x, 0) for st in p_st]
+                x += p_w + 0.15 * xh
             elif getattr(b, "symbols", None) and ch in b.symbols:
                 inst = self.pick(b.symbols[ch], "sym:" + ch)
                 strokes += [shift(st, x, 0) for st in inst["s"]]
-                x += inst["w"] + 0.15 * b.xh
+                x += inst["w"] + 0.15 * xh
             elif getattr(b, "letters", None) and ch in b.letters:
                 inst = self.pick(b.letters[ch], "let:" + ch)
                 strokes += [shift(st, x, 0) for st in inst["s"]]
-                x += inst.get("w", 1.0 * b.xh) + 0.15 * b.xh
+                x += inst.get("w", 1.0 * xh) + 0.15 * xh
             else:
                 miss.append(ch)
+
+        placed_core_strokes: list[Stroke] = []
         if core:
             if NUMRE.match(core):
                 st, w, m = self.number(core)
@@ -422,24 +484,39 @@ class Writer:
                     if not m:
                         m = [core]
                 miss += m
-            strokes += [shift(s_, x, 0) for s_ in st]
+            shifted_core = [shift(s_, x, 0) for s_ in st]
+            placed_core_strokes = shifted_core
+            strokes += shifted_core
             x += w
+
+        first_trail = True
         for ch in trail:
             lib = b.punct.get(ch)
             if lib:
                 g = self.pick(lib, "p" + ch)
-                strokes += [shift(st, x, 0) for st in g["s"]]
-                x += max(st[i] for st in g["s"] for i in range(0, len(st), 2)) + 0.3
+                p_st, p_w = self._normalize_punct_sample(g)
+                if first_trail and placed_core_strokes:
+                    core_max_x = max((pt for s_ in placed_core_strokes for pt in s_[0::2]), default=x)
+                    clearance_gap = max(0.8 * pen_w, 0.18 * xh)
+                    x = max(x, core_max_x) + clearance_gap
+                elif not first_trail:
+                    x += 0.10 * xh
+                strokes += [shift(st, x, 0) for st in p_st]
+                x += p_w + 0.12 * xh
+                first_trail = False
             elif getattr(b, "symbols", None) and ch in b.symbols:
                 inst = self.pick(b.symbols[ch], "sym:" + ch)
-                strokes += [shift(st, x + 0.15 * b.xh, 0) for st in inst["s"]]
-                x += inst["w"] + 0.15 * b.xh
+                strokes += [shift(st, x + 0.15 * xh, 0) for st in inst["s"]]
+                x += inst["w"] + 0.15 * xh
+                first_trail = False
             elif getattr(b, "letters", None) and ch in b.letters:
                 inst = self.pick(b.letters[ch], "let:" + ch)
-                strokes += [shift(st, x + 0.15 * b.xh, 0) for st in inst["s"]]
-                x += inst.get("w", 1.0 * b.xh) + 0.15 * b.xh
+                strokes += [shift(st, x + 0.15 * xh, 0) for st in inst["s"]]
+                x += inst.get("w", 1.0 * xh) + 0.15 * xh
+                first_trail = False
             else:
                 miss.append(ch)
+
         if not core and not lead and trail == tok and (
             tok not in getattr(b, "letters", {})
             and tok not in getattr(b, "punct", {})
