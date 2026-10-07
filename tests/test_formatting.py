@@ -46,3 +46,43 @@ def test_bao_cao_co_ky_hieu_thieu():
     sym_line = next(line for line in lines if "Ký hiệu thiếu mẫu" in line)
     assert "∑ (x3)" in sym_line
     assert "≤ (x1)" in sym_line
+
+
+def test_format_stats_gui_char_first():
+    """T021: format_stats_gui hiển thị trọng tâm theo ký tự và mẫu nét, phụ chú từ cũ nếu có."""
+    from chuviettay.controller.results import BankStats
+    from chuviettay.formatting import format_stats_gui
+
+    # Kho chỉ có ký tự (không có legacy words)
+    stats = BankStats(
+        n_words=0,
+        n_samples=25,
+        digit_counts={"1": 2, "2": 3},
+        punct_counts={",": 1},
+        tone_mark_counts={"\u0300": 1, "\u0301": 2, "\u0303": 0, "\u0309": 1, "\u0323": 1},
+        n_letters=5,
+        letter_counts={"a": 3, "b": 2, "c": 1, "d": 2, "e": 2},
+    )
+    # total_chars = 5 (letters) + 2 (digits) + 1 (punct) + 4 (tones with > 0) = 12
+    text = format_stats_gui(stats)
+    lines = text.splitlines()
+    assert "12 ký tự, 25 mẫu nét" in lines[0]
+    assert "từ cũ" not in lines[0]
+    assert "Chữ cái đơn lẻ (5 chữ):" in lines[1]
+    assert "Chữ số có mẫu: 1:2 2:3" in lines[2]
+    assert "Dấu câu có mẫu: ,:1" in lines[3]
+
+    # Kho có từ cũ (legacy words)
+    legacy_stats = BankStats(
+        n_words=3,
+        n_samples=15,
+        digit_counts={"1": 1},
+        punct_counts={},
+        tone_mark_counts={},
+        n_letters=2,
+        letter_counts={"a": 1, "b": 1},
+    )
+    # total_chars = 2 (letters) + 1 (digits) = 3
+    leg_text = format_stats_gui(legacy_stats)
+    leg_lines = leg_text.splitlines()
+    assert "3 ký tự, 15 mẫu nét (kèm 3 từ cũ)" in leg_lines[0]

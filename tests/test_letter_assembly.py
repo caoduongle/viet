@@ -88,6 +88,20 @@ def test_missing_letters_ranked_when_some_already_learned():
     assert "\u0301" in missing_chars
 
 
+def test_missing_letters_ranked_ignores_legacy_words_bank():
+    """Từ 'xin' có trong bank_words nhưng thiếu 'x', 'i', 'n' trong bank_letters:
+    missing_letters_ranked BẮT BUỘC coi 'x', 'i', 'n' là còn thiếu, không bị bỏ qua bởi bank_words."""
+    bank_letters = {}
+    bank_marks = {}
+    bank_words = {"xin": [{"s": [], "w": 9.0}], "x": [{"s": [], "w": 3.0}]}
+    ranked = missing_letters_ranked(["xin"], bank_letters, bank_marks, bank_words=bank_words)
+    missing_chars = [item[0] for item in ranked]
+    assert "x" in missing_chars
+    assert "i" in missing_chars
+    assert "n" in missing_chars
+
+
+
 def test_controller_missing_letters_for_words(tiny_bank_path):
     from chuviettay.controller.app_controller import AppController
 

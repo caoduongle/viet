@@ -119,7 +119,7 @@ def missing_letters_ranked(
     digits = bank_digits or {}
     punct = bank_punct or {}
     symbols = bank_symbols or {}
-    words_bank = bank_words or {}
+    _ = bank_words  # giữ tham số tương thích ngược nhưng không phụ thuộc kho words
     word_deps: dict[str, set[str]] = {}  # missing_char -> set of words needing it
 
     for w in missing_words:
@@ -142,10 +142,6 @@ def missing_letters_ranked(
                 has_sample = True
             elif ch in symbols and symbols[ch]:
                 has_sample = True
-            elif ch in words_bank and words_bank[ch]:
-                has_sample = True
-            elif not strict_case and ch.isupper() and ch.lower() in words_bank and words_bank[ch.lower()]:
-                has_sample = True
 
             if not has_sample:
                 target_ch = ch if (strict_case or not ch.isupper()) else ch.lower()
@@ -155,13 +151,8 @@ def missing_letters_ranked(
             has_precomposed = False
             if w_clean in bank_letters and bank_letters[w_clean]:
                 has_precomposed = True
-            elif w_clean in words_bank and words_bank[w_clean]:
+            elif len(letters) == 1 and letters[0] in bank_letters and bank_letters[letters[0]]:
                 has_precomposed = True
-            elif len(letters) == 1:
-                if letters[0] in bank_letters and bank_letters[letters[0]]:
-                    has_precomposed = True
-                elif letters[0] in words_bank and words_bank[letters[0]]:
-                    has_precomposed = True
 
             if not has_precomposed:
                 if not bank_marks.get(tone):
@@ -553,49 +544,127 @@ def normalize_letter_sample(
     }
 
 
+def point_segment_distance(px: float, py: float, x1: float, y1: float, x2: float, y2: float) -> float:
+    """Khoảng cách Euclid từ điểm (px, py) tới đoạn thẳng [(x1, y1), (x2, y2)].
+    Xử lý an toàn khi đoạn thẳng suy biến thành một điểm (x1==x2 và y1==y2)."""
+    dx = x2 - x1
+    dy = y2 - y1
+    len_sq = dx * dx + dy * dy
+    if len_sq < 1e-10:
+        return math.hypot(px - x1, py - y1)
+    t = ((px - x1) * dx + (py - y1) * dy) / len_sq
+    if t <= 0.0:
+        return math.hypot(px - x1, py - y1)
+    if t >= 1.0:
+        return math.hypot(px - x2, py - y2)
+    proj_x = x1 + t * dx
+    proj_y = y1 + t * dy
+    return math.hypot(px - proj_x, py - proj_y)
+
+
+def segment_distance(
+    p1: tuple[float, float],
+    p2: tuple[float, float],
+    q1: tuple[float, float],
+    q2: tuple[float, float],
+) -> float:
+    """Tính khoảng cách ngắn nhất giữa hai đoạn thẳng 2D S1=[p1, p2] và S2=[q1, q2].
+    Nếu hai đoạn cắt nhau, trả về 0.0.
+    Nếu không cắt nhau, khoảng cách ngắn nhất luôn nằm tại một trong bốn đầu mút."""
+    x1, y1 = p1
+    x2, y2 = p2
+    x3, y3 = q1
+    x4, y4 = q2
+
+    # Kiểm tra giao nhau bằng định hướng (cross product)
+    def ccw(ax: float, ay: float, bx: float, by: float, cx: float, cy: float) -> float:
+        return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+
+    d1 = ccw(x1, y1, x2, y2, x3, y3)
+    d2 = ccw(x1, y1, x2, y2, x4, y4)
+    d3 = ccw(x3, y3, x4, y4, x1, y1)
+    d4 = ccw(x3, y3, x4, y4, x2, y2)
+
+    # Đoạn thẳng cắt nhau nếu hai đầu mút của mỗi đoạn nằm về hai phía của đoạn kia
+    if ((d1 > 0 and d2 < 0) or (d1 < 0 and d2 > 0)) and ((d3 > 0 and d4 < 0) or (d3 < 0 and d4 > 0)):
+        return 0.0
+
+    # Nếu không cắt nhau, cực tiểu nằm tại hình chiếu của các đầu mút
+    d_p1 = point_segment_distance(x1, y1, x3, y3, x4, y4)
+    d_p2 = point_segment_distance(x2, y2, x3, y3, x4, y4)
+    d_q1 = point_segment_distance(x3, y3, x1, y1, x2, y2)
+    d_q2 = point_segment_distance(x4, y4, x1, y1, x2, y2)
+
+    return min(d_p1, d_p2, d_q1, d_q2)
+
+
 def min_stroke_clearance(
     strokes_a: list[Stroke],
     strokes_b: list[Stroke],
-    max_pts: int = 25,
+    max_segments: int = 40,
 ) -> float:
-    """Tính khoảng cách Euclid nhỏ nhất giữa 2 tập hợp nét vẽ phẳng [x0,y0, x1,y1...].
-
-    Tối ưu hóa: chỉ so sánh tập con điểm biên phải của `strokes_a` với tập con điểm biên trái
-    của `strokes_b` để đạt hiệu năng < 0.05ms trong pure Python mà không cần numpy.
+    """Tính khoảng cách nhỏ nhất giữa 2 tập nét phẳng dựa trên đoạn thẳng 2D (segment-to-segment distance).
+    Sử dụng bounding box pruning để loại bỏ nhanh các cặp đoạn ở xa mà không cần gọi hàm tính toán chi tiết.
     """
-    pts_a: list[tuple[float, float]] = []
+    segs_a: list[tuple[tuple[float, float], tuple[float, float]]] = []
     for st in strokes_a:
-        for i in range(0, len(st) - 1, 2):
-            pts_a.append((st[i], st[i + 1]))
+        n = len(st)
+        if n == 2:
+            segs_a.append(((st[0], st[1]), (st[0], st[1])))
+        elif n >= 4:
+            for i in range(0, n - 2, 2):
+                segs_a.append(((st[i], st[i + 1]), (st[i + 2], st[i + 3])))
 
-    pts_b: list[tuple[float, float]] = []
+    segs_b: list[tuple[tuple[float, float], tuple[float, float]]] = []
     for st in strokes_b:
-        for i in range(0, len(st) - 1, 2):
-            pts_b.append((st[i], st[i + 1]))
+        n = len(st)
+        if n == 2:
+            segs_b.append(((st[0], st[1]), (st[0], st[1])))
+        elif n >= 4:
+            for i in range(0, n - 2, 2):
+                segs_b.append(((st[i], st[i + 1]), (st[i + 2], st[i + 3])))
 
-    if not pts_a or not pts_b:
+    if not segs_a or not segs_b:
         return 999.0
 
-    max_xa = max(p[0] for p in pts_a)
-    subset_a = [p for p in pts_a if p[0] >= max_xa - 4.0]
-    if len(subset_a) > max_pts:
-        subset_a = sorted(subset_a, key=lambda p: -p[0])[:max_pts]
+    if len(segs_a) > max_segments:
+        max_xa = max(max(p[0][0], p[1][0]) for p in segs_a)
+        segs_a = [s for s in segs_a if max(s[0][0], s[1][0]) >= max_xa - 4.0][:max_segments]
 
-    min_xb = min(p[0] for p in pts_b)
-    subset_b = [p for p in pts_b if p[0] <= min_xb + 4.0]
-    if len(subset_b) > max_pts:
-        subset_b = sorted(subset_b, key=lambda p: p[0])[:max_pts]
+    if len(segs_b) > max_segments:
+        min_xb = min(min(p[0][0], p[1][0]) for p in segs_b)
+        segs_b = [s for s in segs_b if min(s[0][0], s[1][0]) <= min_xb + 4.0][:max_segments]
 
-    min_dist_sq = 1e9
-    for xa, ya in subset_a:
-        for xb, yb in subset_b:
-            dx = xb - xa
-            dy = yb - ya
-            d_sq = dx * dx + dy * dy
-            if d_sq < min_dist_sq:
-                min_dist_sq = d_sq
+    bboxes_a = [
+        (
+            min(p1[0], p2[0]), min(p1[1], p2[1]),
+            max(p1[0], p2[0]), max(p1[1], p2[1]),
+        )
+        for p1, p2 in segs_a
+    ]
+    bboxes_b = [
+        (
+            min(q1[0], q2[0]), min(q1[1], q2[1]),
+            max(q1[0], q2[0]), max(q1[1], q2[1]),
+        )
+        for q1, q2 in segs_b
+    ]
 
-    return round(math.sqrt(min_dist_sq), 2) if min_dist_sq < 1e8 else 999.0
+    min_dist = 999.0
+    for (p1, p2), (a_min_x, a_min_y, a_max_x, a_max_y) in zip(segs_a, bboxes_a):
+        for (q1, q2), (b_min_x, b_min_y, b_max_x, b_max_y) in zip(segs_b, bboxes_b):
+            dx = max(0.0, a_min_x - b_max_x, b_min_x - a_max_x)
+            dy = max(0.0, a_min_y - b_max_y, b_min_y - a_max_y)
+            if dx >= min_dist or dy >= min_dist or (dx * dx + dy * dy) >= min_dist * min_dist:
+                continue
+
+            d = segment_distance(p1, p2, q1, q2)
+            if d < min_dist:
+                min_dist = d
+                if min_dist <= 0.0:
+                    return 0.0
+
+    return round(min_dist, 2)
 
 
 def get_vector_glyph_fallback(token: str, xh: float = 7.94) -> dict[str, Any] | None:

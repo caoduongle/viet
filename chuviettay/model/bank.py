@@ -546,29 +546,36 @@ class Bank:
         _log.debug("Đã lưu kho mẫu %s (%d từ)", self.path, len(self.words))
 
     # -------------------------------------------------------------- truy vấn
-    def can(self, w: str) -> bool:
+    def can(self, w: str, strict_case: bool = False) -> bool:
         """Có đủ mẫu để viết được từ/token `w` không (tất cả ký tự cấu thành có mẫu trong
-        letters, digits, punct, symbols và marks)?"""
+        letters, digits, punct, symbols và marks)?
+        Tuyệt đối không phụ thuộc vào self.words hay self.tl theo chuẩn char-first."""
+        w_clean = w.strip()
+        if not w_clean:
+            return False
+
         with self._lock:
-            if w in self.digits or w in self.punct or w in self.symbols or w in self.words:
+            if w_clean in self.digits or w_clean in self.punct or w_clean in getattr(self, "symbols", {}):
                 return True
-            T = tone_info(w)[0]
-            if strip_tone(w) in self.tl and (not T or bool(self.marks.get(T))):
+            if w_clean in self.marks and bool(self.marks.get(w_clean)):
                 return True
+
             letters_dict = getattr(self, "letters", {})
             if not letters_dict:
                 return False
+
             import unicodedata
-            nfc_chars = list(unicodedata.normalize("NFC", w))
-            if all(ch in letters_dict or (ch.isupper() and ch.lower() in letters_dict) for ch in nfc_chars):
+            nfc_chars = list(unicodedata.normalize("NFC", w_clean))
+            if all(ch in letters_dict or (not strict_case and ch.isupper() and ch.lower() in letters_dict) for ch in nfc_chars):
                 return True
+
             from chuviettay.model.text_utils import split_letters
-            chars, T, _ = split_letters(w)
+            chars, T, _ = split_letters(w_clean)
             if not chars:
                 return False
-            if T and not self.marks.get(T):
+            if T and not bool(self.marks.get(T)):
                 return False
-            return all(ch in letters_dict or (ch.isupper() and ch.lower() in letters_dict) for ch in chars)
+            return all(ch in letters_dict or (not strict_case and ch.isupper() and ch.lower() in letters_dict) for ch in chars)
 
     def _clear_tombstone(self, label: str, category: str | None = None) -> None:
         """Gỡ bỏ tombstone và trạng thái đã xoá khi thêm lại mẫu cho `label`."""
@@ -901,7 +908,7 @@ class Bank:
                     if ex_sig is None:
                         ex_sig = sample_signature(ex.get("s", []))
                         ex["_sig"] = ex_sig
-                    if ex_sig == sig and abs(ex.get("dx", 0.0) - mark["dx"]) < 0.1 and abs(ex.get("dy", 0.0) - mark["dy"]) < 0.1:
+                    if ex_sig == sig:
                         return ex
                 mark["_sig"] = sig
 

@@ -36,13 +36,13 @@ test.describe("User Story 3: Dạy mẫu chữ bằng Canvas Pointer Events (E2E
     const canvas = page.locator("#teach-canvas");
     await expect(canvas).toBeVisible();
 
-    // 4. Thêm một từ mới vào hàng đợi
-    const testWord = "mùa";
-    await page.fill("#input-teach-add", testWord);
+    // 4. Thêm một ký tự mới vào hàng đợi
+    const testChar = "m";
+    await page.fill("#input-teach-add", testChar);
     await page.click("#btn-teach-add");
 
     const targetWordEl = page.locator("#teach-target-word");
-    await expect(targetWordEl).toHaveText(new RegExp(testWord));
+    await expect(targetWordEl).toHaveText(new RegExp(testChar));
 
     const saveBtn = page.locator("#btn-teach-save");
     await expect(saveBtn).toBeDisabled();

@@ -301,7 +301,11 @@ class Writer:
             if body_strokes and placed_mark:
                 dist_mark = min_stroke_clearance(body_strokes, placed_mark)
                 if dist_mark < clearance_floor:
-                    cy -= (clearance_floor - dist_mark)
+                    nudge = clearance_floor - dist_mark
+                    if T == NANG:
+                        cy += nudge
+                    else:
+                        cy -= nudge
                     placed_mark = [shift(st, cx, cy) for st in m_strokes]
 
             body_strokes.extend(placed_mark)

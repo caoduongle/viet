@@ -195,30 +195,43 @@ export class TeachController {
   }
 
   // ------------------------------------------------------------ Hàng đợi
-  loadQueue(words) {
-    if (!Array.isArray(words)) return;
-    for (const item of words) {
-      const normalized = String(item).normalize("NFC");
-      for (const ch of normalized) {
-        if (!/\s/.test(ch) && !this.queue.includes(ch)) {
-          this.queue.push(ch);
-        }
+  addCharactersFromText(text) {
+    if (!text || typeof text !== "string") return;
+    const normalized = text.normalize("NFC");
+    for (const ch of normalized) {
+      if (!/\s/.test(ch) && !this.queue.includes(ch)) {
+        this.queue.push(ch);
       }
     }
     this.refresh();
   }
 
+  addCatalogLabels(labels) {
+    if (!Array.isArray(labels)) return;
+    for (const item of labels) {
+      const clean = String(item).trim().normalize("NFC");
+      if (clean && !this.queue.includes(clean)) {
+        this.queue.push(clean);
+      }
+    }
+    this.refresh();
+  }
+
+  loadQueue(items, isCatalog = false) {
+    if (!Array.isArray(items)) return;
+    if (isCatalog) {
+      this.addCatalogLabels(items);
+    } else {
+      this.addCharactersFromText(items.join(""));
+    }
+  }
+
   addWordFromInput() {
+    if (!this.dom || !this.dom.inputAdd) return;
     const val = this.dom.inputAdd.value.trim();
     if (val) {
-      const normalized = val.normalize("NFC");
-      for (const ch of normalized) {
-        if (!/\s/.test(ch) && !this.queue.includes(ch)) {
-          this.queue.push(ch);
-        }
-      }
+      this.addCharactersFromText(val);
       this.dom.inputAdd.value = "";
-      this.refresh();
     }
   }
 
@@ -226,8 +239,17 @@ export class TeachController {
     const clean = String(word).trim().normalize("NFC");
     if (!clean) return;
 
-    // Tách thành các ký tự đơn lẻ
-    const chars = Array.from(clean).filter((ch) => !/\s/.test(ch));
+    const toneLabels = [
+      "dấu sắc", "dấu huyền", "dấu hỏi", "dấu ngã", "dấu nặng",
+      "sắc", "huyền", "hỏi", "ngã", "nặng"
+    ];
+    let chars;
+    if (toneLabels.includes(clean.toLowerCase())) {
+      chars = [clean];
+    } else {
+      // Tách thành các ký tự đơn lẻ
+      chars = Array.from(clean).filter((ch) => !/\s/.test(ch));
+    }
     if (chars.length === 0) return;
 
     for (let i = chars.length - 1; i >= 0; i--) {
@@ -314,7 +336,7 @@ export class TeachController {
           this.closeCharGroupsModal();
           return;
         }
-        this.loadQueue(res.tokens);
+        this.addCatalogLabels(res.tokens);
         this.closeCharGroupsModal();
         alert(`Đã thêm ${res.tokens.length} ký tự còn thiếu vào hàng đợi.`);
       }
@@ -505,6 +527,8 @@ export class TeachController {
 
     this.current = this.queue.length > 0 ? this.queue[0] : null;
 
+    if (!this.dom || !this.dom.queueCount) return;
+
     // 1. Cập nhật danh sách hàng đợi bên trái
     this.dom.queueCount.textContent = String(this.queue.length);
     this.dom.queueList.innerHTML = "";
@@ -560,4 +584,35 @@ export class TeachController {
       }
     } catch (_) {}
   }
+}
+
+/**
+ * Tách chuỗi văn bản thành danh sách ký tự rời rạc (Unicode NFC, bỏ qua khoảng trắng).
+ * Dùng cho ô nhập liệu tự do.
+ */
+export function parseCharactersFromText(text) {
+  if (!text || typeof text !== "string") return [];
+  const chars = [];
+  const normalized = text.normalize("NFC");
+  for (const ch of normalized) {
+    if (!/\s/.test(ch) && !chars.includes(ch)) {
+      chars.push(ch);
+    }
+  }
+  return chars;
+}
+
+/**
+ * Chuẩn hoá danh sách nhãn danh mục, giữ nguyên từng nhãn nguyên tử (không phân rã nhãn dấu thanh).
+ */
+export function parseCatalogLabels(labels) {
+  if (!Array.isArray(labels)) return [];
+  const list = [];
+  for (const item of labels) {
+    const clean = String(item).trim().normalize("NFC");
+    if (clean && !list.includes(clean)) {
+      list.push(clean);
+    }
+  }
+  return list;
 }

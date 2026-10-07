@@ -104,3 +104,53 @@ def test_normalize_text():
 def test_place_tinh_tien_ti_le_khong_xoay():
     got = tu.place([[1, 2, 3, 4]], 10, 20, 2, 0)
     assert got == [[(12.0, 24.0), (16.0, 28.0)]]
+
+
+def test_segment_distance_intersecting():
+    """T020: Hai đoạn thẳng cắt nhau phải có khoảng cách bằng 0.0."""
+    p1, p2 = (0.0, 0.0), (10.0, 10.0)
+    q1, q2 = (0.0, 10.0), (10.0, 0.0)
+    assert tu.segment_distance(p1, p2, q1, q2) == 0.0
+
+
+def test_segment_distance_parallel_and_endpoints():
+    """T020: Hai đoạn thẳng song song hoặc lệch nhau có khoảng cách chính xác."""
+    # Song song cách nhau 2.5 đơn vị
+    p1, p2 = (0.0, 0.0), (10.0, 0.0)
+    q1, q2 = (2.0, 2.5), (8.0, 2.5)
+    assert tu.segment_distance(p1, p2, q1, q2) == 2.5
+
+    # Lệch nhau ngoài đầu mút
+    p1, p2 = (0.0, 0.0), (2.0, 0.0)
+    q1, q2 = (5.0, 4.0), (5.0, 6.0)
+    # Đầu mút gần nhất là (2, 0) và (5, 4) -> khoảng cách hypot(3, 4) = 5.0
+    assert tu.segment_distance(p1, p2, q1, q2) == 5.0
+
+
+def test_segment_distance_degenerate_dots():
+    """T020: Xử lý an toàn các đoạn suy biến (điểm đơn / dot) không bị ZeroDivisionError."""
+    # Điểm và đoạn thẳng
+    dot = (0.0, 0.0)
+    p1, p2 = (0.0, 3.0), (4.0, 3.0)
+    assert tu.segment_distance(dot, dot, p1, p2) == 3.0
+
+    # Cả hai đều là điểm suy biến
+    dot1 = (1.0, 1.0)
+    dot2 = (4.0, 5.0)
+    assert tu.segment_distance(dot1, dot1, dot2, dot2) == 5.0
+
+
+def test_min_stroke_clearance_geometric_accuracy():
+    """T020: min_stroke_clearance sử dụng khoảng cách đoạn thẳng 2D kèm bounding box prune."""
+    # Hai nét thẳng đứng cách nhau 1.2
+    stroke_a = [0.0, 0.0, 0.0, 10.0]
+    stroke_b = [1.2, 0.0, 1.2, 10.0]
+    assert tu.min_stroke_clearance([stroke_a], [stroke_b]) == 1.2
+
+    # Hai nét cắt nhau
+    stroke_cross_1 = [0.0, 0.0, 5.0, 5.0]
+    stroke_cross_2 = [0.0, 5.0, 5.0, 0.0]
+    assert tu.min_stroke_clearance([stroke_cross_1], [stroke_cross_2]) == 0.0
+
+    # Một nét rỗng
+    assert tu.min_stroke_clearance([], [stroke_a]) == 999.0

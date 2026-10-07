@@ -43,7 +43,7 @@ from chuviettay.model.bank import (  # noqa: F401  (re-export cho cli.py/view)
 from chuviettay.model.calibration import compute_scale
 from chuviettay.model.char_catalog import CharCatalogGroup, CATALOG_GROUPS, get_catalog_group
 from chuviettay.model.seed_words import SEED
-from chuviettay.model.text_utils import Stroke, classify_char
+from chuviettay.model.text_utils import Stroke, classify_char, shift
 
 _log = logging.getLogger(__name__)
 
@@ -287,8 +287,9 @@ class AppController:
     ) -> TeachOutcome:
         """Lưu một mẫu chữ cái đơn lẻ vào kho letters (hoặc marks nếu là dấu thanh)."""
         bank = self._require_bank()
-        if letter in TONES and rel_strokes:
-            instance = bank.add_tone_sample(letter, rel_strokes[0])
+        tone_code = xopp.HW3_TONE_MAP.get(letter.strip().lower(), letter)
+        if tone_code in TONES and rel_strokes:
+            instance = bank.add_tone_sample(tone_code, rel_strokes)
         else:
             instance = bank.add_letter_sample(letter, rel_strokes, width)
         bank.mark_dirty()
@@ -353,7 +354,6 @@ class AppController:
             bank_digits=getattr(bank, "digits", {}),
             bank_punct=getattr(bank, "punct", {}),
             bank_symbols=getattr(bank, "symbols", {}),
-            bank_words=getattr(bank, "words", {}),
         )
 
     def export_seed_grid(self, n: int, out_path: str) -> SeedResult:
@@ -420,7 +420,7 @@ class AppController:
         if cat == "marks":
             tone_code = xopp.HW3_TONE_MAP.get(label.lower(), label)
             if rel_strokes:
-                instance = bank.add_tone_sample(tone_code, rel_strokes[0])
+                instance = bank.add_tone_sample(tone_code, rel_strokes)
             else:
                 instance = {}
         elif cat == "letters":
@@ -629,9 +629,23 @@ class AppController:
         keys_set.update(bank.digits.keys())
         keys_set.update(bank.punct.keys())
         keys_set.update(getattr(bank, "symbols", {}).keys())
-        keys = sorted(keys_set)
+
         samples = {}
+        xh = getattr(bank, "xh", 7.94) or 7.94
+        cw_half_offset = (xopp.CW / 2.0) - 8.0
+
+        for tone_code in TONES:
+            if tone_code in bank.marks and bank.marks[tone_code]:
+                lbl = getattr(xopp, "HW3_REV_TONE_MAP", {}).get(tone_code, tone_code)
+                keys_set.add(lbl)
+                mark_sample = bank.marks[tone_code][0]
+                dy = 0.30 * xh if tone_code == "\u0323" else -1.25 * xh
+                samples[lbl] = [shift(s, cw_half_offset, dy) for s in mark_sample.get("s", [])]
+
+        keys = sorted(keys_set)
         for k in keys:
+            if k in samples:
+                continue
             if k in getattr(bank, "letters", {}) and bank.letters[k]:
                 samples[k] = bank.letters[k][0]["s"]
             elif k in bank.digits and bank.digits[k]:

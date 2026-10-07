@@ -66,8 +66,18 @@ def format_stats_gui(stats: BankStats) -> str:
     puncts = " ".join("%s:%d" % kv for kv in stats.punct_counts.items()) or "(chưa có)"
     marks = " ".join(str(n) for n in stats.tone_mark_counts.values())
     letters = " ".join("%s:%d" % kv for kv in stats.letter_counts.items()) or "(chưa có)"
+
+    total_chars = (
+        stats.n_letters
+        + len(stats.digit_counts)
+        + len(stats.punct_counts)
+        + sum(1 for c in stats.tone_mark_counts.values() if c > 0)
+    )
+    legacy_note = f" (kèm {stats.n_words} từ cũ)" if stats.n_words > 0 else ""
+    headline = f"{total_chars} ký tự, {stats.n_samples} mẫu nét{legacy_note}"
+
     lines = [
-        "%d từ, %d mẫu" % (stats.n_words, stats.n_samples),
+        headline,
         "Chữ cái đơn lẻ (%d chữ): %s" % (stats.n_letters, letters),
         "Chữ số có mẫu: " + digits,
         "Dấu câu có mẫu: " + puncts,

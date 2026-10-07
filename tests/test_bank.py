@@ -57,11 +57,28 @@ def test_marks_da_quy_ve_goc_toa_do(tiny_bank):
 
 
 def test_can(tiny_bank):
-    assert tiny_bank.can("ba")            # có thẳng
-    assert tiny_bank.can("bà")            # ghép thân "ba" + dấu huyền rời
-    assert not tiny_bank.can("bá")        # có thân nhưng chưa có nét dấu sắc để ghép
-    assert tiny_bank.can("chao")          # không dấu: dùng thân của "chào"
+    assert tiny_bank.can("ba")            # có đầy đủ chữ cái b, a
+    assert tiny_bank.can("bà")            # ghép b, a + dấu huyền rời \u0300
+    assert not tiny_bank.can("bá")        # có b, a nhưng chưa có nét dấu sắc để ghép
+    assert tiny_bank.can("chao")          # các chữ cái c, h, a, o
     assert not tiny_bank.can("zzz")
+
+
+def test_can_rejects_word_when_only_legacy_words_exist(legacy_words_only_bank):
+    """Từ 'xin' có trong bank.words nhưng KHÔNG có các chữ cái 'x', 'i', 'n' trong bank.letters
+    thì Bank.can('xin') BẮT BUỘC trả về False theo hợp đồng char-first."""
+    assert "xin" in legacy_words_only_bank.words
+    assert not legacy_words_only_bank.can("xin")
+
+
+def test_can_strict_case(tiny_bank):
+    """Khi strict_case=False (mặc định), chữ hoa có thể dùng mẫu chữ thường.
+    Khi strict_case=True, bắt buộc phải có mẫu chữ hoa tương ứng."""
+    assert "b" in tiny_bank.letters
+    assert "B" not in tiny_bank.letters
+    assert tiny_bank.can("ba", strict_case=False)
+    assert tiny_bank.can("Ba", strict_case=False)
+    assert not tiny_bank.can("Ba", strict_case=True)
 
 
 def test_add_sample_tu_tim_net_dau_thanh(tiny_bank):
@@ -392,7 +409,7 @@ def test_incremental_teach_performance_and_correctness(tmp_path):
     assert elapsed < 1.0, f"Thêm 50 từ tăng dần mất {elapsed:.2f}s (quá ngưỡng 1.0s)"
     assert len(b.words) == 50
     for i in range(50):
-        assert b.can(f"word_{i}")
+        assert f"word_{i}" in b.words
         assert f"word_{i}" in b.tl
 
 
@@ -405,9 +422,11 @@ def test_sequential_teach_benchmark_with_tones(tmp_path):
     p = str(tmp_path / "bench_bank.json.gz")
     b = Bank.create_empty(p)
 
-    # 1. Khởi tạo kho có sẵn 100 từ
+    # 1. Khởi tạo kho có sẵn 100 từ và các chữ cái cơ bản 'b', 'a'
     for i in range(100):
         b.add_sample(f"word_{i}", [[0.0, 0.0, 5.0, 0.0]], 5.0)
+    b.add_letter_sample("b", [[0.0, 0.0, 5.0, 0.0]], 5.0)
+    b.add_letter_sample("a", [[0.0, 0.0, 5.0, 0.0]], 5.0)
     b.rebuild()
     b.save()
 

@@ -48,6 +48,14 @@ HW3_TONE_MAP = {
     "nặng": "\u0323",
 }
 
+HW3_REV_TONE_MAP = {
+    "\u0300": "dấu huyền",
+    "\u0301": "dấu sắc",
+    "\u0309": "dấu hỏi",
+    "\u0303": "dấu ngã",
+    "\u0323": "dấu nặng",
+}
+
 
 def _ghost_vowel_o_points(cx: float, cy: float, rx: float, ry: float, n_pts: int = 16) -> list[tuple[float, float]]:
     """Tạo toạ độ điểm vẽ nét mốc chữ o mờ làm tham chiếu cho ô tập viết dấu thanh."""

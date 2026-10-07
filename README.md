@@ -81,21 +81,14 @@ Dự án đã cấu hình sẵn Blueprint [`render.yaml`](render.yaml):
 
 ---
 
-## Dạy từ mới — lưu ý khi vẽ
+## Dạy ký tự & Dấu thanh — lưu ý khi vẽ
 
-- Có 2 đường kẻ mờ làm mốc: đường **dưới** là dòng kẻ chính (đặt chân chữ lên đó), đường ngắn
-  **phía trên bên trái** là mốc chiều cao chữ thường (như "a", "o", "c").
-- Viết dấu thanh (sắc, huyền, hỏi, ngã, nặng) như **một nét riêng**, đừng nối liền với thân chữ —
-  app cần nét riêng để nhận ra đó là dấu.
-- Muốn dạy một **cụm nhiều từ dính nhau** (ví dụ "cà phê" viết liền một nét), gõ nguyên cụm đó
-  vào ô "Thêm từ vào hàng đợi" — app không tự tách theo khoảng trắng.
-- **Hiệu chỉnh cỡ tay**: nếu tay bạn vẽ bằng chuột to/nhỏ khác với chữ đã học trước đó, bấm "Hiệu
-  chỉnh cỡ tay" một lần đầu buổi — app đưa ra một từ đã có sẵn nhiều mẫu, bạn viết lại đúng từ đó
-  tự nhiên, app tự tính hệ số và áp dụng cho các từ dạy sau trong phiên này (giống cơ chế "ô đo
-  cỡ tay" của lệnh `learn`). Bấm "Bỏ qua" hoặc "Xoá hàng đợi" khi đang ở từ mốc là huỷ việc
-  hiệu chỉnh.
-- Mỗi từ lưu xuống kho mẫu ngay lập tức (không cần bấm "Save" riêng ở đâu khác).
-- Kho mẫu hỗ trợ an toàn liên tiến trình hoàn toàn (khóa file nguyên tử cross-process, tự động hợp nhất mẫu và bảo vệ deletion tombstones với nhãn thời gian), cho phép GUI và CLI chạy đồng thời mà không bị mất dữ liệu hay hồi sinh từ đã xoá. Tab Viết chữ luôn tự động tải bản kho mới nhất.
+- **Mô hình char-first**: Khi gõ một từ hoặc câu vào ô nhập liệu (ví dụ "cà phê"), hệ thống tự động bóc tách thành các ký tự rời rạc (`c`, `à`, `p`, `h`, `ê`) để bạn dạy từng chữ cái một, từ đó tự động ghép thành mọi từ ngữ tiếng Việt.
+- **Dạy dấu thanh rời**: Bấm nút **"Bộ ký tự…"** và chọn nhóm **"Dấu thanh rời"** để nạp 5 dấu thanh chuẩn (`dấu huyền`, `dấu sắc`, `dấu hỏi`, `dấu ngã`, `dấu nặng`) vào hàng đợi. Hệ thống bảo toàn trọn vẹn các mẫu dấu thanh đa nét (nhiều nét bút rời nhau như dấu hỏi, dấu ngã). Khi dạy dấu thanh, bảng vẽ hiển thị nét elip tham chiếu mờ của nguyên âm mốc `o` để bạn căn đúng độ cao và vị trí dấu.
+- **Có 4 đường kẻ mốc (`hw3`)**: Đường kẻ đậm là chân chữ (baseline), vạch nét vừa là x-height (chiều cao chữ thường như "a", "o", "c"), vạch nét mảnh phía trên là Ascender (cho chữ vươn cao "b", "d", "h", chữ hoa), và vạch dưới cùng là Descender (cho đuôi chữ "g", "p", "y").
+- **Hiệu chỉnh cỡ tay**: Nếu bạn vẽ bằng chuột hoặc bút cảm ứng to/nhỏ khác với chữ đã học trước đó, bấm **"Hiệu chỉnh cỡ tay"** một lần đầu buổi — ứng dụng sẽ chọn một ký tự mốc có sẵn mẫu ổn định trong kho để bạn viết lại tự nhiên, hệ thống tự động tính hệ số tỷ lệ và áp dụng cho toàn bộ các ký tự vẽ sau trong phiên. Bấm "Bỏ qua" hoặc "Xoá hàng đợi" khi đang ở ký tự mốc sẽ huỷ hiệu chỉnh.
+- **Lưu kho an toàn**: Mỗi ký tự được lưu xuống kho mẫu ngay lập tức khi bấm "Lưu". Kho mẫu hỗ trợ khoá tệp liên tiến trình (cross-process file lock), tự động hợp nhất mẫu và bảo vệ deletion tombstones với nhãn thời gian, giúp GUI, Web và CLI đồng bộ an toàn.
+- **Kiểm tra kho mẫu**: Bấm **"Xuất file kiểm tra lại (.xopp)..."** trong tab Kho mẫu để xuất lưới kiểm tra bao phủ 100% các nhóm mẫu đã học (chữ cái, chữ số, dấu câu, ký hiệu và 5 dấu thanh rời đặt trên/dưới nguyên âm tham chiếu).
 
 ## Tương đương lệnh dòng lệnh
 
@@ -115,7 +108,7 @@ Xem `python3 hw_note.py --help` (và `python3 hw_note.py write --help`) để bi
 
 Ứng dụng chuyển đổi sang mô hình **thuần ký tự (Char-first)**: mọi văn bản soạn thảo đều được tự động ghép từ các ký tự đơn (`letters`), chữ số (`digits`), dấu câu (`punct`), ký hiệu (`symbols`) và dấu thanh rời (`marks`):
 - **Luôn bật tự động ghép chữ**: Không cần phải cấu hình hay bật cờ thủ công, hệ thống luôn tự động ghép từ các ký tự đã học.
-- **Khoảng cách tự nhiên & chống dính chữ**: Sử dụng đường bao biên hình học (contour pair gap) và khoảng đệm biên `lsb`/`rsb` thay cho việc chồng nét cứng. Sàn khe hở tối thiểu `--pen-clearance 0.8` (mặc định 0,8 lần nét bút) đảm bảo các chữ cái liền kề không bao giờ bị bết mực vào nhau.
+- **Khoảng cách tự nhiên & chống dính chữ**: Sử dụng đường bao biên hình học (contour pair gap), khoảng đệm biên `lsb`/`rsb` và thuật toán kiểm chứng khoảng cách đoạn nét 2D (segment-to-segment distance kèm bounding box prune). Sàn khe hở vật lý `--pen-clearance 0.8` (mặc định 0,8 lần nét bút) tự động dịch chuyển vi mô để các nét liền kề luôn duy trì khoảng cách an toàn, ngăn chặn triệt để hiện tượng bết dính nét mực.
 - **Ghép chữ có dấu thanh (Dual-Path Assembly)**: Ưu tiên sử dụng trực tiếp mẫu nguyên âm có sẵn dấu tiếng Việt trong kho; tự động fallback ghép nguyên âm cơ sở với dấu thanh trong `bank.marks` kèm thuật toán đặt dấu theo trọng tâm và né tránh nét vươn cao (ascender).
 - **Chuẩn hoá cỡ chữ (`--auto-xh`)**: Tự động chuẩn hoá các ký tự trong kho về cùng cỡ x-height chuẩn (mặc định 7,94 pt, có thể tinh chỉnh bằng `--target-xh`) giúp nét bút thanh mảnh tự nhiên và đúng tỉ lệ ghi chú thực tế.
 - **Bảo toàn dữ liệu kho cũ**: Nếu bạn đang có kho mẫu cũ chứa các từ nguyên khối (`words`), toàn bộ dữ liệu này vẫn được lưu giữ trọn vẹn và không bao giờ bị xóa bỏ khi cập nhật kho.

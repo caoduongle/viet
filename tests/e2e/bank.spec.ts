@@ -44,18 +44,18 @@ test.describe("User Story 4: Quản lý Kho mẫu chữ (E2E)", () => {
 
     // 5. Thử tìm kiếm tức thì
     const searchInput = page.locator("#input-search-bank");
-    await searchInput.fill("xin");
+    await searchInput.fill("a");
     await page.waitForTimeout(300);
 
-    // Thẻ chứa từ "xin" xuất hiện
-    await expect(cardsGrid.locator(".bank-card-title", { hasText: "xin" })).toBeVisible();
+    // Thẻ chứa ký tự "a" xuất hiện
+    await expect(cardsGrid.locator(".bank-card-title", { hasText: "a" }).first()).toBeVisible();
 
-    // 6. Bấm vào thẻ "xin" để mở Modal chi tiết thư viện mẫu
-    await cardsGrid.locator(".bank-card", { hasText: "xin" }).click();
+    // 6. Bấm vào thẻ "a" để mở Modal chi tiết thư viện mẫu
+    await cardsGrid.locator(".bank-card", { hasText: "a" }).first().click();
 
     const detailModal = page.locator("#modal-label-detail");
     await expect(detailModal).toBeVisible();
-    await expect(page.locator("#modal-label-title")).toContainText("xin");
+    await expect(page.locator("#modal-label-title")).toContainText(/a/i);
 
     // Kiểm tra các biến thể mẫu nét xuất hiện với SVG thumbnail
     const samplesGrid = page.locator("#modal-label-samples-grid");

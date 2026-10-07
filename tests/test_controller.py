@@ -180,3 +180,44 @@ def test_drop_batch_va_drop_chars_single_lock(ctl, tiny_bank_path):
     assert "b" not in reloaded.letters
     assert "1" not in reloaded.digits
     assert "," not in reloaded.punct
+
+
+def test_teach_char_multi_stroke_tone_marks(ctl, tiny_bank_path):
+    """T011: Kiểm tra dạy dấu thanh đa nét (N >= 2 nét bút) giữ nguyên số nét khi lưu và nạp lại."""
+    stroke1 = [0.0, 0.0, 2.0, -3.0]
+    stroke2 = [3.0, -3.0, 5.0, 0.0]
+    ctl.teach_char("dấu hỏi", [stroke1, stroke2], 5.0)
+
+    tone_code = "\u0309"
+    assert tone_code in ctl.bank.marks
+    assert len(ctl.bank.marks[tone_code]) > 0
+    saved_inst = ctl.bank.marks[tone_code][-1]
+    assert len(saved_inst["s"]) == 2, f"Mẫu dấu hỏi trong bộ nhớ phải có đủ 2 nét, thực tế có {len(saved_inst['s'])}"
+
+    # Nạp lại từ đĩa để xác nhận persistence
+    reloaded = Bank(tiny_bank_path)
+    assert tone_code in reloaded.marks
+    assert len(reloaded.marks[tone_code]) > 0
+    disk_inst = reloaded.marks[tone_code][-1]
+    assert len(disk_inst["s"]) == 2, f"Mẫu dấu hỏi lưu trên đĩa phải có đủ 2 nét, thực tế có {len(disk_inst['s'])}"
+
+
+def test_export_check_covers_all_tone_marks_with_offsets(ctl, tmp_path):
+    """T012: Kiểm tra export_check() bao phủ đầy đủ 5 dấu thanh kèm nhãn tiếng Việt và offset dy chuẩn."""
+    ctl.teach_char("dấu huyền", [[0.0, 0.0, 3.0, 3.0]], 3.0)
+    ctl.teach_char("dấu sắc", [[0.0, 0.0, 3.0, -3.0]], 3.0)
+    ctl.teach_char("dấu hỏi", [[0.0, 0.0, 2.0, -2.0], [3.0, -2.0, 5.0, 0.0]], 5.0)
+    ctl.teach_char("dấu ngã", [[0.0, 0.0, 2.0, -1.0, 4.0, 1.0]], 4.0)
+    ctl.teach_char("dấu nặng", [[0.0, 0.0, 1.0, 1.0]], 1.0)
+
+    out = str(tmp_path / "check_full.xopp")
+    res = ctl.export_check(out)
+    assert res.n_words >= 5
+    assert os.path.exists(out)
+
+    root = xopp.read_xopp(out)
+    text_labels = [(t.text or "").strip() for t in root.iter("text")]
+
+    expected_tone_labels = ["dấu huyền", "dấu sắc", "dấu hỏi", "dấu ngã", "dấu nặng"]
+    for tl in expected_tone_labels:
+        assert tl in text_labels, f"File kiểm tra .xopp phải chứa nhãn tiếng Việt '{tl}'"

@@ -67,10 +67,10 @@ test.describe("User Story 6: Hoạt động Ngoại tuyến & PWA (Offline-first
     const canvas = page.locator("#teach-canvas");
     await expect(canvas).toBeVisible();
 
-    const testWord = "nắng";
-    await page.fill("#input-teach-add", testWord);
+    const testChar = "@";
+    await page.fill("#input-teach-add", testChar);
     await page.click("#btn-teach-add");
-    await expect(page.locator("#teach-target-word")).toHaveText(new RegExp(testWord));
+    await expect(page.locator("#teach-target-word")).toHaveText(testChar);
 
     // Vẽ nét bút vào canvas
     const canvasBox = await canvas.boundingBox();
@@ -121,10 +121,10 @@ test.describe("User Story 6: Hoạt động Ngoại tuyến & PWA (Offline-first
     // Chờ debounce lưu xuống IndexedDB khi offline
     await page.waitForTimeout(3000);
 
-    // 7. Kiểm tra trong Tab Kho mẫu xem từ "nắng" đã được lưu chưa
+    // 7. Kiểm tra trong Tab Kho mẫu xem ký tự "@" đã được lưu chưa
     await page.click('[data-tab="bank"]');
-    await page.fill("#input-search-bank", testWord);
-    await expect(page.locator("#bank-cards-grid .bank-card-title", { hasText: testWord })).toBeVisible({ timeout: 10000 });
+    await page.fill("#input-search-bank", testChar);
+    await expect(page.locator("#bank-cards-grid .bank-card-title", { hasText: testChar })).toBeVisible({ timeout: 10000 });
 
     // 8. Khẳng định Zero Remote CDN
     expect(externalRequests).toHaveLength(0);

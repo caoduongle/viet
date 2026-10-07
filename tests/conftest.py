@@ -260,3 +260,30 @@ def _safe_gui_dialogs(monkeypatch):
     monkeypatch.setattr(simpledialog, "askinteger", lambda *a, **kw: 0)
     monkeypatch.setattr(simpledialog, "askfloat", lambda *a, **kw: 0.0)
 
+
+@pytest.fixture
+def legacy_words_only_bank_path(tmp_path):
+    """Kho mẫu chỉ chứa từ nguyên khối cũ (words) và hoàn toàn không có letters."""
+    p = tmp_path / "legacy_bank.json.gz"
+    d = {
+        "schema_version": 1,
+        "xh": 7.0, "wgaps": [11.0], "dgaps": [3.5], "line": 24.0, "v": 1,
+        "x0": 78.0, "width": 500.0, "ratio": 6.6,
+        "pen": {"tool": "pen", "color": "#000000ff", "width": "1.41", "capStyle": "round"},
+        "words": {
+            "xin": [{"w": 9.0, "s": [[0, 0, 3, -5, 6, 0, 9, -5]]}],
+            "chào": [{"w": 14.0, "s": [[0, 0, 5, -6, 10, 0, 14, -5], [7, -11, 9, -9]], "T": "\u0300", "vi": 2, "ti": 1}],
+        },
+        "digits": {}, "punct": {}, "symbols": {}, "letters": {}, "marks": {},
+    }
+    with gzip.open(p, "wt", encoding="utf-8") as f:
+        json.dump(d, f)
+    return str(p)
+
+
+@pytest.fixture
+def legacy_words_only_bank(legacy_words_only_bank_path):
+    from chuviettay.model.bank import Bank
+    return Bank(legacy_words_only_bank_path)
+
+

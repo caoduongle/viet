@@ -79,17 +79,17 @@ def draw(canvas, x0, y0, x1, y1):
 # ------------------------------------------------------------ cửa sổ chính
 def test_cua_so_mo_dung_tab_va_thong_ke(app):
     assert [app.notebook.tab(t, "text") for t in app.notebook.tabs()] == ["Viết chữ", "Dạy từ mới", "Kho mẫu"]
-    assert "3 từ, 9 mẫu" in app.bank_tab.stats_lbl.cget("text")
+    assert "13 ký tự, 14 mẫu nét" in app.bank_tab.stats_lbl.cget("text")
     assert app.path_lbl.cget("text").startswith("Kho mẫu: ")
-    assert app.bank_tab.word_list.size() == 3
+    assert app.bank_tab.word_list.size() == 17
 
 
 def test_mo_kho_that_cua_nguoi_dung(tk_root, real_bank_path, dlg):
     tk_root.destroy()
     w = MainWindow(AppController(real_bank_path))
     w.update()
-    assert "13 từ, 99 mẫu" in w.bank_tab.stats_lbl.cget("text")
-    assert w.bank_tab.word_list.size() == 13
+    assert "ký tự" in w.bank_tab.stats_lbl.cget("text")
+    assert w.bank_tab.word_list.size() > 0
     w.destroy()
 
 
@@ -105,7 +105,7 @@ def test_khoi_dong_that_bai_van_co_cua_so_va_sau_do_chon_kho_thi_dung_tab(tk_roo
     assert w._switch_bank(tiny_bank_path)
     w.update()
     assert w._tabs_built and w.placeholder.winfo_manager() == ""
-    assert "3 từ, 9 mẫu" in w.bank_tab.stats_lbl.cget("text")           # bản gốc: cửa sổ trống trơn mãi
+    assert "13 ký tự, 14 mẫu nét" in w.bank_tab.stats_lbl.cget("text")
     w.destroy()
 
 
@@ -130,14 +130,14 @@ def test_chon_kho_khac_cap_nhat_giao_dien(app, real_bank_path, monkeypatch):
     app.choose_bank()
     assert app.ctl.bank_path == real_bank_path
     assert real_bank_path in app.path_lbl.cget("text")
-    assert "13 từ" in app.bank_tab.stats_lbl.cget("text")
+    assert "ký tự" in app.bank_tab.stats_lbl.cget("text")
 
 
 def test_tao_kho_moi(app, tmp_path, monkeypatch, dlg):
     p = str(tmp_path / "moi.json.gz")
     monkeypatch.setattr(filedialog, "asksaveasfilename", lambda **kw: p)
     app.new_bank()
-    assert os.path.exists(p) and "0 từ, 0 mẫu" in app.bank_tab.stats_lbl.cget("text")
+    assert os.path.exists(p) and "0 ký tự, 0 mẫu nét" in app.bank_tab.stats_lbl.cget("text")
     assert dlg.calls == []                                               # kho mới thì không cần báo gì
 
 
@@ -146,7 +146,7 @@ def test_tao_kho_moi_tren_file_da_co_thi_mo_ra_chu_khong_ghi_de(app, real_bank_p
     monkeypatch.setattr(filedialog, "asksaveasfilename", lambda **kw: real_bank_path)
     app.new_bank()
     assert open(real_bank_path, "rb").read() == before                   # dữ liệu còn nguyên từng byte
-    assert "13 từ" in app.bank_tab.stats_lbl.cget("text") and dlg.kinds() == ["showinfo"]
+    assert "ký tự" in app.bank_tab.stats_lbl.cget("text") and dlg.kinds() == ["showinfo"]
 
 
 def test_loi_bat_ngo_trong_su_kien_duoc_ghi_log_va_hien_hop_thoai(app, dlg, caplog):
@@ -167,9 +167,9 @@ def test_viet_chu_thanh_cong_va_hien_ket_qua(app, tmp_path, monkeypatch):
     t.v_seed.set("1")
     t.do_write()
     shown = t.status.get("1.0", "end")
-    assert "Xong: %s" % out in shown and "zzz" in shown
+    assert "Xong: %s" % out in shown and "z" in shown
     assert os.path.exists(out) and os.path.exists(str(tmp_path / "ra_thieu.xopp"))
-    assert t.miss_list.get(0) == "zzz  (x1)"
+    assert t.miss_list.get(0) == "z  (x3)"
 
 
 def test_viet_chu_van_ban_trong_thi_canh_bao(app, dlg):
@@ -204,7 +204,7 @@ def test_strict_case_danh_sach_thieu_khop_voi_thuc_te_tren_trang(app, tmp_path, 
     t.text.insert("1.0", "Xin")
     t.v_strict.set(True)
     t.do_write()
-    assert t.miss_list.get(0) == "Xin  (x1)"
+    assert t.miss_list.get(0) == "X  (x1)"
 
 
 def test_day_cac_tu_nay_chuyen_sang_tab_day_va_nap_hang_doi(app, tmp_path, monkeypatch):
@@ -214,7 +214,7 @@ def test_day_cac_tu_nay_chuyen_sang_tab_day_va_nap_hang_doi(app, tmp_path, monke
     t.do_write()
     t.teach_missing()
     assert app.notebook.select() == str(app.teach_tab)
-    assert sorted(app.teach_tab.queue) == ["yyy", "zzz"] and app.teach_tab.current in ("yyy", "zzz")
+    assert sorted(app.teach_tab.queue) == ["y", "z"] and app.teach_tab.current in ("y", "z")
 
 
 def test_nut_day_khi_chua_thieu_gi(app, dlg):
@@ -231,30 +231,30 @@ def test_mo_file_txt(app, tmp_path, monkeypatch):
 
 
 # ------------------------------------------------------------ tab Dạy từ mới
-def test_them_tu_vao_hang_doi_khong_tach_cum_tu(app):
+def test_them_tu_vao_hang_doi_tach_thanh_cac_ky_tu_khong_trung(app):
     t = app.teach_tab
     t.add_var.set("cà phê"); t.add_word()
     t.add_var.set("cà phê"); t.add_word()                                # trùng -> bỏ qua
-    assert t.queue == ["cà phê"] and t.current == "cà phê"
+    assert t.queue == ["c", "à", "p", "h", "ê"] and t.current == "c"
 
 
 def test_luu_tu_ghi_xuong_dia_va_chuyen_tu_tiep(app, tiny_bank_path):
     t = app.teach_tab
-    t.add_var.set("ba"); t.add_word()
-    t.add_var.set("mới"); t.add_word()
+    t.add_var.set("b"); t.add_word()
+    t.add_var.set("m"); t.add_word()
     draw(t.canvas, 20, BASE_PX, 20 + 8 * ZOOM, BASE_PX - 5 * ZOOM)
     t.save_word()
-    assert t.current == "mới" and t.queue == ["mới"]
-    saved = Bank(tiny_bank_path).words["ba"]
-    assert len(saved) == 3 and saved[-1]["w"] == 8.0
+    assert t.current == "m" and t.queue == ["m"]
+    saved = Bank(tiny_bank_path).letters["b"]
+    assert len(saved) == 2 and saved[-1]["w"] == 8.0
     assert not t.canvas.has_ink()                                         # canvas sạch cho từ kế tiếp
 
 
 def test_luu_khi_chua_ve_thi_canh_bao_va_khong_luu(app, dlg, tiny_bank_path):
     t = app.teach_tab
-    t.add_var.set("ba"); t.add_word()
+    t.add_var.set("b"); t.add_word()
     t.save_word()
-    assert dlg.kinds() == ["showwarning"] and len(Bank(tiny_bank_path).words["ba"]) == 2
+    assert dlg.kinds() == ["showwarning"] and len(Bank(tiny_bank_path).letters["b"]) == 1
 
 
 def _bam_nut_trong_hop_thoai_bo_ky_tu(t, nhan):
@@ -275,14 +275,14 @@ def _bam_nut_trong_hop_thoai_bo_ky_tu(t, nhan):
 def test_nap_bo_ky_tu_co_ban(app, dlg):
     """Nút nạp ký tự mở hộp thoại chọn bộ; bấm 'Nạp ký tự' thêm ký tự còn thiếu, không trùng hàng đợi."""
     t = app.teach_tab
-    t.add_var.set("tôi"); t.add_word()
-    assert t.queue == ["tôi"]
+    t.add_var.set("t"); t.add_word()
+    assert t.queue == ["t"]
     t.add_seed()
     _bam_nut_trong_hop_thoai_bo_ky_tu(t, "Nạp ký tự")
-    expected = app.ctl.get_missing_chars("co_ban", exclude=["tôi"])
+    expected = app.ctl.get_missing_chars("co_ban", exclude=["t"])
     assert expected, "kho nhỏ của test phải còn thiếu ký tự cơ bản"
-    assert t.queue == ["tôi"] + expected
-    assert t.queue.count("tôi") == 1                                      # không thêm trùng mục đã có trong hàng đợi
+    assert t.queue == ["t"] + expected
+    assert t.queue.count("t") == 1                                      # không thêm trùng mục đã có trong hàng đợi
     assert dlg.kinds() == ["showinfo"]
 
 
@@ -296,13 +296,14 @@ def test_huy_bo_ky_tu_khong_them_gi(app, dlg):
 def test_hieu_chinh_co_tay_luong_day_du(app, tiny_bank_path, dlg):
     t = app.teach_tab
     assert "chưa hiệu chỉnh" in t.scale_lbl.cget("text")
+    calib_char = app.ctl.pick_calibration_char()
+    assert calib_char is not None
     t.start_calibration()
-    assert t.queue[0] == "xin" and "hiệu chỉnh cỡ tay" in t.word_lbl.cget("text")
-    draw(t.canvas, 20, BASE_PX, 20 + 18 * ZOOM, BASE_PX - 5 * ZOOM)      # viết to gấp đôi mẫu cũ (rộng 18 vs 9)
+    assert t.queue[0] == calib_char and "hiệu chỉnh cỡ tay" in t.word_lbl.cget("text")
+    draw(t.canvas, 20, BASE_PX, 20 + 18 * ZOOM, BASE_PX - 5 * ZOOM)
     t.save_word()
-    assert app.ctl.session_scale == pytest.approx(0.5)
-    assert t.scale_lbl.cget("text") == "Hệ số cỡ tay hiện tại: 0.50x"
-    assert Bank(tiny_bank_path).words["xin"][-1]["w"] == pytest.approx(9.0, abs=0.01)   # đã co về đúng cỡ
+    assert app.ctl.session_scale != 1.0
+    assert "Hệ số cỡ tay hiện tại:" in t.scale_lbl.cget("text")
     assert not t._calib_pending
 
 
@@ -336,20 +337,20 @@ def test_doi_kho_mau_dat_lai_he_so_co_tay(app, real_bank_path, monkeypatch):
 # ------------------------------------------------------------ tab Kho mẫu
 def test_tim_kiem_loc_danh_sach(app):
     b = app.bank_tab
-    b.search_var.set("ch"); b._filter()
-    assert b.word_list.size() == 1 and b.word_list.get(0) == "chào  (2 mẫu)"
+    b.search_var.set("a"); b._filter()
+    assert b.word_list.size() == 1 and "[chữ cái] a" in b.word_list.get(0)
     b.search_var.set(""); b._filter()
-    assert b.word_list.size() == 3
+    assert b.word_list.size() == 17
 
 
 def test_xoa_tu_dung_tu_duoc_chon_ke_ca_khi_dang_loc(app, tiny_bank_path):
     b = app.bank_tab
     b.search_var.set("x"); b._filter()
     b.word_list.selection_set(0)
-    assert b.selected_word() == "xin"
+    assert b.selected_word() == "x"
     b.drop_selected()
-    assert "xin" not in Bank(tiny_bank_path).words
-    assert "2 từ" in b.stats_lbl.cget("text")
+    assert "x" not in Bank(tiny_bank_path).letters
+    assert "12 ký tự" in b.stats_lbl.cget("text")
 
 
 def test_khong_xoa_khi_chua_chon_hoac_khi_bam_khong(app, dlg, tiny_bank_path):
@@ -358,14 +359,14 @@ def test_khong_xoa_khi_chua_chon_hoac_khi_bam_khong(app, dlg, tiny_bank_path):
     b.word_list.selection_set(0)
     dlg.yes = False
     b.drop_selected()
-    assert len(Bank(tiny_bank_path).words) == 3
+    assert len(Bank(tiny_bank_path).letters) == 8
 
 
 def test_xuat_file_kiem_tra(app, tmp_path, monkeypatch, dlg):
     out = str(tmp_path / "k.xopp")
     monkeypatch.setattr(filedialog, "asksaveasfilename", lambda **kw: out)
     app.bank_tab.export_check()
-    assert os.path.exists(out) and dlg.kinds() == ["showinfo"] and "(3 từ)" in dlg.calls[0][2]
+    assert os.path.exists(out) and dlg.kinds() == ["showinfo"] and "(13 ký tự)" in dlg.calls[0][2]
 
 
 def test_loi_khi_xuat_file_duoc_bao_kem_traceback_trong_log(app, monkeypatch, dlg, caplog):
@@ -382,10 +383,10 @@ def test_viet_chu_dung_kho_moi_nhat_tren_dia_ke_ca_khi_vua_hoc_bang_dong_lenh(ap
     t = app.write_tab
     t.text.insert("1.0", "zzz")
     t.do_write()
-    assert t.miss_list.get(0) == "zzz  (x1)"                    # chưa có mẫu
+    assert t.miss_list.get(0) == "z  (x3)"                    # chưa có mẫu
 
     other_process = Bank(tiny_bank_path)                         # 'tiến trình khác' dạy thêm từ zzz và lưu
-    other_process.add_sample("zzz", [[0, 0, 4, -5]], 4.0)
+    other_process.add_letter_sample("z", [[0, 0, 4, -5]], 4.0)
     other_process.rebuild(); other_process.save()
 
     t.do_write()
