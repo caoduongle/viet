@@ -92,7 +92,42 @@ test.describe("User Story 4: Quản lý Kho mẫu chữ (E2E)", () => {
     const backupDownload = await backupDownloadPromise;
     expect(backupDownload.suggestedFilename()).toBe("chu_cua_ban.json.gz");
 
-    // 10. Khẳng định tuyệt đối Zero Remote CDN
+    // 10. Kiểm tra thao tác chọn và xoá hàng loạt (Batch Delete) không bị lỗi refreshBankTab
+    await searchInput.fill("1");
+    await page.waitForTimeout(300);
+    const card1 = cardsGrid.locator(".bank-card", { hasText: "1" }).first();
+    await expect(card1).toBeVisible();
+
+    const chk1 = card1.locator(".chk-card-item");
+    await chk1.check();
+
+    const deleteBatchBtn = page.locator("#btn-bank-delete-selected");
+    await expect(deleteBatchBtn).toBeEnabled();
+    await expect(deleteBatchBtn).toContainText("Xoá đã chọn (1)");
+
+    let alertTriggered = false;
+    let alertText = "";
+    page.on("dialog", async (dialog) => {
+      if (dialog.type() === "confirm") {
+        await dialog.accept();
+      } else if (dialog.type() === "alert") {
+        alertTriggered = true;
+        alertText = dialog.message();
+        await dialog.accept();
+      }
+    });
+
+    await deleteBatchBtn.click();
+    await page.waitForTimeout(1500);
+
+    // Khẳng định không có alert lỗi
+    expect(alertTriggered).toBe(false);
+    expect(alertText).not.toContain("refreshBankTab");
+
+    // Thẻ '1' đã bị xoá thành công
+    await expect(cardsGrid.locator(".bank-card", { hasText: "1" })).toHaveCount(0);
+
+    // 11. Khẳng định tuyệt đối Zero Remote CDN
     expect(externalRequests).toHaveLength(0);
   });
 });

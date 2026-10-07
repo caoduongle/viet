@@ -389,7 +389,7 @@ async function handleDeleteSelected() {
       console.warn("Lỗi lưu trữ sau khi xoá hàng loạt:", saveErr);
     }
 
-    await refreshBankTab();
+    await refreshBankView();
   } catch (err) {
     alert("Lỗi khi xoá hàng loạt: " + err.message);
   }
