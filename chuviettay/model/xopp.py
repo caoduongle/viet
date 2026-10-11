@@ -78,9 +78,16 @@ PAGE_OPEN = ('<page width="%s" height="%s">\n'
 PAGE_CLOSE = '</layer>\n</page>'
 
 
-def pdf_background_xml(filename: str, pageno: int = 0, domain: str = "relative") -> str:
-    """Sinh chuỗi XML thẻ <background type="pdf" ...> cho trang XOPP."""
-    clean_fn = escape(filename)
+def pdf_background_xml(filename: str, pageno: int = 1, domain: str = "absolute") -> str:
+    """Sinh chuỗi XML thẻ <background type="pdf" ...> cho trang XOPP.
+
+    Tham số:
+        filename: Tên file PDF tham chiếu (Xournal++ coi tên tương đối là tương đối với thư mục chứa file .xopp).
+                  Được chuẩn hoá lấy tên tệp trần để tránh lộ đường dẫn tuyệt đối hoặc path traversal.
+        pageno: Số thứ tự trang tính từ 1 (1-based, ví dụ trang đầu tiên là 1).
+        domain: Miền lưu trữ, mặc định "absolute" theo chuẩn Xournal++ SaveHandler/XmlParser.
+    """
+    clean_fn = escape(os.path.basename(filename))
     return f'<background type="pdf" domain="{domain}" filename="{clean_fn}" pageno="{pageno}"/>'
 
 

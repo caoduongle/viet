@@ -1,5 +1,40 @@
 # Nhật ký thay đổi
 
+## Chưa phát hành — Tương thích hình học giấy và tệp .xopp chuẩn Xournal++ (Spec 031)
+
+Hoàn thiện tính tương thích 1:1 với Xournal++ về định dạng tệp .xopp, hình học các loại nền giấy, căn dòng chữ viết tay và danh mục khổ giấy đồng bộ:
+
+### Khắc phục tệp PDF nền XOPP (US1)
+- **Chuẩn hoá chỉ số trang 1-based**: Khắc phục lỗi `pageno` từ 0-based sang 1-based (`page_index + 1`) theo đúng chuẩn `SaveHandler.cpp` của Xournal++, loại bỏ hiện tượng trang đầu bị chỉ số `-1` khiến Xournal++ không mở được file PDF nền.
+- **Quy chuẩn miền domain và tên tệp trần**: Ghi `domain="absolute"` và tên file trần (`os.path.basename`) tương đối với thư mục chứa file `.xopp`, loại bỏ triệt để chuỗi `domain="relative"` trên toàn bộ mã nguồn và bộ test.
+
+### Dựng bản xem trước SVG thống nhất trên Web (US2)
+- **Hàm vẽ SVG dùng chung `getBackgroundDrawingElements`**: Thống nhất 100% logic vẽ nền cho cả `renderPageSvgString` và `renderPageSvgElement`, tránh lặp mã và lệch toạ độ.
+- **Tái hiện chính xác hình học Xournal++**:
+  - `ruled`/`lined`: Giới hạn dòng ngang trong `[80.0, pageHeight - 60.0]` tại $y = 80 + i \cdot r_1$; vạch kẻ lề dọc $x = m_1$ cho $m_1 > 0$ và lề phải $x = \text{pageWidth} + m_1$ cho $m_1 < 0$.
+  - `graph`: Lưới bước $r_1$, lề $m_1$, làm tròn lề `rm=1`, nét đậm `blw` định kỳ `bli`.
+  - `dotted`: Chấm tròn tại nút lưới bước $r_1$, đường kính 1.5pt với round cap.
+  - `iso_graph` & `iso_dotted`: Bước ngang $\frac{\sqrt{3}}{2} r_1$, bước dọc $\frac{r_1}{2}$, căn giữa trang.
+  - `staves`: Khuông nhạc 5 dòng, khoảng cách 5pt, khoảng cách giữa các khuông 40pt, bước dọc 62.5pt.
+  - Tự động chuyển tone màu tương phản tối ưu khi nền giấy màu tối (`#1e1e1e`).
+
+### Tự động căn dòng chữ theo dòng kẻ (US3)
+- **Baseline Ruling Snapping (`snap_to_ruling = True`)**:
+  - Chữ viết tay trên nền `ruled` và `lined` tự động căn đường chân chữ (baseline) khớp vào các dòng kẻ $y = 80.0 + k \cdot r_1$.
+  - Bước dòng `pitch = r1 * max(1, round(line_h / r1))` chống chữ đè lên nhau khi đổi cỡ chữ.
+  - Tự động ngắt trang khi baseline kế tiếp vượt quá $\text{pageHeight} - 60.0$.
+  - Kẹp lề trái chữ sau vạch kẻ lề $x \ge m_1 + 8$ và kẹp lề phải trước vạch lề âm $x \le \text{pageWidth} + m_1 - 8$.
+  - Bảo toàn 100% thuật toán bố cục liên tục cho nền `plain` (bảo đảm tính bất biến mã băm Golden Master `tests/test_golden_master_real_path.py`).
+
+### Mẫu nền định sẵn & Cờ dòng lệnh CLI (US4)
+- **Danh mục mẫu nền `BACKGROUND_PRESETS`**: Bổ sung đầy đủ 16 mẫu nền chuẩn theo `pagetemplates.ini.in` của Xournal++ (`plain`, `ruled`, `lined`, `lined_narrow`, `lined_college`, `lined_wide`, `lined_right`, `graph`, `graph_5mm`, `graph_grid`, `graph_border`, `graph_border_bold_5`, `dotted`, `iso_graph`, `iso_dotted`, `staves`).
+- **Hỗ trợ lề dọc âm ($m_1 < 0$)**: Cập nhật `parse_length(..., allow_negative=True)`, `PageBackground.to_xml()`, và `WriteOptions.validate()`.
+- **Cờ CLI mở rộng**: Bổ sung `--bg-preset`, `--bg-r1`, `--bg-m1`, `--bg-color`, `--no-snap-ruling`.
+
+### Đồng bộ danh mục khổ giấy và giao diện (US5)
+- **Hàm danh mục chuẩn `get_page_catalog()`**: Nguồn chân lý duy nhất (SSOT) cho khổ giấy, mẫu nền kèm tên song ngữ Anh/Việt và bảng tone màu.
+- **Đồng bộ Desktop Tkinter & Web UI**: Dropdown khổ giấy, mẫu nền và tone màu giấy tự động nạp từ danh mục chuẩn.
+
 ## Chưa phát hành — Chuyển đổi thuần ký tự & Nạp file lưới .xopp (R1 - R4)
 
 Chuyển đổi toàn diện hệ thống từ mô hình dạy/dùng mẫu theo TỪ sang mô hình thuần KÝ TỰ, bổ sung tính năng nạp file lưới tập viết `.xopp` trên mọi giao diện (Web, Desktop GUI, CLI) và sửa triệt để các lỗi bearing nền:

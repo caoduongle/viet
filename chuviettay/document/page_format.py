@@ -4,6 +4,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field
+from typing import Any
 
 # 1 inch = 72 PostScript points, 1 mm = 72 / 25.4 pt
 PT_PER_MM = 72.0 / 25.4
@@ -65,14 +66,14 @@ def normalize_background_style(style: str) -> str:
     return STYLE_ALIASES.get(s, s)
 
 
-def parse_length(val: str | float | int, default_unit: str = "pt") -> float:
+def parse_length(val: str | float | int, default_unit: str = "pt", allow_negative: bool = False) -> float:
     """Chuyển đổi kích thước dạng chuỗi (kèm đơn vị mm, cm, in, pt) hoặc số sang đơn vị điểm PostScript (pt).
 
-    Ném ValueError nếu giá trị âm, vô hạn hoặc chuỗi không hợp lệ.
+    Ném ValueError nếu giá trị vô hạn, chuỗi không hợp lệ, hoặc âm khi allow_negative=False.
     """
     if isinstance(val, (int, float)):
-        if not math.isfinite(val) or val < 0:
-            raise ValueError(f"Kích thước phải là số dương hữu hạn, nhận được: {val}")
+        if not math.isfinite(val) or (not allow_negative and val < 0):
+            raise ValueError(f"Kích thước phải là số {'hữu hạn' if allow_negative else 'dương hữu hạn'}, nhận được: {val}")
         return float(val)
 
     s = str(val).strip().lower()
@@ -86,8 +87,8 @@ def parse_length(val: str | float | int, default_unit: str = "pt") -> float:
 
     num_str, unit = match.groups()
     num = float(num_str)
-    if not math.isfinite(num) or num < 0:
-        raise ValueError(f"Kích thước phải là số dương hữu hạn, nhận được: {val!r}")
+    if not math.isfinite(num) or (not allow_negative and num < 0):
+        raise ValueError(f"Kích thước phải là số {'hữu hạn' if allow_negative else 'dương hữu hạn'}, nhận được: {val!r}")
 
     unit = unit or default_unit.lower()
     if unit in ("pt", "point", "points"):
@@ -125,10 +126,18 @@ PAPER_SIZES: dict[str, PaperSize] = {
 @dataclass(frozen=True)
 class PageBackground:
     """Quy cách nền trang cho Xournal++ (kiểu nền, khoảng cách ô kẻ, lề và màu sắc)."""
-    style: str = "plain"               # plain, lined, ruled, graph, dotted, iso_graph, iso_dotted, music
-    spacing: float | None = None       # khoảng cách dòng kẻ / ô li (pt), ví dụ 14.17 pt = 5 mm
-    margin: float | None = None        # vị trí đường lề đứng (pt, áp dụng cho ruled)
+    style: str = "plain"               # plain, lined, ruled, graph, dotted, iso_graph, iso_dotted, music/staves
+    spacing: float | None = None       # r1: khoảng cách dòng kẻ / ô li (pt), ví dụ 14.17 pt = 5 mm
+    margin: float | None = None        # m1: vị trí đường lề đứng (pt, số âm = lề phải)
     color: str = "#ffffffff"           # mã màu hex RGBA (mặc định trắng đục)
+    line_width: float | None = None    # lw: độ dày nét dòng kẻ (pt, mặc định 0.5)
+    primary_color: str | None = None   # f1: mã hex màu nét chính
+    secondary_color: str | None = None # f2: mã hex màu nét phụ/lề
+    attachment_primary_color: str | None = None   # af1
+    attachment_secondary_color: str | None = None # af2
+    round_margin: bool | None = None   # rm: 1 = làm tròn lề theo ô lưới
+    bold_line_interval: int | None = None  # bli: chu kỳ đường kẻ đậm (ví dụ 5)
+    bold_line_width: float | None = None   # blw: độ dày đường kẻ đậm (mặc định 1.5)
 
     def to_xml(self) -> str:
         """Sinh chuỗi XML thẻ <background> cho trang trong file .xopp."""
@@ -147,11 +156,104 @@ class PageBackground:
         cfg_parts = []
         if self.spacing is not None and self.spacing > 0:
             cfg_parts.append(f"r1={_fmt(self.spacing)}")
-        if self.margin is not None and self.margin > 0:
+        if self.margin is not None and self.margin != 0:
             cfg_parts.append(f"m1={_fmt(self.margin)}")
+        if self.line_width is not None and self.line_width > 0:
+            cfg_parts.append(f"lw={_fmt(self.line_width)}")
+        if self.primary_color is not None:
+            cfg_parts.append(f"f1={self.primary_color.lstrip('#')}")
+        if self.secondary_color is not None:
+            cfg_parts.append(f"f2={self.secondary_color.lstrip('#')}")
+        if self.attachment_primary_color is not None:
+            cfg_parts.append(f"af1={self.attachment_primary_color.lstrip('#')}")
+        if self.attachment_secondary_color is not None:
+            cfg_parts.append(f"af2={self.attachment_secondary_color.lstrip('#')}")
+        if self.round_margin is not None:
+            cfg_parts.append(f"rm={'1' if self.round_margin else '0'}")
+        if self.bold_line_interval is not None and self.bold_line_interval > 0:
+            cfg_parts.append(f"bli={self.bold_line_interval}")
+        if self.bold_line_width is not None and self.bold_line_width > 0:
+            cfg_parts.append(f"blw={_fmt(self.bold_line_width)}")
 
         cfg_attr = f' config="{",".join(cfg_parts)}"' if cfg_parts else ""
         return f'<background type="solid" color="{color}" style="{xml_style}"{cfg_attr}/>'
+
+
+# Các mẫu nền chuẩn theo pagetemplates.ini.in của Xournal++
+BACKGROUND_PRESETS: dict[str, PageBackground] = {
+    "plain": PageBackground(style="plain"),
+    "ruled": PageBackground(style="ruled", spacing=24.0),
+    "lined": PageBackground(style="lined", spacing=24.0, margin=72.0),
+    "lined_right": PageBackground(style="lined", spacing=24.0, margin=-72.0),
+    "lined_narrow": PageBackground(style="lined", spacing=18.0, margin=72.0),
+    "lined_college": PageBackground(style="lined", spacing=20.0, margin=72.0),
+    "lined_wide": PageBackground(style="lined", spacing=24.0, margin=72.0),
+    "graph": PageBackground(style="graph", spacing=14.17),
+    "graph_5mm": PageBackground(style="graph", spacing=14.17),
+    "graph_grid": PageBackground(style="graph", spacing=14.17, bold_line_interval=5, bold_line_width=1.5),
+    "graph_border": PageBackground(style="graph", spacing=14.17, margin=40.0, round_margin=True),
+    "graph_border_bold_5": PageBackground(style="graph", spacing=14.17, margin=20.0, round_margin=True, bold_line_interval=5, bold_line_width=1.5),
+    "dotted": PageBackground(style="dotted", spacing=14.17),
+    "iso_graph": PageBackground(style="iso_graph", spacing=14.17),
+    "iso_dotted": PageBackground(style="iso_dotted", spacing=14.17),
+    "staves": PageBackground(style="staves"),
+}
+
+PRESET_METADATA: dict[str, dict[str, str]] = {
+    "plain": {"name_en": "Plain", "name_vi": "Giấy trơn"},
+    "ruled": {"name_en": "Ruled", "name_vi": "Kẻ ngang"},
+    "lined": {"name_en": "Ruled with vertical line", "name_vi": "Kẻ ngang có lề trái"},
+    "lined_right": {"name_en": "Ruled with vertical line on the right", "name_vi": "Kẻ ngang có lề phải"},
+    "lined_narrow": {"name_en": "Lined narrow", "name_vi": "Kẻ ngang hẹp"},
+    "lined_college": {"name_en": "Lined college", "name_vi": "Kẻ ngang vừa"},
+    "lined_wide": {"name_en": "Lined wide", "name_vi": "Kẻ ngang rộng"},
+    "graph": {"name_en": "Graph", "name_vi": "Ô ly caro"},
+    "graph_5mm": {"name_en": "Graph 5mm", "name_vi": "Ô ly 5mm"},
+    "graph_grid": {"name_en": "Graph grid with bold", "name_vi": "Ô ly có nét đậm"},
+    "graph_border": {"name_en": "Graph with border", "name_vi": "Ô ly có viền lề"},
+    "graph_border_bold_5": {"name_en": "Graph with border bold every 5th", "name_vi": "Ô ly có viền lề đậm chu kỳ 5"},
+    "dotted": {"name_en": "Dotted", "name_vi": "Chấm điểm (Dot grid)"},
+    "iso_graph": {"name_en": "Isometric Graph", "name_vi": "Lưới đẳng cự (Isometric)"},
+    "iso_dotted": {"name_en": "Isometric Dotted", "name_vi": "Chấm đẳng cự"},
+    "staves": {"name_en": "Music Staves", "name_vi": "Khuông nhạc"},
+}
+
+
+def get_page_catalog() -> dict[str, Any]:
+    """Trả về danh mục đồng bộ khổ giấy, mẫu nền và tone màu chuẩn của Xournal++."""
+    return {
+        "sizes": {
+            k: {
+                "id": k,
+                "name": v.name,
+                "width": v.width,
+                "height": v.height,
+            }
+            for k, v in PAPER_SIZES.items()
+        },
+        "presets": {
+            k: {
+                "id": k,
+                "name": PRESET_METADATA.get(k, {}).get("name_vi", k),
+                "name_en": PRESET_METADATA.get(k, {}).get("name_en", k),
+                "name_vi": PRESET_METADATA.get(k, {}).get("name_vi", k),
+                "style": v.style,
+                "spacing": v.spacing,
+                "margin": v.margin,
+                "line_width": v.line_width,
+                "bold_line_interval": v.bold_line_interval,
+                "bold_line_width": v.bold_line_width,
+                "round_margin": v.round_margin,
+            }
+            for k, v in BACKGROUND_PRESETS.items()
+        },
+        "tones": [
+            {"id": "white", "name": "Trắng", "color": "#ffffffff", "dark": False},
+            {"id": "ivory", "name": "Vàng ngà", "color": "#ffffc8ff", "dark": False},
+            {"id": "blue", "name": "Xanh nhạt", "color": "#e8f4f8ff", "dark": False},
+            {"id": "dark", "name": "Tối", "color": "#1e1e1eff", "dark": True},
+        ],
+    }
 
 
 @dataclass(frozen=True)

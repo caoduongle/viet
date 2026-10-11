@@ -119,6 +119,14 @@ class BrowserBridge:
         except Exception as e:
             return _err_res(e)
 
+    def get_page_catalog(self) -> dict[str, Any]:
+        """Cung cấp danh mục khổ giấy, mẫu nền và tone màu chuẩn."""
+        try:
+            cat = self._ctl.get_page_catalog()
+            return {"ok": True, "catalog": _clean_json(cat)}
+        except Exception as e:
+            return _err_res(e)
+
     def load_bank(self, gz_bytes: bytes, create_if_missing: bool = False) -> dict[str, Any]:
         """Ghi nạp file kho mẫu gzip bytes vào MEMFS và nạp vào Controller."""
         try:

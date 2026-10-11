@@ -54,7 +54,7 @@ class FidelityLayoutEngine:
             p_h = page.height
             p_idx = page.page_index
 
-            bg_xml = xopp.pdf_background_xml(bg_filename, p_idx, domain="relative")
+            bg_xml = xopp.pdf_background_xml(bg_filename, pageno=p_idx + 1, domain="absolute")
             parts.append(xopp.page_open_xml(p_w, p_h, background=bg_xml))
 
             page_strokes: list[str] = []

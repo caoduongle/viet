@@ -84,13 +84,54 @@ const dottedPage = {
 const svgDotted = renderPageSvgString(dottedPage);
 assert.ok(svgDotted.includes('class="paper-bg-dot"'), "Nền dotted phải có các chấm mờ");
 
-// Test 5: Kiểm tra kích thước pixel theo chuẩn A4 595.28 pt x 841.89 pt
-const a4Dims100 = getPaperPixelDimensions(595.28, 841.89, 1.0);
-assert.strictEqual(a4Dims100.widthPx, 794, "A4 100% width phải là 794px (~793.7px)");
-assert.strictEqual(a4Dims100.heightPx, 1123, "A4 100% height phải là 1123px (~1122.5px)");
+// Test 6: Kiểm tra lề âm m1 và dải biên Xournal++ [80, height - 60]
+const rightLinedPage = {
+  width: 500,
+  height: 700,
+  background: { style: "lined", color: "#ffffffff", spacing: 24.0, margin: -72.0 },
+  strokes: [],
+};
+const svgRightLined = renderPageSvgString(rightLinedPage);
+assert.ok(svgRightLined.includes('class="paper-bg-margin"'), "Nền lined lề âm phải có đường lề đứng");
+assert.ok(svgRightLined.includes('x1="428"'), "Đường lề âm m1=-72 trên trang rộng 500 phải nằm ở x=428 (500 - 72)");
+assert.ok(svgRightLined.includes('y1="80"'), "Dòng kẻ ngang đầu tiên phải bắt đầu tại y=80 (HEADER_SIZE)");
 
-const a4Dims50 = getPaperPixelDimensions(595.28, 841.89, 0.5);
-assert.strictEqual(a4Dims50.widthPx, 397, "A4 50% width phải là 397px");
-assert.strictEqual(a4Dims50.heightPx, 561, "A4 50% height phải là 561px");
+// Test 7: Phân tích config hỗ trợ cả dấu phẩy và chấm phẩy, cùng các thuộc tính mở rộng
+const xmlWithCustomConfig = `<?xml version="1.0" standalone="no"?>
+<xournal creator="hw_note" fileversion="4">
+<page width="600" height="800">
+<background type="solid" color="#1e1e1eff" style="lined" config="r1=20;m1=-50;lw=0.8;f1=40a0ff;f2=ff0080;bli=5;blw=1.5"/>
+<layer/>
+</page>
+</xournal>`;
+const docCustom = parseXoppXml(xmlWithCustomConfig);
+const pageCustom = docCustom.pages[0];
+assert.strictEqual(pageCustom.background.spacing, 20.0, "spacing r1 phải là 20");
+assert.strictEqual(pageCustom.background.margin, -50.0, "margin m1 phải là -50");
+assert.strictEqual(pageCustom.background.lineWidth, 0.8, "lineWidth lw phải là 0.8");
+assert.strictEqual(pageCustom.background.primaryColor, "40a0ff", "primaryColor f1 phải là 40a0ff");
+
+// Test 8: Nền tối tự động đảo màu nét đảm bảo tương phản
+const darkPage = {
+  width: 500,
+  height: 700,
+  background: { style: "lined", color: "#1e1e1eff", spacing: 24.0, margin: 72.0 },
+  strokes: [],
+};
+const svgDark = renderPageSvgString(darkPage);
+assert.ok(svgDark.includes('stroke="#434343"'), "Nền tối phải dùng màu nét #434343 cho dòng ngang");
+assert.ok(svgDark.includes('stroke="#220080"'), "Nền tối phải dùng màu nét #220080 cho lề dọc");
+
+// Test 9: Khuông nhạc (staves) và lưới tam giác đều (iso_graph)
+const stavesPage = {
+  width: 500,
+  height: 700,
+  background: { style: "staves", color: "#ffffffff" },
+  strokes: [],
+};
+const svgStaves = renderPageSvgString(stavesPage);
+assert.ok(svgStaves.includes('x1="50"'), "Khuông nhạc phải chừa lề 50pt mỗi bên");
+assert.ok(svgStaves.includes('y1="80"'), "Khuông nhạc đầu tiên phải bắt đầu tại y=80");
 
 console.log("[Test Paper] PASS 100%! Toàn bộ các phép kiểm tra SVG đều chính xác.");
+

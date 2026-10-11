@@ -69,10 +69,24 @@ class DocumentLayoutEngine:
         self.S = opts.scale
         self.line_h = opts.line if opts.line is not None else (float(bank.d["line"]) * self.S)
         self.x0 = self.page_format.margin_left
-        if opts.width is not None:
-            self.width = min(opts.width, self.page_format.usable_width)
+        if self.page_format.background.style == "lined":
+            m1 = self.page_format.background.margin if self.page_format.background.margin is not None else 72.0
+            if m1 > 0:
+                self.x0 = max(self.x0, m1 + 8.0)
+                right_limit = self.page_format.width - self.page_format.margin_right
+                avail = max(20.0, right_limit - self.x0)
+                self.width = min(opts.width, avail) if opts.width is not None else avail
+            elif m1 < 0:
+                right_limit = min(self.page_format.width - self.page_format.margin_right, self.page_format.width + m1 - 8.0)
+                avail = max(20.0, right_limit - self.x0)
+                self.width = min(opts.width, avail) if opts.width is not None else avail
+            else:
+                self.width = min(opts.width, self.page_format.usable_width) if opts.width is not None else self.page_format.usable_width
         else:
-            self.width = self.page_format.usable_width
+            if opts.width is not None:
+                self.width = min(opts.width, self.page_format.usable_width)
+            else:
+                self.width = self.page_format.usable_width
         self.gaps = [g for g in bank.d["wgaps"] if 6.0 <= g <= 20.0] or [11.0]
         self.S = opts.scale
         self.effective_wscale = opts.wscale
@@ -243,6 +257,9 @@ class DocumentLayoutEngine:
         page_w = pf.width
         page_h = pf.height
         bg = pf.background
+        snap_ruling = bool(self.opts.snap_to_ruling and bg.style in ("ruled", "lined"))
+        r1 = bg.spacing if (bg.spacing is not None and bg.spacing > 0) else 24.0
+        max_ruling_y = page_h - 60.0
 
         pb = PageBuffer(out_path, page_w, default_page_h=page_h, default_background=bg)
 
@@ -277,8 +294,25 @@ class DocumentLayoutEngine:
                 extra_top = max(0.0, line_asc - 0.7 * eff_line_h)
                 extra_bot = max(0.0, line_desc - 0.3 * eff_line_h)
                 line_h_total = eff_line_h + extra_top + extra_bot
-                if cur_y + line_h_total > max_page_y:
-                    new_page()
+
+                if snap_ruling:
+                    pitch = r1 * max(1, round(eff_line_h / r1))
+                    candidate_y = cur_y + extra_top + eff_line_h
+                    k = max(0, math.ceil((candidate_y - 80.0 - 1e-6) / r1))
+                    target_baseline = 80.0 + k * r1
+                    if target_baseline > max_ruling_y + 1e-6 and cur_y > pf.content_top:
+                        new_page()
+                        candidate_y = cur_y + extra_top + eff_line_h
+                        k = max(0, math.ceil((candidate_y - 80.0 - 1e-6) / r1))
+                        target_baseline = 80.0 + k * r1
+
+                    line_base_y = target_baseline
+                    token_box_y = target_baseline - eff_line_h
+                else:
+                    if cur_y + line_h_total > max_page_y:
+                        new_page()
+                    line_base_y = cur_y + extra_top + eff_line_h
+                    token_box_y = cur_y + extra_top
 
                 line_start_x = self.x0 + indent
                 if self.token_layout_callback is not None:
@@ -286,7 +320,7 @@ class DocumentLayoutEngine:
                     for start, _, w, miss, tok_str in cur_line:
                         if tok_str:
                             box_x = line_start_x + start
-                            box_y = cur_y + extra_top
+                            box_y = token_box_y
                             self.token_layout_callback(
                                 TokenBox(
                                     page=page_idx,
@@ -300,12 +334,18 @@ class DocumentLayoutEngine:
                             )
 
                 render_items = [(start, st, w) for start, st, w, _, _ in cur_line]
-                line_strokes = self._render_text_line(render_items, cur_y + extra_top + eff_line_h, line_start_x,
+                line_strokes = self._render_text_line(render_items, line_base_y, line_start_x,
                                                       scale_mult=scale_mult)
                 cur_page.extend(line_strokes)
                 total_strokes += len(line_strokes)
                 total_lines += 1
-                cur_y += line_h_total
+
+                if snap_ruling:
+                    step = max(pitch, r1 * math.ceil((eff_line_h + extra_bot - 1e-6) / r1))
+                    cur_y = target_baseline + step - eff_line_h
+                else:
+                    cur_y += line_h_total
+
                 cur_line = []
                 curw = 0.0
                 line_asc = line_desc = 0.0
@@ -384,7 +424,8 @@ class DocumentLayoutEngine:
                         pref = pfx if first_sub else "  "
                         first_sub = False
                         render_paragraph_inlines(sub.inlines, scale_mult=1.0, prefix=pref, indent=indent)
-                        cur_y += self.line_h * 0.1
+                        if not snap_ruling:
+                            cur_y += self.line_h * 0.1
                     elif isinstance(sub, MathBlock):
                         render_math_block(sub, indent=indent)
                     elif isinstance(sub, ListBlock):
@@ -398,18 +439,27 @@ class DocumentLayoutEngine:
 
                 elif isinstance(block, Heading):
                     head_scale = 1.35 if block.level == 1 else (1.2 if block.level == 2 else 1.1)
-                    cur_y += self.line_h * 0.4
+                    if not snap_ruling:
+                        cur_y += self.line_h * 0.4
                     render_paragraph_inlines(block.inlines, scale_mult=head_scale)
-                    cur_y += self.line_h * 0.3
+                    if not snap_ruling:
+                        cur_y += self.line_h * 0.3
 
                 elif isinstance(block, Paragraph):
                     if not block.inlines:
-                        cur_y += self.line_h * 0.8
-                        if cur_y > max_page_y:
-                            new_page()
+                        if snap_ruling:
+                            pitch = r1 * max(1, round(self.line_h / r1))
+                            cur_y += pitch
+                            if cur_y + self.line_h > max_ruling_y and cur_y > pf.content_top:
+                                new_page()
+                        else:
+                            cur_y += self.line_h * 0.8
+                            if cur_y > max_page_y:
+                                new_page()
                     else:
                         render_paragraph_inlines(block.inlines, scale_mult=1.0)
-                        cur_y += self.line_h * 0.2
+                        if not snap_ruling:
+                            cur_y += self.line_h * 0.2
 
                 elif isinstance(block, ListBlock):
                     render_list(block)

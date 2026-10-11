@@ -123,7 +123,7 @@ test.describe("Feature 023: Hình học xem trước trang giấy và bộ đi�
     // 1. Mặc định khởi tạo phải là "lined" (có dòng kẻ và lề đỏ)
     const marginLine = svgWrapper.locator(".paper-bg-margin");
     await expect(marginLine).toHaveCount(1);
-    expect(await marginLine.getAttribute("stroke")).toBe("#ff8a80");
+    expect(await marginLine.getAttribute("stroke")).toBe("#ff0080");
 
     const bgLines = svgWrapper.locator(".paper-bg-line");
     expect(await bgLines.count()).toBeGreaterThan(10);

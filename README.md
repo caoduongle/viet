@@ -102,7 +102,26 @@ Dự án đã cấu hình sẵn Blueprint [`render.yaml`](render.yaml):
 | `stats` | Ô thống kê ở đầu tab Kho mẫu |
 
 Xem `python3 hw_note.py --help` (và `python3 hw_note.py write --help`) để biết đủ tuỳ chọn:
-`--format {auto,txt,md,docx}`, `--scale`, `--line`, `--width`, `--space`, `--jitter`, `--wscale`, `--color`, `--seed`, `--strict-case`, `--assemble`, `--auto-xh`, `--target-xh`, `--letter-gap`, `--pen-clearance`.
+`--format {auto,txt,md,docx}`, `--scale`, `--line`, `--width`, `--space`, `--jitter`, `--wscale`, `--color`, `--seed`, `--strict-case`, `--assemble`, `--auto-xh`, `--target-xh`, `--letter-gap`, `--pen-clearance`,
+`--paper`, `--orientation`, `--paper-width`, `--paper-height`,
+`--background`, `--bg-preset`, `--bg-r1`, `--bg-m1`, `--bg-color`, `--snap-to-ruling`, `--no-snap-ruling`.
+
+### Khổ giấy, Mẫu nền chuẩn Xournal++ & Căn dòng kẻ (Baseline Snapping)
+
+Ứng dụng tương thích 1:1 với cấu hình tệp `.xopp` và các loại giấy của **Xournal++**:
+- **Tương thích nền PDF**: Ghi chỉ số trang 1-based (`pageno = page_index + 1`) và `domain="absolute"` với tên file trần theo chuẩn Xournal++, loại bỏ lỗi lệch trang và parse domain thất bại.
+- **Mẫu giấy chuẩn Xournal++ (`--bg-preset`)**:
+  - `plain`: Giấy trắng trơn.
+  - `ruled`, `lined`, `lined_narrow` (18pt), `lined_college` (20pt), `lined_wide` (24pt), `lined_right` (lề đứng bên phải $m_1 = -72\,\text{pt}$).
+  - `graph`, `graph_5mm`, `graph_grid` (nét đậm chu kỳ 5), `graph_border` ($m_1=40\,\text{pt}$, bo viền), `graph_border_bold_5`.
+  - `dotted` (chấm bi 1.5pt), `iso_graph` & `iso_dotted` (lưới và chấm tam giác đều Isometric căn giữa trang).
+  - `staves`: Khuông nhạc 5 dòng với bước cách khuông chuẩn Xournal++ 62.5pt.
+- **Tự động căn baseline theo dòng kẻ (`snap_to_ruling = True`)**:
+  - Chữ viết tay trên nền `ruled` và `lined` tự động đặt đường chân chữ chính xác lên các dòng kẻ $y = 80.0 + k \cdot r_1$.
+  - Tự động nhảy dòng `pitch = r1 * max(1, round(line_h / r1))` chống đè chữ khi tăng giảm cỡ bút.
+  - Tự động ngắt trang khi dòng tiếp theo chạm đáy $y > \text{height} - 60.0$.
+  - Kẹp lề chữ bên phải đường lề đứng ($x \ge m_1 + 8$ khi $m_1 > 0$) hoặc bên trái lề âm ($x \le \text{width} + m_1 - 8$ khi $m_1 < 0$).
+  - Nền `plain` bảo toàn 100% thuật toán bố cục nguyên bản, bảo đảm tính bất biến mã băm Golden Master.
 
 ### Mô hình thuần ký tự & Cơ chế ghép chữ tự động
 

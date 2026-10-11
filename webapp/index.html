@@ -424,9 +424,13 @@
         <div class="form-group" style="flex: 1;">
           <label>Khổ giấy:</label>
           <select id="opt-paper" class="form-control">
-            <option value="a4" selected>A4</option>
-            <option value="a5">A5</option>
-            <option value="letter">Letter</option>
+            <option value="a4" selected>A4 (210×297 mm)</option>
+            <option value="a5">A5 (148×210 mm)</option>
+            <option value="a3">A3 (297×420 mm)</option>
+            <option value="letter">US Letter</option>
+            <option value="legal">US Legal</option>
+            <option value="16:9">16:9 (Màn hình rộng)</option>
+            <option value="4:3">4:3 (Màn hình chuẩn)</option>
           </select>
         </div>
         <div class="form-group" style="flex: 1;">
@@ -438,15 +442,36 @@
         </div>
       </div>
 
-      <div class="form-group">
-        <label>Nền giấy:</label>
-        <select id="opt-background" class="form-control">
-          <option value="lined" selected>Dòng kẻ & lề (Lined)</option>
-          <option value="ruled">Chỉ dòng kẻ (Ruled)</option>
-          <option value="plain">Trắng trơn (Plain)</option>
-          <option value="graph">Ô ly vuông (Graph)</option>
-          <option value="dotted">Chấm bi (Dotted)</option>
-        </select>
+      <div class="form-row" style="margin-bottom: 0.85rem;">
+        <div class="form-group" style="flex: 1;">
+          <label>Mẫu nền giấy:</label>
+          <select id="opt-background" class="form-control">
+            <option value="lined" selected>Dòng kẻ có lề (Lined)</option>
+            <option value="ruled">Dòng kẻ ngang (Ruled)</option>
+            <option value="plain">Giấy trơn (Plain)</option>
+            <option value="lined_narrow">Dòng kẻ hẹp 18pt</option>
+            <option value="lined_college">Dòng kẻ vừa 20pt</option>
+            <option value="lined_wide">Dòng kẻ rộng 24pt</option>
+            <option value="lined_right">Dòng kẻ lề phải</option>
+            <option value="graph">Ô ly caro 5mm (Graph)</option>
+            <option value="graph_grid">Ô ly có nét đậm</option>
+            <option value="graph_border">Ô ly có viền lề</option>
+            <option value="graph_border_bold_5">Ô ly viền lề đậm chu kỳ 5</option>
+            <option value="dotted">Chấm điểm (Dotted)</option>
+            <option value="iso_graph">Lưới đẳng cự (Isometric Graph)</option>
+            <option value="iso_dotted">Chấm đẳng cự (Isometric Dotted)</option>
+            <option value="staves">Khuông nhạc 5 dòng (Staves)</option>
+          </select>
+        </div>
+        <div class="form-group" style="flex: 1;">
+          <label>Màu nền giấy:</label>
+          <select id="opt-paper-tone" class="form-control">
+            <option value="#ffffffff" selected>Trắng sáng</option>
+            <option value="#ffffc8ff">Vàng ngà (Ivory)</option>
+            <option value="#e8f4f8ff">Xanh nhạt (Pastel Blue)</option>
+            <option value="#1e1e1eff">Tối (Dark theme)</option>
+          </select>
+        </div>
       </div>
 
       <div style="display: flex; justify-content: space-between; margin-top: 1.25rem;">

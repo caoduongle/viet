@@ -65,6 +65,8 @@ class WriteOptions:
     background_spacing: float | None = None  # khoảng cách dòng/ô kẻ (pt), ví dụ 14.17 pt = 5mm
     background_margin: float | None = None   # lề dọc cho ruled (pt)
     background_color: str = "#ffffffff"      # màu nền hex RGBA
+    snap_to_ruling: bool = True               # tự động căn baseline theo dòng kẻ (ruled/lined)
+    background_preset: str | None = None      # tên mẫu giấy chuẩn theo Xournal++ pagetemplates.ini.in
 
     # Chế độ kết xuất: semantic (tái dàn trang) hoặc fidelity (khóa cố định bố cục)
     mode: str = "semantic"
@@ -81,6 +83,7 @@ class WriteOptions:
         """Kiểm tra tính hợp lệ nghiệp vụ của các tùy chọn viết. Ném ValueError nếu sai."""
         from chuviettay.document.page_format import (
             PAPER_SIZES,
+            BACKGROUND_PRESETS,
             VALID_BACKGROUND_STYLES,
             normalize_background_style,
         )
@@ -131,12 +134,21 @@ class WriteOptions:
 
         # Kiểm tra nền trang
         bg_style = normalize_background_style(self.background)
+        if self.background_preset:
+            pk = normalize_background_style(self.background_preset)
+            p_bg = BACKGROUND_PRESETS.get(self.background_preset) or BACKGROUND_PRESETS.get(pk)
+            if p_bg:
+                bg_style = normalize_background_style(p_bg.style)
+
         if bg_style not in VALID_BACKGROUND_STYLES:
             raise ValueError(f"Kiểu nền không hợp lệ: {self.background!r}. Chỉ chấp nhận: {', '.join(sorted(VALID_BACKGROUND_STYLES))}")
         if self.background_spacing is not None and (not math.isfinite(self.background_spacing) or self.background_spacing <= 0):
             raise ValueError(f"background_spacing phải là số dương hữu hạn, nhận được: {self.background_spacing}")
-        if self.background_margin is not None and (not math.isfinite(self.background_margin) or self.background_margin < 0):
-            raise ValueError(f"background_margin phải là số không âm hữu hạn, nhận được: {self.background_margin}")
+        if self.background_margin is not None:
+            if not math.isfinite(self.background_margin):
+                raise ValueError(f"background_margin phải là số hữu hạn, nhận được: {self.background_margin}")
+            if self.background_margin < 0 and bg_style != "lined":
+                raise ValueError(f"background_margin âm chỉ được hỗ trợ với kiểu nền 'lined', nhận được: {self.background_margin}")
         if self.background_color is not None:
             self.background_color = parse_color(self.background_color)
 
@@ -152,11 +164,17 @@ class WriteOptions:
                 f"Tổng lề trên ({self.margin_top} pt) và lề dưới ({self.margin_bottom} pt) "
                 f"phải nhỏ hơn bề dọc trang ({pf.height} pt)."
             )
+        if self.background_margin is not None and abs(self.background_margin) >= pf.width:
+            raise ValueError(
+                f"Giá trị tuyệt đối của background_margin ({abs(self.background_margin)} pt) "
+                f"phải nhỏ hơn bề ngang trang ({pf.width} pt)."
+            )
 
     def resolve_page_format(self) -> PageFormat:
         """Phân giải cấu hình WriteOptions thành đối tượng PageFormat hoàn chỉnh."""
         from chuviettay.document.page_format import (
             PAPER_SIZES,
+            BACKGROUND_PRESETS,
             PageBackground,
             PageFormat,
             PaperSize,
@@ -171,11 +189,32 @@ class WriteOptions:
         else:
             paper_size = PAPER_SIZES.get(p, PAPER_SIZES["a4"])
 
+        preset_bg = None
+        if self.background_preset:
+            pk = normalize_background_style(self.background_preset)
+            preset_bg = BACKGROUND_PRESETS.get(self.background_preset) or BACKGROUND_PRESETS.get(pk)
+
+        base_style = self.background
+        if base_style == "plain" and preset_bg is not None:
+            base_style = preset_bg.style
+
+        style = normalize_background_style(base_style)
+        spacing = self.background_spacing if self.background_spacing is not None else (preset_bg.spacing if preset_bg else None)
+        margin = self.background_margin if self.background_margin is not None else (preset_bg.margin if preset_bg else None)
+        lw = preset_bg.line_width if preset_bg else None
+        bli = preset_bg.bold_line_interval if preset_bg else None
+        blw = preset_bg.bold_line_width if preset_bg else None
+        rm = preset_bg.round_margin if preset_bg else None
+
         bg = PageBackground(
-            style=normalize_background_style(self.background),
-            spacing=self.background_spacing,
-            margin=self.background_margin,
+            style=style,
+            spacing=spacing,
+            margin=margin,
             color=self.background_color,
+            line_width=lw,
+            round_margin=rm,
+            bold_line_interval=bli,
+            bold_line_width=blw,
         )
 
         return PageFormat(

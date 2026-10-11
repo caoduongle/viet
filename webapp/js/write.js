@@ -700,6 +700,7 @@ function setupOptionsModal() {
   bindSelect("opt-paper", "paper");
   bindSelect("opt-orientation", "orientation");
   bindSelect("opt-background", "background");
+  bindSelect("opt-paper-tone", "background_color");
 
   if (btnApply) {
     btnApply.addEventListener("click", () => {
@@ -720,6 +721,7 @@ function setupOptionsModal() {
       writeOptions.paper = "a4";
       writeOptions.orientation = "portrait";
       writeOptions.background = "lined";
+      writeOptions.background_color = "#ffffffff";
 
       // Reset DOM elements
       document.getElementById("opt-scale").value = 1.0;
@@ -736,6 +738,8 @@ function setupOptionsModal() {
       document.getElementById("opt-paper").value = "a4";
       document.getElementById("opt-orientation").value = "portrait";
       document.getElementById("opt-background").value = "lined";
+      const optTone = document.getElementById("opt-paper-tone");
+      if (optTone) optTone.value = "#ffffffff";
 
       triggerPreviewImmediate();
     });

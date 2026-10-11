@@ -110,28 +110,46 @@ export function parseXoppXml(xmlText) {
   return parseXoppXmlRegex(xmlText);
 }
 
-function parseBackgroundNode(bgNode) {
+function parseConfigString(config, bg) {
+  const parts = config.split(/[,;]/);
+  for (const part of parts) {
+    const trimmed = part.trim();
+    if (!trimmed) continue;
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx === -1) continue;
+    const k = trimmed.slice(0, eqIdx).trim();
+    const v = trimmed.slice(eqIdx + 1).trim();
+    if (k === "r1") bg.spacing = parseFloat(v);
+    else if (k === "m1") bg.margin = parseFloat(v);
+    else if (k === "lw") bg.lineWidth = parseFloat(v);
+    else if (k === "f1") bg.primaryColor = v;
+    else if (k === "f2") bg.secondaryColor = v;
+    else if (k === "af1") bg.attachmentPrimaryColor = v;
+    else if (k === "af2") bg.attachmentSecondaryColor = v;
+    else if (k === "rm") bg.roundMargin = v === "1" || v === "true";
+    else if (k === "bli") bg.boldLineInterval = parseInt(v, 10);
+    else if (k === "blw") bg.boldLineWidth = parseFloat(v);
+  }
+}
+
+export function parseBackgroundNode(bgNode) {
   if (!bgNode) {
     return { type: "solid", color: "#ffffffff", style: "plain", spacing: 24.0, margin: 72.0 };
   }
   const type = bgNode.getAttribute("type") || "solid";
   const color = bgNode.getAttribute("color") || "#ffffffff";
-  const style = bgNode.getAttribute("style") || "plain";
+  let style = (bgNode.getAttribute("style") || "plain").trim().toLowerCase();
   const config = bgNode.getAttribute("config") || "";
 
-  let spacing = 24.0;
-  let margin = 72.0;
+  if (style === "music") style = "staves";
+  if (style === "isograph") style = "iso_graph";
+  if (style === "isodotted") style = "iso_dotted";
 
+  const bg = { type, color, style, spacing: 24.0, margin: 72.0 };
   if (config) {
-    const parts = config.split(",");
-    for (const part of parts) {
-      const [k, v] = part.split("=");
-      if (k === "r1") spacing = parseFloat(v);
-      if (k === "m1") margin = parseFloat(v);
-    }
+    parseConfigString(config, bg);
   }
-
-  return { type, color, style, spacing, margin };
+  return bg;
 }
 
 function parseXoppXmlRegex(xmlText) {
@@ -154,14 +172,15 @@ function parseXoppXmlRegex(xmlText) {
       const styleM = /style="([^"]+)"/.exec(attrs);
       const configM = /config="([^"]+)"/.exec(attrs);
       if (colorM) bg.color = colorM[1];
-      if (styleM) bg.style = styleM[1];
+      if (styleM) {
+        let st = styleM[1].trim().toLowerCase();
+        if (st === "music") st = "staves";
+        if (st === "isograph") st = "iso_graph";
+        if (st === "isodotted") st = "iso_dotted";
+        bg.style = st;
+      }
       if (configM) {
-        const parts = configM[1].split(",");
-        for (const p of parts) {
-          const [k, v] = p.split("=");
-          if (k === "r1") bg.spacing = parseFloat(v);
-          if (k === "m1") bg.margin = parseFloat(v);
-        }
+        parseConfigString(configM[1], bg);
       }
     }
 
@@ -192,7 +211,7 @@ function parseXoppXmlRegex(xmlText) {
   return { creator: "hw_note", pages };
 }
 
-function parseHexColor(hex8) {
+export function parseHexColor(hex8) {
   let hex = (hex8 || "#000000ff").trim().toLowerCase();
   if (hex.startsWith("#")) hex = hex.slice(1);
   if (hex.length === 6) {
@@ -204,6 +223,279 @@ function parseHexColor(hex8) {
     return { color: `#${rgb}`, opacity: Number(alpha.toFixed(3)) };
   }
   return { color: "#000000", opacity: 1.0 };
+}
+
+export function getPaperContrastColors(bg) {
+  const bgParsed = parseHexColor(bg.color || "#ffffffff");
+  const hex = bgParsed.color.replace("#", "");
+  const r = parseInt(hex.substring(0, 2), 16) / 255;
+  const g = parseInt(hex.substring(2, 4), 16) / 255;
+  const b = parseInt(hex.substring(4, 6), 16) / 255;
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  const isDark = lum < 0.5;
+
+  const f1 = bg.primaryColor ? (bg.primaryColor.startsWith("#") ? bg.primaryColor : "#" + bg.primaryColor) : null;
+  const f2 = bg.secondaryColor ? (bg.secondaryColor.startsWith("#") ? bg.secondaryColor : "#" + bg.secondaryColor) : null;
+
+  return {
+    isDark,
+    bgParsed,
+    strokeRuled: f1 || (isDark ? "#434343" : "#40a0ff"),
+    strokeMargin: f2 || (isDark ? "#220080" : "#ff0080"),
+    strokeGraph: f1 || (isDark ? "#434343" : "#bdbdbd"),
+    strokeStaves: f1 || (isDark ? "#ffffff" : "#000000"),
+  };
+}
+
+export function getBackgroundDrawingElements(bg, width, height) {
+  const elements = [];
+  const style = (bg.style || "plain").toLowerCase();
+  if (style === "plain" || style === "solid") {
+    return elements;
+  }
+
+  const { strokeRuled, strokeMargin, strokeGraph, strokeStaves } = getPaperContrastColors(bg);
+  const lw = bg.lineWidth !== undefined ? bg.lineWidth : 0.5;
+
+  if (style === "ruled" || style === "lined") {
+    const r1 = bg.spacing || 24.0;
+    if (height >= 140.0) {
+      for (let y = 80.0; y <= height - 60.0 + 1e-4; y += r1) {
+        elements.push({
+          tag: "line",
+          attrs: {
+            class: "paper-bg-line",
+            x1: "0",
+            y1: String(y),
+            x2: String(width),
+            y2: String(y),
+            stroke: strokeRuled,
+            "stroke-width": String(lw),
+          },
+        });
+      }
+    }
+    if (style === "lined") {
+      const m1 = bg.margin !== undefined ? bg.margin : 72.0;
+      const marginX = m1 >= 0 ? m1 : width + m1;
+      elements.push({
+        tag: "line",
+        attrs: {
+          class: "paper-bg-margin",
+          x1: String(marginX),
+          y1: "0",
+          x2: String(marginX),
+          y2: String(height),
+          stroke: strokeMargin,
+          "stroke-width": String(lw),
+        },
+      });
+    }
+  } else if (style === "graph") {
+    const r1 = bg.spacing || 14.1732;
+    const bli = bg.boldLineInterval || 0;
+    const blw = bg.boldLineWidth !== undefined ? bg.boldLineWidth : 1.5;
+    let xMargin = 0;
+    let yMargin = 0;
+    if (bg.margin && bg.margin > 0) {
+      xMargin = bg.roundMargin ? Math.round(bg.margin / r1) * r1 : bg.margin;
+      yMargin = xMargin;
+    }
+    for (let idx = 0, y = yMargin; y <= height - yMargin + 1e-4; idx++, y += r1) {
+      const isBold = bli > 0 && (idx % bli === 0);
+      elements.push({
+        tag: "line",
+        attrs: {
+          class: "paper-bg-line",
+          x1: String(xMargin),
+          y1: String(y),
+          x2: String(width - xMargin),
+          y2: String(y),
+          stroke: strokeGraph,
+          "stroke-width": String(isBold ? blw : lw),
+        },
+      });
+    }
+    for (let idx = 0, x = xMargin; x <= width - xMargin + 1e-4; idx++, x += r1) {
+      const isBold = bli > 0 && (idx % bli === 0);
+      elements.push({
+        tag: "line",
+        attrs: {
+          class: "paper-bg-line",
+          x1: String(x),
+          y1: String(yMargin),
+          x2: String(x),
+          y2: String(height - yMargin),
+          stroke: strokeGraph,
+          "stroke-width": String(isBold ? blw : lw),
+        },
+      });
+    }
+  } else if (style === "dotted") {
+    const r1 = bg.spacing || 14.1732;
+    for (let y = r1; y < height; y += r1) {
+      for (let x = r1; x < width; x += r1) {
+        elements.push({
+          tag: "circle",
+          attrs: {
+            class: "paper-bg-dot",
+            cx: String(x),
+            cy: String(y),
+            r: "0.75",
+            fill: strokeGraph,
+          },
+        });
+      }
+    }
+  } else if (style === "iso_dotted" || style === "isodotted") {
+    const r1 = bg.spacing || 14.1732;
+    const xstep = (Math.sqrt(3.0) / 2.0) * r1;
+    const ystep = r1 / 2.0;
+    const margin = r1;
+    const cols = Math.floor((width - 2 * margin) / xstep);
+    const rows = Math.floor((height - 2 * margin) / ystep);
+    const offsetX = (width - cols * xstep) / 2;
+    const offsetY = (height - rows * ystep) / 2;
+
+    for (let col = 0; col <= cols; ++col) {
+      const x = offsetX + col * xstep;
+      const evenCol = col % 2 === 0;
+      const yoffset = evenCol ? ystep : 0.0;
+      const rowsInCol = evenCol ? rows - 2 : rows;
+
+      for (let row = 0; row <= rowsInCol; row += 2) {
+        const y = offsetY + yoffset + row * ystep;
+        elements.push({
+          tag: "circle",
+          attrs: {
+            class: "paper-bg-dot",
+            cx: String(x),
+            cy: String(y),
+            r: "0.75",
+            fill: strokeGraph,
+          },
+        });
+      }
+    }
+  } else if (style === "iso_graph" || style === "isograph") {
+    const r1 = bg.spacing || 14.1732;
+    const isoLw = bg.lineWidth !== undefined ? bg.lineWidth : 1.0;
+    const xstep = (Math.sqrt(3.0) / 2.0) * r1;
+    const ystep = r1 / 2.0;
+    const margin = r1;
+    const cols = Math.floor((width - 2 * margin) / xstep);
+    const rows = Math.floor((height - 2 * margin) / ystep);
+    const contentWidth = cols * xstep;
+    const contentHeight = rows * ystep;
+    const offsetX = (width - contentWidth) / 2;
+    const offsetY = (height - contentHeight) / 2;
+
+    const addIsoLine = (x1, y1, x2, y2) => {
+      elements.push({
+        tag: "line",
+        attrs: {
+          class: "paper-bg-line",
+          x1: String(offsetX + x1),
+          y1: String(offsetY + y1),
+          x2: String(offsetX + x2),
+          y2: String(offsetY + y2),
+          stroke: strokeGraph,
+          "stroke-width": String(isoLw),
+        },
+      });
+    };
+
+    addIsoLine(0.0, 0.0, contentWidth, 0.0);
+    addIsoLine(0.0, contentHeight, contentWidth, contentHeight);
+
+    for (let col = 0; col <= cols; ++col) {
+      const x = col * xstep;
+      addIsoLine(x, 0.0, x, contentHeight);
+    }
+
+    const hdiags = Math.floor(cols / 2);
+    const vdiags = Math.floor(rows / 2);
+    const diags = hdiags + vdiags;
+    const hcorr = cols - 2 * hdiags;
+    const vcorr = rows - 2 * vdiags;
+
+    for (let d = 0; d < diags + hcorr * vcorr; ++d) {
+      let x1 = contentWidth, y1 = 0.0;
+      if (d < hdiags) {
+        x1 = xstep + d * 2 * xstep;
+      } else {
+        y1 = ystep + (d - hdiags) * 2 * ystep - hcorr * ystep;
+      }
+      let x2 = 0.0, y2 = contentHeight;
+      if (d < vdiags) {
+        y2 = ystep + d * 2 * ystep;
+      } else {
+        x2 = xstep + (d - vdiags) * 2 * xstep - vcorr * xstep;
+      }
+      addIsoLine(x1, y1, x2, y2);
+    }
+
+    for (let d = 0; d < diags; ++d) {
+      let x1 = 0.0, y1 = 0.0;
+      if (d < hdiags) {
+        x1 = contentWidth - (xstep + d * 2 * xstep) - hcorr * xstep;
+      } else {
+        y1 = ystep + (d - hdiags) * 2 * ystep;
+      }
+      let x2 = contentWidth, y2 = contentHeight;
+      if (d < vdiags) {
+        y2 = ystep + d * 2 * ystep + hcorr * ystep;
+      } else {
+        x2 = contentWidth - (xstep + (d - vdiags) * 2 * xstep) + (vcorr - hcorr) * xstep;
+      }
+      addIsoLine(x1, y1, x2, y2);
+    }
+  } else if (style === "staves") {
+    if (height >= 140.0) {
+      for (let staffY = 80.0; staffY + 20.0 <= height - 60.0 + 1e-4; staffY += 62.5) {
+        for (let k = 0; k < 5; k++) {
+          const y = staffY + k * 5.0;
+          elements.push({
+            tag: "line",
+            attrs: {
+              class: "paper-bg-line",
+              x1: "50",
+              y1: String(y),
+              x2: String(width - 50),
+              y2: String(y),
+              stroke: strokeStaves,
+              "stroke-width": String(lw),
+            },
+          });
+        }
+        elements.push({
+          tag: "line",
+          attrs: {
+            class: "paper-bg-line",
+            x1: "50",
+            y1: String(staffY),
+            x2: "50",
+            y2: String(staffY + 20.0),
+            stroke: strokeStaves,
+            "stroke-width": String(lw),
+          },
+        });
+        elements.push({
+          tag: "line",
+          attrs: {
+            class: "paper-bg-line",
+            x1: String(width - 50),
+            y1: String(staffY),
+            x2: String(width - 50),
+            y2: String(staffY + 20.0),
+            stroke: strokeStaves,
+            "stroke-width": String(lw),
+          },
+        });
+      }
+    }
+  }
+  return elements;
 }
 
 /**
@@ -220,30 +512,11 @@ export function renderPageSvgString(pageData, options = {}) {
   const bgParsed = parseHexColor(background.color || "#ffffffff");
   lines.push(`  <rect width="${width}" height="${height}" fill="${bgParsed.color}" fill-opacity="${bgParsed.opacity}"/>`);
 
-  const spacing = background.spacing || 24.0;
-  const margin = background.margin || 72.0;
-  const style = background.style || "plain";
-
-  if (style === "lined" || style === "ruled") {
-    for (let y = spacing; y < height; y += spacing) {
-      lines.push(`  <line class="paper-bg-line" x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="#cfd8dc" stroke-width="0.5"/>`);
-    }
-    if (style === "lined") {
-      lines.push(`  <line class="paper-bg-margin" x1="${margin}" y1="0" x2="${margin}" y2="${height}" stroke="#ff8a80" stroke-width="1"/>`);
-    }
-  } else if (style === "graph") {
-    for (let y = spacing; y < height; y += spacing) {
-      lines.push(`  <line class="paper-bg-line" x1="0" y1="${y}" x2="${width}" y2="${y}" stroke="#e0e0e0" stroke-width="0.5"/>`);
-    }
-    for (let x = spacing; x < width; x += spacing) {
-      lines.push(`  <line class="paper-bg-line" x1="${x}" y1="0" x2="${x}" y2="${height}" stroke="#e0e0e0" stroke-width="0.5"/>`);
-    }
-  } else if (style === "dotted") {
-    for (let y = spacing; y < height; y += spacing) {
-      for (let x = spacing; x < width; x += spacing) {
-        lines.push(`  <circle class="paper-bg-dot" cx="${x}" cy="${y}" r="0.75" fill="#b0bec5"/>`);
-      }
-    }
+  // Kẻ nền dùng chung
+  const bgElements = getBackgroundDrawingElements(background, width, height);
+  for (const el of bgElements) {
+    const attrStr = Object.entries(el.attrs).map(([k, v]) => `${k}="${v}"`).join(" ");
+    lines.push(`  <${el.tag} ${attrStr}/>`);
   }
 
   // 2. Nét bút viết tay
@@ -290,69 +563,14 @@ export function renderPageSvgElement(pageData, options = {}) {
   rect.setAttribute("fill-opacity", String(bgParsed.opacity));
   svg.appendChild(rect);
 
-  // Kẻ nền
-  const spacing = background.spacing || 24.0;
-  const margin = background.margin || 72.0;
-  const style = background.style || "plain";
-
-  if (style === "lined" || style === "ruled") {
-    for (let y = spacing; y < height; y += spacing) {
-      const line = document.createElementNS(SVG_NS, "line");
-      line.setAttribute("class", "paper-bg-line");
-      line.setAttribute("x1", "0");
-      line.setAttribute("y1", String(y));
-      line.setAttribute("x2", String(width));
-      line.setAttribute("y2", String(y));
-      line.setAttribute("stroke", "#cfd8dc");
-      line.setAttribute("stroke-width", "0.5");
-      svg.appendChild(line);
+  // Kẻ nền dùng chung
+  const bgElements = getBackgroundDrawingElements(background, width, height);
+  for (const el of bgElements) {
+    const node = document.createElementNS(SVG_NS, el.tag);
+    for (const [k, v] of Object.entries(el.attrs)) {
+      node.setAttribute(k, v);
     }
-    if (style === "lined") {
-      const mLine = document.createElementNS(SVG_NS, "line");
-      mLine.setAttribute("class", "paper-bg-margin");
-      mLine.setAttribute("x1", String(margin));
-      mLine.setAttribute("y1", "0");
-      mLine.setAttribute("x2", String(margin));
-      mLine.setAttribute("y2", String(height));
-      mLine.setAttribute("stroke", "#ff8a80");
-      mLine.setAttribute("stroke-width", "1");
-      svg.appendChild(mLine);
-    }
-  } else if (style === "graph") {
-    for (let y = spacing; y < height; y += spacing) {
-      const line = document.createElementNS(SVG_NS, "line");
-      line.setAttribute("class", "paper-bg-line");
-      line.setAttribute("x1", "0");
-      line.setAttribute("y1", String(y));
-      line.setAttribute("x2", String(width));
-      line.setAttribute("y2", String(y));
-      line.setAttribute("stroke", "#e0e0e0");
-      line.setAttribute("stroke-width", "0.5");
-      svg.appendChild(line);
-    }
-    for (let x = spacing; x < width; x += spacing) {
-      const line = document.createElementNS(SVG_NS, "line");
-      line.setAttribute("class", "paper-bg-line");
-      line.setAttribute("x1", String(x));
-      line.setAttribute("y1", "0");
-      line.setAttribute("x2", String(x));
-      line.setAttribute("y2", String(height));
-      line.setAttribute("stroke", "#e0e0e0");
-      line.setAttribute("stroke-width", "0.5");
-      svg.appendChild(line);
-    }
-  } else if (style === "dotted") {
-    for (let y = spacing; y < height; y += spacing) {
-      for (let x = spacing; x < width; x += spacing) {
-        const dot = document.createElementNS(SVG_NS, "circle");
-        dot.setAttribute("class", "paper-bg-dot");
-        dot.setAttribute("cx", String(x));
-        dot.setAttribute("cy", String(y));
-        dot.setAttribute("r", "0.75");
-        dot.setAttribute("fill", "#b0bec5");
-        svg.appendChild(dot);
-      }
-    }
+    svg.appendChild(node);
   }
 
   // Nét bút

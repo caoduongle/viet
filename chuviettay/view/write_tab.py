@@ -142,24 +142,19 @@ class WriteTab(ttk.Frame):
         pnl_paper = ttk.LabelFrame(right, text="Trang & Nền giấy", padding=8)
         pnl_paper.pack(fill="x", pady=(0, 8))
 
+        cat = self.ctl.get_page_catalog()
+        paper_names = [s["name"] for s in cat["sizes"].values()] + ["Tùy chỉnh..."]
+        preset_names = [f"{p['name']} ({p['id']})" for p in cat["presets"].values()]
+
         row_p = ttk.Frame(pnl_paper)
         row_p.pack(fill="x", pady=2)
         ttk.Label(row_p, text="Khổ giấy", width=14).pack(side="left")
         self.cb_paper = ttk.Combobox(
             row_p,
             textvariable=self.v_paper,
-            values=[
-                "A4 (210×297 mm)",
-                "A5 (148×210 mm)",
-                "A3 (297×420 mm)",
-                "US Letter",
-                "US Legal",
-                "16:9 (Màn hình rộng)",
-                "4:3 (Màn hình chuẩn)",
-                "Tùy chỉnh...",
-            ],
+            values=paper_names,
             state="readonly",
-            width=16,
+            width=18,
         )
         self.cb_paper.pack(side="left")
         self.cb_paper.bind("<<ComboboxSelected>>", self._on_paper_changed)
@@ -174,7 +169,7 @@ class WriteTab(ttk.Frame):
             textvariable=self.v_orientation,
             values=["Dọc (Portrait)", "Ngang (Landscape)"],
             state="readonly",
-            width=16,
+            width=18,
         )
         self.cb_ori.pack(side="left")
 
@@ -184,19 +179,9 @@ class WriteTab(ttk.Frame):
         self.cb_bg = ttk.Combobox(
             row_b,
             textvariable=self.v_background,
-            values=[
-                "Trắng (Plain)",
-                "Dòng kẻ (Ruled)",
-                "Dòng kẻ ngang (Lined)",
-                "Dòng kẻ + lề",
-                "Ô li (Graph)",
-                "Chấm (Dotted)",
-                "Isometric (Ô li xiên)",
-                "Isometric chấm (Iso Dotted)",
-                "Khuông nhạc (Music)",
-            ],
+            values=preset_names,
             state="readonly",
-            width=16,
+            width=18,
         )
         self.cb_bg.pack(side="left")
         self.cb_bg.bind("<<ComboboxSelected>>", self._on_background_changed)
@@ -326,50 +311,54 @@ class WriteTab(ttk.Frame):
         except ValueError:
             raise ValueError("Ô 'Seed ngẫu nhiên' phải là một số nguyên (bạn đang nhập: %r)." % seed_s) from None
 
+        cat = self.ctl.get_page_catalog()
         paper_text = self.v_paper.get().strip().lower()
-        if "a5" in paper_text:
-            paper = "a5"
-        elif "a3" in paper_text:
-            paper = "a3"
-        elif "letter" in paper_text:
-            paper = "letter"
-        elif "legal" in paper_text:
-            paper = "legal"
-        elif "16:9" in paper_text:
-            paper = "16:9"
-        elif "4:3" in paper_text:
-            paper = "4:3"
-        elif "tùy chỉnh" in paper_text or "custom" in paper_text:
+        paper = "a4"
+        for pid, s in cat["sizes"].items():
+            if pid in paper_text or s["name"].lower() in paper_text:
+                paper = pid
+                break
+        if "tùy chỉnh" in paper_text or "custom" in paper_text:
             paper = "custom"
-        else:
-            paper = "a4"
 
         ori_text = self.v_orientation.get().strip().lower()
         orientation = "landscape" if "ngang" in ori_text or "landscape" in ori_text else "portrait"
 
         bg_text = self.v_background.get().strip().lower()
-        bg_margin = None
-        if "iso dotted" in bg_text or "isometric chấm" in bg_text or "iso_dotted" in bg_text:
-            bg_style = "iso_dotted"
-        elif "ô li xiên" in bg_text or "iso_graph" in bg_text or "isometric" in bg_text:
-            bg_style = "iso_graph"
-        elif "ô li" in bg_text or "graph" in bg_text:
-            bg_style = "graph"
-        elif "lề" in bg_text or "margin" in bg_text:
-            bg_style = "ruled"
-            bg_margin = 72.0
-        elif "lined" in bg_text or "kẻ ngang" in bg_text:
-            bg_style = "lined"
-        elif "dòng kẻ" in bg_text or "ruled" in bg_text:
-            bg_style = "ruled"
-        elif "chấm" in bg_text or "dotted" in bg_text:
-            bg_style = "dotted"
-        elif "khuông nhạc" in bg_text or "music" in bg_text:
-            bg_style = "music"
-        else:
-            bg_style = "plain"
+        matched_preset = None
+        for pid, p in cat["presets"].items():
+            if f"({pid})" in bg_text or pid == bg_text or p["name"].lower() in bg_text or p["name_en"].lower() in bg_text:
+                matched_preset = pid
+                break
 
-        from chuviettay.document.page_format import parse_length
+        bg_style = "plain"
+        bg_margin = None
+        if matched_preset:
+            p_info = cat["presets"][matched_preset]
+            bg_style = p_info["style"]
+            bg_margin = p_info["margin"]
+        else:
+            if "iso dotted" in bg_text or "isometric chấm" in bg_text or "iso_dotted" in bg_text:
+                bg_style = "iso_dotted"
+            elif "ô li xiên" in bg_text or "iso_graph" in bg_text or "isometric" in bg_text:
+                bg_style = "iso_graph"
+            elif "ô li" in bg_text or "graph" in bg_text:
+                bg_style = "graph"
+            elif "lề" in bg_text or "margin" in bg_text:
+                bg_style = "ruled"
+                bg_margin = 72.0
+            elif "lined" in bg_text or "kẻ ngang" in bg_text:
+                bg_style = "lined"
+            elif "dòng kẻ" in bg_text or "ruled" in bg_text:
+                bg_style = "ruled"
+            elif "chấm" in bg_text or "dotted" in bg_text:
+                bg_style = "dotted"
+            elif "khuông nhạc" in bg_text or "music" in bg_text:
+                bg_style = "music"
+            else:
+                bg_style = "plain"
+
+        from chuviettay.controller.results import parse_length
 
         bg_spacing = None
         spacing_s = self.v_spacing.get().strip()
@@ -397,8 +386,10 @@ class WriteTab(ttk.Frame):
             paper_width=self.custom_paper_width,
             paper_height=self.custom_paper_height,
             background=bg_style,
+            background_preset=matched_preset,
             background_spacing=bg_spacing,
             background_margin=bg_margin,
+            snap_to_ruling=True,
             mode=("fidelity" if ("khóa" in self.v_mode.get().lower() or "fidelity" in self.v_mode.get().lower()) else "semantic"),
             missing_grid=self.v_missing_grid.get(),
             assemble_letters=self.v_assemble.get(),

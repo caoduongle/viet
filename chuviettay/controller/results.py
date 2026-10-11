@@ -15,6 +15,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from chuviettay.document.page_format import (  # re-export
+    BACKGROUND_PRESETS,
+    PageBackground,
+    get_page_catalog,
+    parse_length,
+)
 from chuviettay.model.composer import WriteOptions, WriteResult  # re-export
 from chuviettay.model.learning import LearnResult  # re-export
 from chuviettay.model.xopp import GridImportResult  # re-export
@@ -22,6 +28,7 @@ from chuviettay.model.xopp import GridImportResult  # re-export
 __all__ = [
     "WriteOptions", "WriteResult", "LearnResult", "GridImportResult",
     "CheckResult", "DropResult", "SeedResult", "BankStats", "TeachOutcome",
+    "PageBackground", "BACKGROUND_PRESETS", "get_page_catalog", "parse_length",
 ]
 
 

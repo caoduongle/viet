@@ -682,3 +682,9 @@ class AppController:
             result.append(("dấu thanh", m, len(insts)))
         return result
 
+    @staticmethod
+    def get_page_catalog() -> dict[str, Any]:
+        """Lấy danh mục chuẩn các khổ giấy, kiểu nền và tone màu cho ứng dụng."""
+        from chuviettay.document.page_format import get_page_catalog
+        return get_page_catalog()
+

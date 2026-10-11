@@ -65,7 +65,7 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
     paper_width = parse_length(a.paper_width) if getattr(a, "paper_width", None) else None
     paper_height = parse_length(a.paper_height) if getattr(a, "paper_height", None) else None
     bg_spacing = parse_length(a.background_spacing) if getattr(a, "background_spacing", None) else None
-    bg_margin = parse_length(a.background_margin) if getattr(a, "background_margin", None) else None
+    bg_margin = parse_length(a.background_margin, allow_negative=True) if getattr(a, "background_margin", None) else None
 
     opts = WriteOptions(
         scale=a.scale, line=a.line, width=a.width, space=a.space, jitter=a.jitter,
@@ -75,9 +75,11 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
         paper_width=paper_width,
         paper_height=paper_height,
         background=getattr(a, "background", "plain"),
+        background_preset=getattr(a, "background_preset", None),
         background_spacing=bg_spacing,
         background_margin=bg_margin,
         background_color=getattr(a, "background_color", "#ffffffff"),
+        snap_to_ruling=getattr(a, "snap_to_ruling", True),
         mode=getattr(a, "mode", "semantic"),
         assemble_letters=getattr(a, "assemble", False),
         letter_gap=getattr(a, "letter_gap", 1.0),
@@ -195,9 +197,33 @@ def _cmd_grid(ctl: AppController, a: argparse.Namespace) -> None:
     print("Mở file bằng Xournal++ -> viết từng ký tự vào ô -> lưu lại -> chạy lệnh: python hw_note.py learn --grid %s" % path)
 
 
+def _normalize_negative_args(args: list[str]) -> list[str]:
+    normalized: list[str] = []
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in ("--bg-m1", "--background-margin") and i + 1 < len(args):
+            next_val = args[i + 1]
+            if next_val.startswith("-") and not next_val.startswith("--"):
+                normalized.append(f"{arg}={next_val}")
+                i += 2
+                continue
+        normalized.append(arg)
+        i += 1
+    return normalized
+
+
+class _CustomArgumentParser(argparse.ArgumentParser):
+    def parse_args(self, args=None, namespace=None):
+        if args is None:
+            args = sys.argv[1:]
+        args = _normalize_negative_args(list(args))
+        return super().parse_args(args, namespace)
+
+
 # ---------------------------------------------------------------- bộ đọc tham số
 def build_parser() -> argparse.ArgumentParser:
-    ap = argparse.ArgumentParser(description="Gõ chữ, ra nét viết tay của bạn cho Xournal++.")
+    ap = _CustomArgumentParser(description="Gõ chữ, ra nét viết tay của bạn cho Xournal++.")
     ap.add_argument("--bank", default=paths.default_bank_path(),
                     help="đường dẫn kho mẫu (mặc định: chu_cua_ban.json.gz)")
     ap.add_argument("-v", "--verbose", action="store_true",
@@ -234,9 +260,18 @@ def build_parser() -> argparse.ArgumentParser:
                        "isograph", "isodotted", "staves",
                     ],
                    help="kiểu nền giấy XOPP (plain, lined, ruled, graph, dotted, iso_graph, iso_dotted, music; mặc định: plain)")
-    w.add_argument("--background-spacing", help="khoảng cách dòng/lưới ô kẻ (ví dụ: 5mm, 14.17pt, 24pt)")
-    w.add_argument("--background-margin", help="lề dọc cho ruled (ví dụ: 72pt, 2.5cm)")
-    w.add_argument("--background-color", default="#ffffffff", help="màu nền hex RGBA (mặc định: #ffffffff)")
+    w.add_argument("--background-preset", "--bg-preset", dest="background_preset", default=None,
+                   help="mẫu nền định sẵn theo chuẩn Xournal++ (ví dụ: lined_college, graph_5mm, lined_right)")
+    w.add_argument("--background-spacing", "--bg-r1", dest="background_spacing",
+                   help="khoảng cách dòng/lưới ô kẻ (ví dụ: 5mm, 14.17pt, 24pt)")
+    w.add_argument("--background-margin", "--bg-m1", dest="background_margin",
+                   help="lề dọc cho lined/ruled (ví dụ: 72pt, -72pt, 2.5cm)")
+    w.add_argument("--background-color", "--bg-color", dest="background_color", default="#ffffffff",
+                   help="màu nền hex RGBA (mặc định: #ffffffff)")
+    w.add_argument("--snap-to-ruling", dest="snap_to_ruling", action="store_true", default=True,
+                   help="tự động căn baseline theo dòng kẻ (ruled/lined; mặc định: bật)")
+    w.add_argument("--no-snap-ruling", dest="snap_to_ruling", action="store_false",
+                   help="tắt căn baseline theo dòng kẻ")
     w.add_argument("--mode", default="semantic", choices=["semantic", "fidelity"],
                    help="chế độ kết xuất: semantic (tái dàn trang) hoặc fidelity (khóa cố định bố cục & ảnh; mặc định: semantic)")
     w.add_argument("--assemble", action="store_true",

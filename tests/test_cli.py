@@ -140,3 +140,61 @@ def test_thieu_kho_mau_thong_bao_ro_rang_khong_nhac_hw_note(monkeypatch, tmp_pat
     assert "--bank" in msg or "seed" in msg
 
 
+def test_cli_background_preset_and_overrides(capsys, tiny_bank_path, tmp_path):
+    """[US4] Kiểm tra cờ --bg-preset và ghi đè --bg-color."""
+    import gzip
+    out = str(tmp_path / "preset.xopp")
+    rc = cli.main([
+        "--bank", tiny_bank_path,
+        "write", "-t", "xin ba", "-o", out,
+        "--bg-preset", "lined_college",
+        "--bg-color", "#e8f4f8ff",
+    ])
+    assert rc == 0
+    raw = gzip.decompress(open(out, "rb").read()).decode("utf-8")
+    assert 'style="lined"' in raw
+    assert 'r1=20' in raw
+    assert 'color="#e8f4f8ff"' in raw
+
+
+def test_cli_negative_margin_lined(capsys, tiny_bank_path, tmp_path):
+    """[US4] Kiểm tra cờ --bg-m1=-72pt và --bg-m1 "-72pt" với giá trị âm cho nền lined."""
+    import gzip
+    out = str(tmp_path / "neg_margin.xopp")
+    rc = cli.main([
+        "--bank", tiny_bank_path,
+        "write", "-t", "xin ba", "-o", out,
+        "--background", "lined",
+        "--bg-m1=-72pt",
+    ])
+    assert rc == 0
+    raw = gzip.decompress(open(out, "rb").read()).decode("utf-8")
+    assert 'style="lined"' in raw
+    assert 'm1=-72' in raw
+
+    out_space = str(tmp_path / "neg_margin_space.xopp")
+    rc_space = cli.main([
+        "--bank", tiny_bank_path,
+        "write", "-t", "xin ba", "-o", out_space,
+        "--background", "lined",
+        "--bg-m1", "-72pt",
+    ])
+    assert rc_space == 0
+    raw_space = gzip.decompress(open(out_space, "rb").read()).decode("utf-8")
+    assert 'm1=-72' in raw_space
+
+
+def test_cli_no_snap_ruling_flag(capsys, tiny_bank_path, tmp_path):
+    """[US3/US4] Kiểm tra cờ --no-snap-ruling."""
+    out = str(tmp_path / "no_snap.xopp")
+    rc = cli.main([
+        "--bank", tiny_bank_path,
+        "write", "-t", "xin ba", "-o", out,
+        "--bg-preset", "ruled",
+        "--no-snap-ruling",
+    ])
+    assert rc == 0
+    assert os.path.exists(out)
+
+
+

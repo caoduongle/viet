@@ -253,3 +253,55 @@ class TestWriteOptionsPageFormatResolution:
         )
         with pytest.raises(ValueError, match="nhỏ hơn bề ngang trang"):
             opts.validate()
+
+
+class TestPageFormatParityAndPresets:
+    """Kiểm tra các mở rộng theo chuẩn Xournal++: lề âm, thuộc tính cấu hình, preset và catalog."""
+
+    def test_parse_length_allow_negative(self):
+        assert parse_length(-72.0, allow_negative=True) == -72.0
+        assert parse_length("-72pt", allow_negative=True) == -72.0
+        assert parse_length("-1in", allow_negative=True) == -72.0
+        assert parse_length("-2.54cm", allow_negative=True) == -72.0
+        with pytest.raises(ValueError, match="Kích thước phải là số dương hữu hạn"):
+            parse_length("-72pt", allow_negative=False)
+
+    def test_page_background_to_xml_negative_margin_and_full_config(self):
+        bg = PageBackground(
+            style="lined",
+            spacing=20.0,
+            margin=-72.0,
+            line_width=0.75,
+            primary_color="#40a0ff",
+            secondary_color="#ff0080",
+            round_margin=True,
+            bold_line_interval=5,
+            bold_line_width=1.5,
+        )
+        xml = bg.to_xml()
+        assert 'style="lined"' in xml
+        assert 'config="r1=20,m1=-72,lw=0.75,f1=40a0ff,f2=ff0080,rm=1,bli=5,blw=1.5"' in xml
+
+    def test_background_presets_existence_and_properties(self):
+        from chuviettay.document.page_format import BACKGROUND_PRESETS
+        assert "plain" in BACKGROUND_PRESETS
+        assert "lined_college" in BACKGROUND_PRESETS
+        assert BACKGROUND_PRESETS["lined_college"].spacing == 20.0
+        assert BACKGROUND_PRESETS["lined_college"].margin == 72.0
+        assert "graph_grid" in BACKGROUND_PRESETS
+        assert BACKGROUND_PRESETS["graph_grid"].bold_line_interval == 5
+        assert "staves" in BACKGROUND_PRESETS
+
+    def test_get_page_catalog(self):
+        from chuviettay.controller.app_controller import AppController
+        from chuviettay.document.page_format import get_page_catalog
+
+        cat = get_page_catalog()
+        assert "sizes" in cat and "a4" in cat["sizes"]
+        assert "presets" in cat and "lined_college" in cat["presets"]
+        assert "tones" in cat and len(cat["tones"]) >= 4
+
+        # Kiểm tra ủy quyền qua AppController
+        cat_ctl = AppController.get_page_catalog()
+        assert cat_ctl == cat
+

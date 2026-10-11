@@ -107,7 +107,8 @@ def test_fidelity_layout_engine_stroke_generation(bank, sample_data, tmp_path):
         bg = pg.find("background")
         assert bg is not None
         assert bg.get("type") == "pdf"
-        assert bg.get("pageno") == str(idx)
+        assert bg.get("domain") == "absolute"
+        assert bg.get("pageno") == str(idx + 1)
 
 
 def test_controller_write_docx_fidelity_api(tmp_path, monkeypatch):
@@ -258,11 +259,19 @@ def test_xopp_pdf_background_tag_generation():
     """Hàm pdf_background_xml sinh thẻ background type=pdf chuẩn cho Xournal++."""
     from chuviettay.model import xopp
 
-    bg_xml = xopp.pdf_background_xml("tai_lieu_bg.pdf", pageno=3, domain="relative")
+    bg_xml = xopp.pdf_background_xml("tai_lieu_bg.pdf", pageno=3, domain="absolute")
     assert 'type="pdf"' in bg_xml
-    assert 'domain="relative"' in bg_xml
+    assert 'domain="absolute"' in bg_xml
     assert 'filename="tai_lieu_bg.pdf"' in bg_xml
     assert 'pageno="3"' in bg_xml
+
+    # Mặc định pageno=1 (trang đầu tiên), domain=absolute, và filename lấy tên trần
+    bg_default = xopp.pdf_background_xml("/path/to/some/nested/document.pdf")
+    assert 'type="pdf"' in bg_default
+    assert 'domain="absolute"' in bg_default
+    assert 'filename="document.pdf"' in bg_default
+    assert 'pageno="1"' in bg_default
+    assert 'domain="relative"' not in bg_default
 
     page_xml = xopp.page_open_xml(595.28, 841.89, background=bg_xml)
     assert '<page width="595.28" height="841.89">' in page_xml
