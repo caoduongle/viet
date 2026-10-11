@@ -28,7 +28,7 @@ from chuviettay.document.ir import (
 )
 from chuviettay.layout.math_layout import MathLayoutEngine
 from chuviettay.layout.stream import PageBuffer
-from chuviettay.layout.table_layout import TableLayoutEngine
+from chuviettay.layout.table_layout import LineVerticalMetrics, TableLayoutEngine
 from chuviettay.math.parser import parse_latex_math
 from chuviettay.model import xopp
 from chuviettay.model.text_utils import Stroke, normalize_text, place
@@ -449,28 +449,51 @@ class DocumentLayoutEngine:
                             items = []
 
                         cell_lines: list[list[tuple[float, list[Stroke], float]]] = []
+                        cell_metrics: list[LineVerticalMetrics] = []
                         cur_l: list[tuple[float, list[Stroke], float]] = []
                         cur_lw = 0.0
+                        cur_asc = 0.0
+                        cur_desc = 0.0
+
+                        def flush_cur_line():
+                            nonlocal cur_l, cur_lw, cur_asc, cur_desc
+                            if cur_l:
+                                cell_lines.append(cur_l)
+                                extra_t = max(0.0, cur_asc - 0.7 * self.line_h)
+                                extra_b = max(0.0, cur_desc - 0.3 * self.line_h)
+                                line_h_tot = self.line_h + extra_t + extra_b
+                                cell_metrics.append(
+                                    LineVerticalMetrics(ascent=cur_asc, descent=cur_desc, width=cur_lw, height=line_h_tot)
+                                )
+                                cur_l = []
+                                cur_lw = 0.0
+                                cur_asc = 0.0
+                                cur_desc = 0.0
+
                         for item in items:
                             st, w, miss = item[0], item[1], item[2]
                             if miss == ["__LINE_BREAK__"]:
-                                if cur_l:
-                                    cell_lines.append(cur_l)
-                                    cur_l = []
-                                    cur_lw = 0.0
+                                flush_cur_line()
                                 continue
+                            item_asc = item_desc = 0.0
+                            if id(st) in self._math_extent:
+                                item_asc, item_desc = self._math_extent[id(st)]
+
                             sp = 6.0 * self.S * self.opts.space
                             if cur_l and cur_lw + sp + w > usable_w:
-                                cell_lines.append(cur_l)
+                                flush_cur_line()
                                 cur_l = [(0.0, st, w)]
                                 cur_lw = w
+                                cur_asc = item_asc
+                                cur_desc = item_desc
                             else:
                                 start_rel = cur_lw + (sp if cur_l else 0.0)
                                 cur_l.append((start_rel, st, w))
                                 cur_lw = start_rel + w
-                        if cur_l:
-                            cell_lines.append(cur_l)
-                        return cell_lines
+                                cur_asc = max(cur_asc, item_asc)
+                                cur_desc = max(cur_desc, item_desc)
+                        flush_cur_line()
+                        return cell_lines, cell_metrics
 
                     full_table_data = table_engine.layout_table(
                         block,
@@ -489,7 +512,6 @@ class DocumentLayoutEngine:
                         if avail_h < self.line_h + 2 * table_engine.cell_padding and cur_y > pf.content_top:
                             new_page()
                             avail_h = max_page_y - cur_y
-
 
                         slice_data, next_row = full_table_data.slice_page(
                             curr_row_idx,
@@ -529,9 +551,14 @@ class DocumentLayoutEngine:
                                 cell_cur_y = laid_cell.y + table_engine.cell_padding
 
                                 if laid_cell.rendered_lines:
-                                    for l_items in laid_cell.rendered_lines:
+                                    metrics_list = getattr(laid_cell, "line_metrics", [])
+                                    for l_idx, l_items in enumerate(laid_cell.rendered_lines):
+                                        m = metrics_list[l_idx] if l_idx < len(metrics_list) else None
+                                        extra_top = max(0.0, m.ascent - 0.7 * self.line_h) if m else 0.0
+                                        line_step_h = m.height if m and m.height > 0 else self.line_h
+
                                         if not l_items:
-                                            cell_cur_y += self.line_h
+                                            cell_cur_y += line_step_h
                                             continue
                                         line_w = l_items[-1][0] + l_items[-1][2]
                                         if align == "center":
@@ -542,15 +569,16 @@ class DocumentLayoutEngine:
                                             extra_x = 0.0
 
                                         start_x = laid_cell.x + table_engine.cell_padding + extra_x
+                                        baseline_y = cell_cur_y + extra_top + self.line_h * 0.8
                                         cell_strokes = self._render_text_line(
                                             l_items,
-                                            cell_cur_y + self.line_h * 0.8,
+                                            baseline_y,
                                             start_x,
                                         )
                                         cur_page.extend(cell_strokes)
                                         total_strokes += len(cell_strokes)
                                         total_lines += 1
-                                        cell_cur_y += self.line_h
+                                        cell_cur_y += line_step_h
 
                         cur_y += slice_data.height
                         curr_row_idx = next_row

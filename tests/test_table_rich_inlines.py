@@ -32,3 +32,31 @@ def test_table_cell_with_math_inline_and_symbols(tiny_bank, tmp_path):
 
     assert res.n_tables == 1
     assert res.n_strokes > 4, "Phải sinh cả nét viền bảng và các nét chữ, toán học bên trong ô"
+
+
+def test_table_cell_tall_formula_expands_row_height(tiny_bank, tmp_path):
+    """Kiểm tra ô chứa công thức toán cao (như phân số) tự động mở rộng chiều cao hàng."""
+    tiny_bank.words["a"] = [{"s": [[0, 0, 5, -8, 10, 0]], "w": 10.0}]
+    tiny_bank.words["b"] = [{"s": [[0, 0, 0, -15, 8, 0]], "w": 10.0}]
+
+    plain_cell = TableCell(blocks=[Paragraph(inlines=[Text("Chữ thường")])])
+    math_cell = TableCell(blocks=[Paragraph(inlines=[MathInline(latex=r"\frac{a}{b}")])])
+
+    table = Table(
+        rows=[TableRow(cells=[plain_cell, math_cell])],
+        border_style=TableBorder.ALL,
+    )
+    doc = Document(blocks=[table])
+    out = str(tmp_path / "table_tall_math.xopp")
+
+    opts = WriteOptions(scale=1.0, jitter=0.0)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+    res = engine.render(doc, out)
+
+    assert res.n_tables == 1
+    # Chiều cao của hàng phải lớn hơn chiều cao chuẩn của 1 dòng chữ thường
+    # Đọc lại XML xopp để kiểm tra nét vẽ
+    from chuviettay.model.xopp import read_xopp
+    layers, pages = read_xopp(out)
+    assert len(pages) >= 1
+

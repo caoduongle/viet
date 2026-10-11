@@ -472,6 +472,32 @@
     </div>
   </div>
 
+  <!-- Modal Chèn Bảng Markdown (US6) -->
+  <div id="modal-insert-table" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 850; align-items: center; justify-content: center;">
+    <div class="card" style="max-width: 360px; width: 90%;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 style="margin: 0; font-size: 1.15rem;">Chèn bảng Markdown</h3>
+        <button id="btn-close-insert-table" class="btn-tool" style="font-size: 1.1rem; border: none;">✕</button>
+      </div>
+      <div class="form-group" style="margin-bottom: 0.8rem;">
+        <label for="table-input-rows" style="display: block; font-size: 0.85rem; margin-bottom: 0.25rem;">Số hàng dữ liệu:</label>
+        <input type="number" id="table-input-rows" class="form-control" value="3" min="1" max="50" style="width: 100%;">
+      </div>
+      <div class="form-group" style="margin-bottom: 0.8rem;">
+        <label for="table-input-cols" style="display: block; font-size: 0.85rem; margin-bottom: 0.25rem;">Số cột:</label>
+        <input type="number" id="table-input-cols" class="form-control" value="3" min="1" max="20" style="width: 100%;">
+      </div>
+      <div class="form-group" style="margin-bottom: 1.2rem; display: flex; align-items: center; gap: 0.5rem;">
+        <input type="checkbox" id="table-input-header" checked style="width: 1rem; height: 1rem;">
+        <label for="table-input-header" style="font-size: 0.85rem; cursor: pointer; margin: 0;">Có hàng tiêu đề</label>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+        <button id="btn-cancel-insert-table" class="btn btn-outline" style="padding: 0.35rem 0.8rem; font-size: 0.85rem;">Hủy</button>
+        <button id="btn-confirm-insert-table" class="btn btn-primary" style="padding: 0.35rem 0.8rem; font-size: 0.85rem;">Chèn bảng</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Modal Chọn bộ ký tự (R3, D9) -->
   <div id="modal-char-groups" style="display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.5); z-index: 850; align-items: center; justify-content: center;">
     <div class="card" style="max-width: 540px; width: 90%; max-height: 85vh; overflow-y: auto;">

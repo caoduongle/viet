@@ -289,16 +289,51 @@ class DocxImporter(BaseImporter):
             first_text_piece = False
         return blocks
 
+    def _detect_cell_alignment(self, cell: Any) -> str:
+        for p in cell.paragraphs:
+            p_pr = next((ch for ch in p._element if ch.tag.endswith("pPr")), None)
+            if p_pr is not None:
+                jc = next((ch for ch in p_pr if ch.tag.endswith("jc")), None)
+                if jc is not None:
+                    val = next((v for k, v in jc.attrib.items() if k.endswith("val")), "").lower()
+                    if val in ("center", "right"):
+                        return val
+        tc_pr = next((ch for ch in cell._element if ch.tag.endswith("tcPr")), None)
+        if tc_pr is not None:
+            jc = next((ch for ch in tc_pr if ch.tag.endswith("jc")), None)
+            if jc is not None:
+                val = next((v for k, v in jc.attrib.items() if k.endswith("val")), "").lower()
+                if val in ("center", "right"):
+                    return val
+        return "left"
+
     def _parse_table(self, tbl: Any, unsupported: list[str]) -> Table:
         rows: list[TableRow] = []
         seen_tc: set[Any] = set()
+        col_alignments_map: dict[int, str] = {}
 
         for r in tbl.rows:
             cells: list[TableCell] = []
+            c_cursor = 0
             for c in r.cells:
                 if c._tc in seen_tc:
                     continue
                 seen_tc.add(c._tc)
+
+                try:
+                    c_left = c._tc.left
+                    colspan = max(1, c._tc.right - c._tc.left)
+                    rowspan = max(1, c._tc.bottom - c._tc.top)
+                except Exception:
+                    c_left = c_cursor
+                    colspan = getattr(c._tc, "grid_span", 1) or 1
+                    rowspan = 1
+
+                align = self._detect_cell_alignment(c)
+                if align in ("center", "right") and c_left not in col_alignments_map:
+                    col_alignments_map[c_left] = align
+
+                c_cursor += colspan
 
                 # Quét hình ảnh bên trong các ô bảng (đối tượng OLE/MathType được báo riêng khi đọc đoạn văn)
                 for d in c._element.iter():
@@ -306,16 +341,35 @@ class DocxImporter(BaseImporter):
                     if d_tag in ("drawing", "pict") and self._ole_progid(d) is None:
                         unsupported.append(f"{d_tag} in table cell: embedded image or drawing shape")
 
-                try:
-                    colspan = max(1, c._tc.right - c._tc.left)
-                    rowspan = max(1, c._tc.bottom - c._tc.top)
-                except Exception:
-                    colspan = getattr(c._tc, "grid_span", 1) or 1
-                    rowspan = 1
-
                 cell_blocks: list[Block] = []
                 for p in c.paragraphs:
                     cell_blocks.extend(self._parse_paragraph_blocks(p, unsupported))
+
+                # Trích xuất bảng lồng nhau (nested table) nếu có
+                nested_tables = getattr(c, "tables", [])
+                if nested_tables:
+                    diag = "Bảng lồng nhau: nội dung đã được trích xuất vào ô cha."
+                    if diag not in unsupported:
+                        unsupported.append(diag)
+                    for n_tbl in nested_tables:
+                        n_parsed = self._parse_table(n_tbl, unsupported)
+                        n_row_texts = []
+                        for n_r in n_parsed.rows:
+                            n_cell_texts = []
+                            for n_c in n_r.cells:
+                                n_parts = []
+                                for blk in n_c.blocks:
+                                    if hasattr(blk, "inlines"):
+                                        for inl in blk.inlines:
+                                            if hasattr(inl, "text") and inl.text:
+                                                n_parts.append(inl.text)
+                                            elif hasattr(inl, "latex") and inl.latex:
+                                                n_parts.append(f"${inl.latex}$")
+                                n_cell_texts.append(" ".join(n_parts).strip())
+                            n_row_texts.append(" | ".join(n_cell_texts))
+                        if n_row_texts:
+                            nested_summary = " [ " + " ; ".join(n_row_texts) + " ] "
+                            cell_blocks.append(Paragraph(inlines=[Text(text=nested_summary.strip())]))
 
                 if not cell_blocks and c.text.strip():
                     cell_blocks.append(Paragraph(inlines=[Text(text=c.text.strip())]))
@@ -325,4 +379,7 @@ class DocxImporter(BaseImporter):
             if cells:
                 rows.append(TableRow(cells=cells))
 
-        return Table(rows=rows, border_style=TableBorder.ALL)
+        num_cols = max((len(r.cells) for r in rows), default=0)
+        col_alignments = [col_alignments_map.get(i, "left") for i in range(num_cols)]
+
+        return Table(rows=rows, border_style=TableBorder.ALL, col_alignments=col_alignments)

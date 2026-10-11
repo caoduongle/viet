@@ -11,6 +11,54 @@ from chuviettay.layout.metrics import PositionedStroke
 
 
 @dataclass
+class LineVerticalMetrics:
+    """Thước đo hình học theo chiều dọc của một dòng nội dung bên trong ô bảng."""
+    ascent: float = 0.0     # Độ vươn lên trên đường cơ sở baseline (max(0, -y_min))
+    descent: float = 0.0    # Độ vươn xuống dưới baseline (max(0, y_max))
+    width: float = 0.0      # Chiều rộng dòng
+    height: float = 0.0     # Chiều cao hiệu dụng của dòng
+
+
+@dataclass
+class BorderLookupGrid:
+    """Mặt nạ tra cứu O(1) các vùng ô gộp để ẩn/hiện đường kẻ viền bảng nhanh chóng."""
+    num_rows: int
+    num_cols: int
+    horiz_spanned: list[list[bool]]  # [num_rows - 1][num_cols]: True nếu ranh giới ngang giữa row r và r+1 bị che bởi rowspan
+    vert_spanned: list[list[bool]]   # [num_rows][num_cols - 1]: True nếu ranh giới dọc giữa col c và c+1 bị che bởi colspan
+
+    @classmethod
+    def from_cells(cls, num_rows: int, num_cols: int, cells: list[list[LaidOutCell]]) -> BorderLookupGrid:
+        horiz = [[False] * num_cols for _ in range(max(0, num_rows - 1))]
+        vert = [[False] * max(0, num_cols - 1) for _ in range(num_rows)]
+
+        for r_cells in cells:
+            for cell in r_cells:
+                r_start = cell.row
+                r_end = min(num_rows, cell.row + cell.rowspan)
+                c_start = cell.col
+                c_end = min(num_cols, cell.col + cell.colspan)
+
+                # Che các đường ngang bên trong ô gộp (rowspan > 1)
+                if cell.rowspan > 1:
+                    for r in range(r_start, r_end - 1):
+                        if 0 <= r < len(horiz):
+                            for c in range(c_start, c_end):
+                                if 0 <= c < num_cols:
+                                    horiz[r][c] = True
+
+                # Che các đường dọc bên trong ô gộp (colspan > 1)
+                if cell.colspan > 1:
+                    for c in range(c_start, c_end - 1):
+                        if vert and 0 <= c < len(vert[0]):
+                            for r in range(r_start, r_end):
+                                if 0 <= r < num_rows:
+                                    vert[r][c] = True
+
+        return cls(num_rows=num_rows, num_cols=num_cols, horiz_spanned=horiz, vert_spanned=vert)
+
+
+@dataclass
 class LaidOutCell:
     """Toạ độ và kích thước của một ô bảng đã được định vị."""
     x: float
@@ -24,6 +72,7 @@ class LaidOutCell:
     colspan: int = 1
     rowspan: int = 1
     rendered_lines: list[Any] = field(default_factory=list)
+    line_metrics: list[LineVerticalMetrics] = field(default_factory=list)
 
 
 @dataclass
@@ -46,14 +95,32 @@ class TableLayoutData:
                 num_rows,
             )
 
-        # Ghi nhận các liên kết hàng do rowspan tạo ra để giữ tính gắn kết trang (cohesion)
-        row_group_end: list[int] = list(range(num_rows))
+        # Ghi nhận các liên kết hàng do rowspan tạo ra để giữ tính gắn kết trang (transitive closure)
+        intervals: list[tuple[int, int]] = []
         for r_cells in self.cells:
             for c in r_cells:
                 if c.rowspan > 1:
                     end_r = min(num_rows - 1, c.row + c.rowspan - 1)
-                    for r_k in range(c.row, end_r + 1):
-                        row_group_end[r_k] = max(row_group_end[r_k], end_r)
+                    intervals.append((c.row, end_r))
+
+        # Hợp nhất các khoảng giao nhau thành các nhóm liên kết đóng (transitive closure)
+        intervals.sort(key=lambda item: (item[0], item[1]))
+        merged_groups: list[list[int]] = []
+        for s, e in intervals:
+            if not merged_groups:
+                merged_groups.append([s, e])
+            else:
+                last_s, last_e = merged_groups[-1]
+                if s <= last_e:
+                    merged_groups[-1][1] = max(last_e, e)
+                else:
+                    merged_groups.append([s, e])
+
+        # Bản đồ tra cứu điểm kết thúc nhóm cho từng hàng
+        row_group_end: list[int] = list(range(num_rows))
+        for g_start, g_end in merged_groups:
+            for r_k in range(g_start, g_end + 1):
+                row_group_end[r_k] = max(row_group_end[r_k], g_end)
 
         curr_h = 0.0
         end_idx = start_row_idx
@@ -62,23 +129,24 @@ class TableLayoutData:
             target_end = row_group_end[end_idx]
             needed_h = sum(self.row_heights[end_idx : target_end + 1])
 
-            # Nếu thêm cả nhóm mà vượt quá max_height và trang đã có ít nhất 1 hàng: dừng lại để sang trang mới
+            # Nếu trang đã có ít nhất 1 hàng và thêm cả nhóm vượt quá max_height: dừng lại để chuyển nhóm sang trang mới
             if curr_h > 0 and curr_h + needed_h > max_height:
                 break
 
-            # Nếu trang chưa có hàng nào (start_row_idx == end_idx) mà needed_h > max_height:
-            # Nhận ít nhất 1 hàng để bảo đảm tiến trình không bị lặp vô hạn
+            # Nếu trang chưa có hàng nào (curr_h == 0) mà needed_h > max_height:
+            # Nhận trọn vẹn cả nhóm nguyên tử [end_idx, target_end] để không cắt cụt ô gộp và bảo đảm tiến trình next_row > start_row_idx
             if curr_h == 0 and needed_h > max_height:
-                end_idx += 1
-                curr_h += self.row_heights[start_row_idx]
+                end_idx = target_end + 1
+                curr_h = needed_h
                 break
 
             curr_h += needed_h
             end_idx = target_end + 1
 
         if end_idx == start_row_idx:
-            end_idx = start_row_idx + 1
-            curr_h = self.row_heights[start_row_idx]
+            target_end = row_group_end[start_row_idx]
+            end_idx = target_end + 1
+            curr_h = sum(self.row_heights[start_row_idx:end_idx])
 
         sliced_row_heights = self.row_heights[start_row_idx:end_idx]
         sliced_cells: list[list[LaidOutCell]] = []
@@ -102,6 +170,7 @@ class TableLayoutData:
                         colspan=cell.colspan,
                         rowspan=eff_rs,
                         rendered_lines=cell.rendered_lines,
+                        line_metrics=getattr(cell, "line_metrics", []),
                     )
                 )
             sliced_cells.append(row_cells)
@@ -209,6 +278,9 @@ class TableLayoutEngine:
         natural_widths = [0.0] * num_cols
         min_widths = [0.0] * num_cols
 
+        # Ngưỡng bề rộng tối thiểu để nội dung trong ô vẫn đọc được
+        min_readable_col = max(25.0, 2 * self.cell_padding + self.char_w * 2)
+
         for r, c, rs, cs, cell in placements:
             eff_cs = min(cs, num_cols - c)
             if eff_cs <= 0:
@@ -222,8 +294,10 @@ class TableLayoutEngine:
                 longest_w = max((len(w) for w in words), default=0) * self.char_w + 2 * self.cell_padding
                 full_w = len(txt) * self.char_w + 2 * self.cell_padding
 
-            per_col_min = max(30.0, longest_w / eff_cs)
-            per_col_nat = max(40.0, full_w / eff_cs)
+            # Giới hạn longest_w không được nuốt trọn toàn bộ available_width của bảng vì token có thể ngắt dòng theo ký tự
+            clamped_longest_w = min(longest_w, max(min_readable_col * eff_cs, self.available_width * 0.6))
+            per_col_min = max(min_readable_col, clamped_longest_w / eff_cs)
+            per_col_nat = max(min_readable_col + 10.0, full_w / eff_cs)
             for k in range(eff_cs):
                 col_idx = c + k
                 min_widths[col_idx] = max(min_widths[col_idx], per_col_min)
@@ -246,28 +320,77 @@ class TableLayoutEngine:
             factor = self.available_width / tot
             final_widths = [round(w * factor, 2) for w in final_widths]
 
-        return final_widths
+        # Bảo vệ cận dưới không để cột nào bị bóp nghẹt dưới min_readable_col nếu available_width cho phép
+        if self.available_width >= num_cols * min_readable_col:
+            for i in range(num_cols):
+                if final_widths[i] < min_readable_col:
+                    final_widths[i] = min_readable_col
+            # Cân bằng lại tổng bề rộng sau khi kẹp cận dưới
+            curr_tot = sum(final_widths)
+            if curr_tot > self.available_width:
+                excess = curr_tot - self.available_width
+                # Giảm dần phần dôi dư từ các cột có bề rộng lớn hơn min_readable_col
+                for i in sorted(range(num_cols), key=lambda idx: final_widths[idx], reverse=True):
+                    can_reduce = final_widths[i] - min_readable_col
+                    reduction = min(excess, can_reduce)
+                    final_widths[i] = round(final_widths[i] - reduction, 2)
+                    excess -= reduction
+                    if excess <= 1e-4:
+                        break
+
+        return [round(w, 2) for w in final_widths]
 
     def wrap_cell_text(self, text: str, width: float) -> list[str]:
-        """Ngắt dòng văn bản thô theo bề rộng cột trừ đi khoảng đệm."""
+        """Ngắt dòng văn bản thô theo bề rộng cột trừ đi khoảng đệm, hỗ trợ bẻ token dài theo ký tự."""
         usable_w = max(10.0, width - 2 * self.cell_padding)
         words = text.split()
         if not words:
             return []
         lines: list[str] = []
-        cur_line = []
+        cur_line: list[str] = []
         cur_w = 0.0
 
+        def get_w(s: str) -> float:
+            if self.calc_text_bounds is not None:
+                return self.calc_text_bounds(s)
+            return len(s) * self.char_w
+
+        space_len = self.char_w * 0.8
+
         for w in words:
-            w_len = len(w) * self.char_w
-            space_len = self.char_w * 0.8
-            if cur_line and cur_w + space_len + w_len > usable_w:
+            w_len = get_w(w)
+            # Nếu từ này vừa trên dòng hiện tại
+            if cur_line and cur_w + space_len + w_len <= usable_w:
+                cur_line.append(w)
+                cur_w += space_len + w_len
+                continue
+
+            # Nếu không vừa, đẩy dòng hiện tại vào danh sách
+            if cur_line:
                 lines.append(" ".join(cur_line))
-                cur_line = [w]
+                cur_line = []
+                cur_w = 0.0
+
+            # Nếu từ này vừa đứng một mình trên dòng mới
+            if w_len <= usable_w:
+                cur_line.append(w)
                 cur_w = w_len
             else:
-                cur_line.append(w)
-                cur_w += (space_len if len(cur_line) > 1 else 0.0) + w_len
+                # Token vượt quá usable_w: bẻ nhỏ theo từng ký tự
+                chunk: list[str] = []
+                chunk_w = 0.0
+                for ch in w:
+                    ch_w = get_w(ch)
+                    if chunk and chunk_w + ch_w > usable_w:
+                        lines.append("".join(chunk))
+                        chunk = [ch]
+                        chunk_w = ch_w
+                    else:
+                        chunk.append(ch)
+                        chunk_w += ch_w
+                if chunk:
+                    cur_line = ["".join(chunk)]
+                    cur_w = chunk_w
 
         if cur_line:
             lines.append(" ".join(cur_line))
@@ -300,15 +423,23 @@ class TableLayoutEngine:
 
             rendered_lines = []
             text_lines = []
+            line_metrics = []
             if cell_inlines_formatter is not None:
-                rendered_lines = cell_inlines_formatter(cell, usable_w)
-                num_lines = max(len(rendered_lines), 1)
+                formatter_res = cell_inlines_formatter(cell, usable_w)
+                if isinstance(formatter_res, tuple) and len(formatter_res) == 2:
+                    rendered_lines, line_metrics = formatter_res
+                else:
+                    rendered_lines = formatter_res
+                if line_metrics:
+                    needed_h = sum(m.height for m in line_metrics) + 2 * self.cell_padding
+                else:
+                    num_lines = max(len(rendered_lines), 1)
+                    needed_h = num_lines * self.line_height + 2 * self.cell_padding
             else:
                 txt = self._extract_cell_text(cell)
                 text_lines = self.wrap_cell_text(txt, spanned_w)
                 num_lines = max(len(text_lines), 1)
-
-            needed_h = num_lines * self.line_height + 2 * self.cell_padding
+                needed_h = num_lines * self.line_height + 2 * self.cell_padding
 
             if rs == 1:
                 row_heights[r] = max(row_heights[r], needed_h)
@@ -321,6 +452,7 @@ class TableLayoutEngine:
                 "cell": cell,
                 "text_lines": text_lines,
                 "rendered_lines": rendered_lines,
+                "line_metrics": line_metrics,
                 "needed_h": needed_h,
             })
 
@@ -366,6 +498,7 @@ class TableLayoutEngine:
                     colspan=cs,
                     rowspan=rs,
                     rendered_lines=item["rendered_lines"],
+                    line_metrics=item["line_metrics"],
                 )
             )
 
@@ -430,7 +563,7 @@ class TableLayoutEngine:
             strokes.append(PositionedStroke(points=jitter_segment((x1, y1), (x1, y2))))
             strokes.append(PositionedStroke(points=jitter_segment((x2, y1), (x2, y2))))
 
-        # Bản đồ các ô và vùng gộp để ẩn nét kẻ bên trong
+        # Bản đồ các ô và vùng gộp để ẩn nét kẻ bên trong (sử dụng BorderLookupGrid O(1))
         num_rows = len(data.row_heights)
         num_cols = len(data.col_widths)
 
@@ -442,22 +575,15 @@ class TableLayoutEngine:
         for h in data.row_heights:
             row_ys.append(row_ys[-1] + h)
 
+        grid = BorderLookupGrid.from_cells(num_rows, num_cols, data.cells)
+
         # 2. Đường chia ngang giữa các hàng (ALL, HORIZONTAL) theo từng phân đoạn cột
         if style in (TableBorder.ALL, TableBorder.HORIZONTAL):
             for r_idx in range(num_rows - 1):
                 div_y = row_ys[r_idx + 1]
                 cur_seg_start: float | None = None
                 for c_idx in range(num_cols):
-                    # Kiểm tra xem ô tại (r_idx, c_idx) có đang gộp vượt qua hàng này không (rowspan)
-                    is_spanned = False
-                    for r_cells in data.cells:
-                        for cell in r_cells:
-                            if cell.col <= c_idx < cell.col + cell.colspan:
-                                if cell.row <= r_idx < cell.row + cell.rowspan - 1:
-                                    is_spanned = True
-                                    break
-                        if is_spanned:
-                            break
+                    is_spanned = grid.horiz_spanned[r_idx][c_idx] if r_idx < len(grid.horiz_spanned) and c_idx < len(grid.horiz_spanned[r_idx]) else False
 
                     if not is_spanned:
                         if cur_seg_start is None:
@@ -476,16 +602,7 @@ class TableLayoutEngine:
                 div_x = col_xs[c_idx + 1]
                 cur_seg_start = None
                 for r_idx in range(num_rows):
-                    # Kiểm tra xem ô tại (r_idx, c_idx) có đang gộp vượt qua cột này không (colspan)
-                    is_spanned = False
-                    for r_cells in data.cells:
-                        for cell in r_cells:
-                            if cell.row <= r_idx < cell.row + cell.rowspan:
-                                if cell.col <= c_idx < cell.col + cell.colspan - 1:
-                                    is_spanned = True
-                                    break
-                        if is_spanned:
-                            break
+                    is_spanned = grid.vert_spanned[r_idx][c_idx] if r_idx < len(grid.vert_spanned) and c_idx < len(grid.vert_spanned[r_idx]) else False
 
                     if not is_spanned:
                         if cur_seg_start is None:

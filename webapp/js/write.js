@@ -398,9 +398,57 @@ function setupMarkdownToolbar(textarea) {
   btn("btn-md-math-block", () => insertAtCursor(textarea, "\n$$\n", "\n$$\n"));
   btn("btn-md-pagebreak", () => insertAtCursor(textarea, "\n<!-- pagebreak -->\n", ""));
 
+  const modalTable = document.getElementById("modal-insert-table");
+  const btnCloseTable = document.getElementById("btn-close-insert-table");
+  const btnCancelTable = document.getElementById("btn-cancel-insert-table");
+  const btnConfirmTable = document.getElementById("btn-confirm-insert-table");
+  const inputRows = document.getElementById("table-input-rows");
+  const inputCols = document.getElementById("table-input-cols");
+  const inputHeader = document.getElementById("table-input-header");
+
+  const closeTableModal = () => {
+    if (modalTable) modalTable.style.display = "none";
+  };
+
+  if (btnCloseTable) btnCloseTable.addEventListener("click", closeTableModal);
+  if (btnCancelTable) btnCancelTable.addEventListener("click", closeTableModal);
+  if (modalTable) {
+    modalTable.addEventListener("click", (e) => {
+      if (e.target === modalTable) closeTableModal();
+    });
+  }
+
+  if (btnConfirmTable) {
+    btnConfirmTable.addEventListener("click", () => {
+      const rows = Math.max(1, parseInt(inputRows?.value, 10) || 3);
+      const cols = Math.max(1, parseInt(inputCols?.value, 10) || 3);
+      const hasHeader = inputHeader ? inputHeader.checked : true;
+
+      const lines = [];
+      const headers = Array.from({ length: cols }, (_, i) => `Cột ${i + 1}`);
+      const delimiters = Array.from({ length: cols }, () => ":---");
+      lines.push("| " + headers.join(" | ") + " |");
+      lines.push("| " + delimiters.join(" | ") + " |");
+
+      for (let r = 1; r <= rows; r++) {
+        const cells = Array.from({ length: cols }, (_, c) => `R${r}C${c + 1}`);
+        lines.push("| " + cells.join(" | ") + " |");
+      }
+
+      const template = "\n" + lines.join("\n") + "\n";
+      insertAtCursor(textarea, template, "");
+      closeTableModal();
+    });
+  }
+
   btn("btn-md-table", () => {
-    const tableTemplate = "\n| Cột 1 | Cột 2 | Cột 3 |\n| :--- | :---: | ---: |\n| A1 | B1 | C1 |\n| A2 | B2 | C2 |\n";
-    insertAtCursor(textarea, tableTemplate, "");
+    if (modalTable) {
+      modalTable.style.display = "flex";
+      inputRows?.focus();
+    } else {
+      const tableTemplate = "\n| Cột 1 | Cột 2 | Cột 3 |\n| :--- | :---: | ---: |\n| A1 | B1 | C1 |\n| A2 | B2 | C2 |\n";
+      insertAtCursor(textarea, tableTemplate, "");
+    }
   });
 }
 
@@ -460,6 +508,10 @@ async function handleFileImport(file, textarea) {
         if (selectFormat) {
           selectFormat.value = "md";
           currentFormat = "md";
+        }
+        const allNotes = [...(res.warnings || []), ...(res.unsupported || [])];
+        if (allNotes.length > 0) {
+          showWarning(`Nhập file .docx hoàn tất có lưu ý:\n• ${allNotes.join("\n• ")}`);
         }
         triggerPreviewImmediate();
       } else {

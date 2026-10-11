@@ -251,4 +251,48 @@ def test_table_combined_2x2_merged_cells_and_border_suppression():
     assert len(horiz_in_m2x2) == 0, "Lỗi viền: đường chia ngang vẫn bị vẽ xuyên qua ô 2x2"
 
 
+def test_table_long_unbroken_token_wrapping():
+    """Kiểm tra từ dài không có khoảng trắng được bẻ theo ký tự, không tràn ra ngoài ô."""
+    engine = TableLayoutEngine(available_width=300.0, line_height=20.0, cell_padding=6.0)
+    col_w = 80.0
+    usable_w = col_w - 2 * 6.0  # 68.0
+
+    long_url = "https://example.com/very/long/unbroken/path/that/exceeds/the/column/width"
+    lines = engine.wrap_cell_text(long_url, col_w)
+
+    # 1. Phải bị bẻ thành nhiều dòng
+    assert len(lines) > 1
+
+    # 2. Mỗi dòng phải có bề rộng nhỏ hơn hoặc bằng usable_w
+    for l in lines:
+        line_w = len(l) * engine.char_w
+        assert line_w <= usable_w + 1e-4, f"Dòng '{l}' bị tràn cột: width={line_w} > usable_w={usable_w}"
+
+    # 3. Không bị mất ký tự nào khi ghép lại
+    assert "".join(lines) == long_url
+
+
+def test_table_column_widths_minimum_constraint():
+    """Kiểm tra phân bổ bề rộng cột bảo toàn cận dưới readable, không bóp chết cột khác khi có token cực dài."""
+    # Bảng 3 cột: cột 1 có token cực dài (300 ký tự), cột 2 và 3 có text bình thường
+    table = Table(
+        rows=[
+            TableRow(cells=[
+                TableCell.from_text("A" * 300),
+                TableCell.from_text("Cột B"),
+                TableCell.from_text("Cột C"),
+            ])
+        ],
+        border_style=TableBorder.ALL,
+    )
+    engine = TableLayoutEngine(available_width=300.0, line_height=20.0)
+    col_widths = engine.compute_column_widths(table)
+
+    assert len(col_widths) == 3
+    assert sum(col_widths) <= 300.0 + 1e-4
+    # Tất cả các cột phải đảm bảo mức tối thiểu readable (>= 25.0)
+    for c_w in col_widths:
+        assert c_w >= 25.0, f"Cột có bề rộng {c_w} < 25.0 quá hẹp không thể đọc được"
+
+
 

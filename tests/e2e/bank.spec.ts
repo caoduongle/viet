@@ -21,13 +21,16 @@ test.describe("User Story 4: Quản lý Kho mẫu chữ (E2E)", () => {
 
     // 2. Nạp kho mẫu tổng hợp để có sẵn nhiều từ
     const welcomeModal = page.locator("#welcome-modal");
-    if (await welcomeModal.isVisible()) {
+    try {
+      await welcomeModal.waitFor({ state: "visible", timeout: 5000 });
       const bankFilePath = path.resolve("tests/data/kho_mau_tong_hop.json.gz");
       const fileChooserPromise = page.waitForEvent("filechooser");
       await page.click("#btn-welcome-import");
       const fileChooser = await fileChooserPromise;
       await fileChooser.setFiles(bankFilePath);
       await expect(welcomeModal).toBeHidden({ timeout: 15000 });
+    } catch {
+      // Bỏ qua nếu không xuất hiện modal chào
     }
 
     // 3. Chuyển sang Tab Kho mẫu

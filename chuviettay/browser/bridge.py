@@ -25,7 +25,7 @@ from chuviettay.controller.teach_geometry import (
     ZOOM,
     strokes_to_bank_units,
 )
-from chuviettay.document.ir import Document, PageBreak
+from chuviettay.document.ir import Document, PageBreak, Table, TableCell
 from chuviettay.importer.markdown_importer import MarkdownImporter
 
 # Regex nhận diện thẻ ngắt trang
@@ -531,6 +531,24 @@ class BrowserBridge:
             try:
                 res = self._ctl.import_document(docx_path, fmt="docx")
                 lines = []
+                warnings_out = list(res.warnings)
+                unsupported_out = list(res.unsupported)
+
+                def _extract_cell_markdown(cell: TableCell) -> str:
+                    parts = []
+                    for blk in cell.blocks:
+                        if hasattr(blk, "inlines"):
+                            for inl in blk.inlines:
+                                if hasattr(inl, "text") and inl.text:
+                                    t = inl.text.replace("\r\n", " ").replace("\n", " ").replace("|", r"\|")
+                                    parts.append(t)
+                                elif hasattr(inl, "latex") and inl.latex:
+                                    parts.append(f"${inl.latex}$")
+                                elif hasattr(inl, "symbol") and inl.symbol:
+                                    parts.append(inl.symbol)
+                    txt = " ".join(parts).strip()
+                    return txt if txt else " "
+
                 for b in res.document.blocks:
                     if hasattr(b, "inlines"):
                         line_parts = []
@@ -542,11 +560,56 @@ class BrowserBridge:
                             elif hasattr(inl, "symbol") and inl.symbol:
                                 line_parts.append(inl.symbol)
                         lines.append(" ".join(line_parts))
+                    elif isinstance(b, Table) and b.rows:
+                        has_merges = any(
+                            c.rowspan > 1 or c.colspan > 1
+                            for r in b.rows for c in r.cells
+                        )
+                        if has_merges:
+                            warnings_out.append(
+                                "Bảng chứa ô gộp (hàng/cột): cấu trúc được giản lược sang dạng bảng Markdown."
+                            )
+
+                        num_cols = max(len(r.cells) for r in b.rows)
+                        if num_cols == 0:
+                            continue
+
+                        # Hàng tiêu đề và căn lề
+                        col_alignments = b.col_alignments or []
+                        align_markers = []
+                        for c_idx in range(num_cols):
+                            align = col_alignments[c_idx].lower() if c_idx < len(col_alignments) else "left"
+                            if align == "center":
+                                align_markers.append(":---:")
+                            elif align == "right":
+                                align_markers.append("---:")
+                            else:
+                                align_markers.append(":---")
+
+                        header_row = b.rows[0]
+                        header_vals = [_extract_cell_markdown(c) for c in header_row.cells]
+                        while len(header_vals) < num_cols:
+                            header_vals.append(" ")
+
+                        table_lines = [
+                            "| " + " | ".join(header_vals) + " |",
+                            "| " + " | ".join(align_markers) + " |",
+                        ]
+
+                        # Các hàng dữ liệu (nếu chỉ có 1 hàng thì bảng vẫn có header + delimiter)
+                        for r in b.rows[1:]:
+                            r_vals = [_extract_cell_markdown(c) for c in r.cells]
+                            while len(r_vals) < num_cols:
+                                r_vals.append(" ")
+                            table_lines.append("| " + " | ".join(r_vals) + " |")
+
+                        lines.append("\n".join(table_lines))
+
                 return {
                     "ok": True,
                     "markdown_text": "\n\n".join(lines),
-                    "warnings": res.warnings,
-                    "unsupported": res.unsupported,
+                    "warnings": warnings_out,
+                    "unsupported": unsupported_out,
                 }
             finally:
                 if os.path.exists(docx_path):
