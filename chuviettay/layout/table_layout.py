@@ -73,6 +73,7 @@ class LaidOutCell:
     rowspan: int = 1
     rendered_lines: list[Any] = field(default_factory=list)
     line_metrics: list[LineVerticalMetrics] = field(default_factory=list)
+    is_continuation: bool = False
 
 
 @dataclass
@@ -85,8 +86,15 @@ class TableLayoutData:
     col_widths: list[float]
     row_heights: list[float]
     cells: list[list[LaidOutCell]]
+    warnings: list[str] = field(default_factory=list)
 
-    def slice_page(self, start_row_idx: int, max_height: float, new_y: float) -> tuple[TableLayoutData, int]:
+    def slice_page(
+        self,
+        start_row_idx: int,
+        max_height: float,
+        new_y: float,
+        can_defer_to_next_page: bool = False,
+    ) -> tuple[TableLayoutData, int]:
         """Tạo một lát cắt bảng (sub-table) cho một trang từ hàng start_row_idx vừa trong max_height."""
         num_rows = len(self.row_heights)
         if start_row_idx >= num_rows:
@@ -124,6 +132,7 @@ class TableLayoutData:
 
         curr_h = 0.0
         end_idx = start_row_idx
+        slice_warnings: list[str] = []
 
         while end_idx < num_rows:
             target_end = row_group_end[end_idx]
@@ -134,19 +143,40 @@ class TableLayoutData:
                 break
 
             # Nếu trang chưa có hàng nào (curr_h == 0) mà needed_h > max_height:
-            # Nhận trọn vẹn cả nhóm nguyên tử [end_idx, target_end] để không cắt cụt ô gộp và bảo đảm tiến trình next_row > start_row_idx
             if curr_h == 0 and needed_h > max_height:
-                end_idx = target_end + 1
-                curr_h = needed_h
+                if can_defer_to_next_page:
+                    # Chuyển nhóm sang trang mới bằng cách trả về rỗng
+                    return (
+                        TableLayoutData(x=self.x, y=new_y, width=self.width, height=0.0, col_widths=self.col_widths, row_heights=[], cells=[]),
+                        start_row_idx,
+                    )
+
+                # Đang ở trang trắng (hoặc không thể chuyển trang): nhóm cao hơn cả trang!
+                # Cố gắng lấy số hàng con [end_idx..sub_end] vừa khít trong trang
+                sub_end = end_idx
+                sub_h = 0.0
+                while sub_end <= target_end and sub_h + self.row_heights[sub_end] <= max_height:
+                    sub_h += self.row_heights[sub_end]
+                    sub_end += 1
+
+                if sub_end > end_idx:
+                    end_idx = sub_end
+                    curr_h = sub_h
+                else:
+                    # Ngay cả hàng đơn lẻ đầu tiên đã vượt quá max_height: lấy 1 hàng để bảo đảm tiến lên
+                    end_idx = end_idx + 1
+                    curr_h = min(self.row_heights[start_row_idx], max_height)
+                    slice_warnings.append(
+                        f"Hàng {start_row_idx} vượt quá chiều cao trang in ({self.row_heights[start_row_idx]:.1f}pt > {max_height:.1f}pt); nội dung đã được kẹp an toàn."
+                    )
                 break
 
             curr_h += needed_h
             end_idx = target_end + 1
 
         if end_idx == start_row_idx:
-            target_end = row_group_end[start_row_idx]
-            end_idx = target_end + 1
-            curr_h = sum(self.row_heights[start_row_idx:end_idx])
+            end_idx = start_row_idx + 1
+            curr_h = min(self.row_heights[start_row_idx], max_height)
 
         sliced_row_heights = self.row_heights[start_row_idx:end_idx]
         sliced_cells: list[list[LaidOutCell]] = []
@@ -171,8 +201,35 @@ class TableLayoutData:
                         rowspan=eff_rs,
                         rendered_lines=cell.rendered_lines,
                         line_metrics=getattr(cell, "line_metrics", []),
+                        is_continuation=False,
                     )
                 )
+
+            # Bổ sung các ô tiếp nối cho các ô rowspan từ các hàng trước đó vẫn đang vươn qua start_row_idx
+            if r_offset == 0 and start_row_idx > 0:
+                for prev_r in range(start_row_idx):
+                    for prev_cell in self.cells[prev_r]:
+                        if prev_r + prev_cell.rowspan > start_row_idx:
+                            rem_rs = min(prev_r + prev_cell.rowspan - start_row_idx, end_idx - start_row_idx)
+                            cont_h = sum(self.row_heights[start_row_idx : start_row_idx + rem_rs])
+                            row_cells.append(
+                                LaidOutCell(
+                                    x=prev_cell.x,
+                                    y=cur_row_y,
+                                    width=prev_cell.width,
+                                    height=cont_h,
+                                    text_lines=[],
+                                    cell=prev_cell.cell,
+                                    col=prev_cell.col,
+                                    row=0,
+                                    colspan=prev_cell.colspan,
+                                    rowspan=rem_rs,
+                                    rendered_lines=[],
+                                    line_metrics=[],
+                                    is_continuation=True,
+                                )
+                            )
+
             sliced_cells.append(row_cells)
             cur_row_y += self.row_heights[r]
 
@@ -185,6 +242,7 @@ class TableLayoutData:
                 col_widths=self.col_widths,
                 row_heights=sliced_row_heights,
                 cells=sliced_cells,
+                warnings=slice_warnings,
             ),
             end_idx,
         )

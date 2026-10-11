@@ -307,10 +307,11 @@ class DocxImporter(BaseImporter):
                     return val
         return "left"
 
-    def _parse_table(self, tbl: Any, unsupported: list[str]) -> Table:
+    def _parse_table(self, tbl: Any, unsupported: list[str], depth: int = 0) -> Table:
         rows: list[TableRow] = []
         seen_tc: set[Any] = set()
         col_alignments_map: dict[int, str] = {}
+        max_logical_cols = 0
 
         for r in tbl.rows:
             cells: list[TableCell] = []
@@ -334,6 +335,7 @@ class DocxImporter(BaseImporter):
                     col_alignments_map[c_left] = align
 
                 c_cursor += colspan
+                max_logical_cols = max(max_logical_cols, c_cursor)
 
                 # Quét hình ảnh bên trong các ô bảng (đối tượng OLE/MathType được báo riêng khi đọc đoạn văn)
                 for d in c._element.iter():
@@ -342,17 +344,39 @@ class DocxImporter(BaseImporter):
                         unsupported.append(f"{d_tag} in table cell: embedded image or drawing shape")
 
                 cell_blocks: list[Block] = []
-                for p in c.paragraphs:
-                    cell_blocks.extend(self._parse_paragraph_blocks(p, unsupported))
 
-                # Trích xuất bảng lồng nhau (nested table) nếu có
-                nested_tables = getattr(c, "tables", [])
-                if nested_tables:
-                    diag = "Bảng lồng nhau: nội dung đã được trích xuất vào ô cha."
-                    if diag not in unsupported:
-                        unsupported.append(diag)
-                    for n_tbl in nested_tables:
-                        n_parsed = self._parse_table(n_tbl, unsupported)
+                # Trích xuất nội dung ô theo thứ tự xuất hiện thực tế (iter_inner_content hoặc tc.iterchildren)
+                if hasattr(c, "iter_inner_content"):
+                    try:
+                        inner_items = list(c.iter_inner_content())
+                    except Exception:
+                        inner_items = []
+                else:
+                    inner_items = []
+
+                if not inner_items:
+                    import docx.table
+                    import docx.text.paragraph
+                    for child in c._tc.iterchildren():
+                        tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+                        if tag == "p":
+                            inner_items.append(docx.text.paragraph.Paragraph(child, c))
+                        elif tag == "tbl":
+                            inner_items.append(docx.table.Table(child, c))
+
+                for item in inner_items:
+                    # Kiểm tra nếu item là Paragraph
+                    if hasattr(item, "runs") or (hasattr(item, "text") and not hasattr(item, "rows")):
+                        cell_blocks.extend(self._parse_paragraph_blocks(item, unsupported))
+                    # Kiểm tra nếu item là Table (nested table)
+                    elif hasattr(item, "rows"):
+                        if depth >= 5:
+                            unsupported.append("Bảng lồng nhau vượt quá giới hạn độ sâu (depth > 5).")
+                            continue
+                        diag = "Bảng lồng nhau: nội dung đã được trích xuất vào ô cha."
+                        if diag not in unsupported:
+                            unsupported.append(diag)
+                        n_parsed = self._parse_table(item, unsupported, depth=depth + 1)
                         n_row_texts = []
                         for n_r in n_parsed.rows:
                             n_cell_texts = []
@@ -379,7 +403,7 @@ class DocxImporter(BaseImporter):
             if cells:
                 rows.append(TableRow(cells=cells))
 
-        num_cols = max((len(r.cells) for r in rows), default=0)
+        num_cols = max_logical_cols or max((len(r.cells) for r in rows), default=0)
         col_alignments = [col_alignments_map.get(i, "left") for i in range(num_cols)]
 
         return Table(rows=rows, border_style=TableBorder.ALL, col_alignments=col_alignments)

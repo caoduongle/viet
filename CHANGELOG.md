@@ -1,5 +1,29 @@
 # Nhật ký thay đổi
 
+## Chưa phát hành — Độ bền vững bố cục bảng, đồng bộ hình học và nhập DOCX (Spec 032)
+
+Tối ưu độ ổn định của bố cục bảng biểu, phân trang an toàn, đồng bộ kích thước công thức toán học và phục hồi chính xác cấu trúc bảng DOCX:
+
+### Phân trang bảng an toàn & kẹp lề trang (US1 - P1)
+- **Hoãn nhóm ô gộp sang trang mới (`can_defer_to_next_page`)**: Khi nhóm ô gộp không vừa khoảng trống còn lại của trang hiện tại, thuật toán tự động ngắt trang thay vì cưỡng ép vẽ vượt ra ngoài lề trang.
+- **Tiếp nối có kiểm soát (`is_continuation`)**: Trên trang mới, nếu nhóm ô gộp hoặc hàng đơn lẻ vượt quá chiều cao toàn trang in, hệ thống phân đoạn các hàng con vừa khít, đóng nắp đường viền và đánh dấu ô tiếp nối trên trang tiếp theo.
+- **Kẹp lề tuyệt đối**: Toàn bộ nét chữ và đường viền bảng được kẹp chặt chẽ trong khoảng in được (`baseline_y <= max_page_y`), loại bỏ 100% rủi ro tràn toạ độ nét vẽ ra đáy trang giấy.
+
+### Đồng bộ tỷ lệ số đo công thức toán học (US2 - P1)
+- **Chuẩn hoá số đo `ascent`/`descent`**: Trong bộ định dạng ô bảng (`cell_inlines_formatter`), số đo công thức toán học được đồng bộ chính xác theo tỷ lệ viết tay thực tế ($S \times \text{scale\_mult}$).
+- **Mở rộng chiều cao dòng động**: Chiều cao hàng tự động mở rộng theo công thức cao (phân số, căn thức, tích phân) ở mọi tỷ lệ ($S=0.5, 1.0, 1.5$) và khi bật `--auto-xh`, loại bỏ triệt để hiện tượng nét công thức đè lên đường viền ô.
+
+### Bẻ token dài theo ký tự trong pipeline bảng (US3 - P2)
+- **Bẻ nhỏ token không dấu cách theo ký tự**: Các chuỗi token quá rộng (URL dài, mã băm hex, định danh không ngắt dòng) được bẻ tự động thành các đoạn ký tự vừa khít độ rộng khả dụng (`usable_w`) ngay trong pipeline kết xuất bảng của `DocumentLayoutEngine`.
+- **Bảo toàn ranh giới cột**: Khẳng định 100% toạ độ nét vẽ nằm trong giới hạn chiều rộng của cột bảng, ngăn chặn tràn mực sang các cột lân cận.
+
+### Phục hồi số cột logic DOCX & Thứ tự bảng lồng nhau (US4 - P2)
+- **Ma trận chiếm chỗ 2D (Occupancy Grid)**: Chuyển đổi bảng DOCX/IR sang Markdown sử dụng lưới 2D, tính toán đúng tổng số cột logic khi có `colspan`/`rowspan` và chèn ô đệm trống chính xác vào các vị trí bị chiếm chỗ.
+- **Bảo toàn thứ tự xuất hiện tài liệu**: Duyệt các phần tử con của ô bảng theo thứ tự thực tế (`c.iter_inner_content()` / `c._tc.iterchildren()`), giữ đúng thứ tự xuất hiện giữa các đoạn văn và bảng con (Đoạn A $\to$ Bảng con $\to$ Đoạn B) kèm cơ chế chặn đệ quy sâu (depth $\le 5$).
+
+### Hỗ trợ bảng không tiêu đề trên Web UI (US5 - P3)
+- **Tôn trọng checkbox "Có hàng tiêu đề"**: Modal chèn bảng Markdown trên Web UI hỗ trợ tạo bảng không tiêu đề bằng cách sinh dòng header trống `|   |   |` và dòng phân cách `:---` chuẩn CommonMark.
+
 ## Chưa phát hành — Tương thích hình học giấy và tệp .xopp chuẩn Xournal++ (Spec 031)
 
 Hoàn thiện tính tương thích 1:1 với Xournal++ về định dạng tệp .xopp, hình học các loại nền giấy, căn dòng chữ viết tay và danh mục khổ giấy đồng bộ:

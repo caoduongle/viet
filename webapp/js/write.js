@@ -425,7 +425,9 @@ function setupMarkdownToolbar(textarea) {
       const hasHeader = inputHeader ? inputHeader.checked : true;
 
       const lines = [];
-      const headers = Array.from({ length: cols }, (_, i) => `Cột ${i + 1}`);
+      const headers = hasHeader
+        ? Array.from({ length: cols }, (_, i) => `Cột ${i + 1}`)
+        : Array.from({ length: cols }, () => " ");
       const delimiters = Array.from({ length: cols }, () => ":---");
       lines.push("| " + headers.join(" | ") + " |");
       lines.push("| " + delimiters.join(" | ") + " |");

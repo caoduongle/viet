@@ -90,4 +90,43 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
     // 9. Khẳng định tuyệt đối Zero Remote CDN
     expect(externalRequests).toHaveLength(0);
   });
+
+  test("chèn bảng qua modal tôn trọng checkbox Has header row", async ({ page }) => {
+    test.setTimeout(30000);
+    await page.goto("/");
+    await expect(page.locator("#splash-screen")).toBeHidden({ timeout: 30000 });
+
+    const welcomeModal = page.locator("#welcome-modal");
+    try {
+      await welcomeModal.waitFor({ state: "visible", timeout: 4000 });
+      await page.click("#btn-welcome-create");
+      await expect(welcomeModal).toBeHidden({ timeout: 15000 });
+    } catch {
+      // Bỏ qua nếu không xuất hiện modal chào
+    }
+
+    await page.click('[data-tab="write"]');
+    const textarea = page.locator("#editor-text");
+    await expect(textarea).toBeVisible();
+
+    // Mở modal chèn bảng
+    await page.click("#btn-md-table");
+    const modal = page.locator("#modal-insert-table");
+    await expect(modal).toBeVisible();
+
+    // Điền 2 hàng, 3 cột và bỏ chọn header
+    await page.fill("#table-input-rows", "2");
+    await page.fill("#table-input-cols", "3");
+    await page.uncheck("#table-input-header");
+
+    await page.click("#btn-confirm-insert-table");
+    await expect(modal).toBeHidden();
+
+    const val = await textarea.inputValue();
+    // Bảng không có tiêu đề phải có dòng header trắng |   |   |   |
+    expect(val).toContain("|   |   |   |");
+    expect(val).toContain("| :--- | :--- | :--- |");
+    expect(val).toContain("| R1C1 | R1C2 | R1C3 |");
+    expect(val).toContain("| R2C1 | R2C2 | R2C3 |");
+  });
 });

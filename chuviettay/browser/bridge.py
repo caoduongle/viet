@@ -538,87 +538,7 @@ class BrowserBridge:
                 docx_path = tmp.name
             try:
                 res = self._ctl.import_document(docx_path, fmt="docx")
-                lines = []
-                warnings_out = list(res.warnings)
-                unsupported_out = list(res.unsupported)
-
-                def _extract_cell_markdown(cell: TableCell) -> str:
-                    parts = []
-                    for blk in cell.blocks:
-                        if hasattr(blk, "inlines"):
-                            for inl in blk.inlines:
-                                if hasattr(inl, "text") and inl.text:
-                                    t = inl.text.replace("\r\n", " ").replace("\n", " ").replace("|", r"\|")
-                                    parts.append(t)
-                                elif hasattr(inl, "latex") and inl.latex:
-                                    parts.append(f"${inl.latex}$")
-                                elif hasattr(inl, "symbol") and inl.symbol:
-                                    parts.append(inl.symbol)
-                    txt = " ".join(parts).strip()
-                    return txt if txt else " "
-
-                for b in res.document.blocks:
-                    if hasattr(b, "inlines"):
-                        line_parts = []
-                        for inl in b.inlines:
-                            if hasattr(inl, "text") and inl.text:
-                                line_parts.append(inl.text)
-                            elif hasattr(inl, "latex") and inl.latex:
-                                line_parts.append(f"${inl.latex}$")
-                            elif hasattr(inl, "symbol") and inl.symbol:
-                                line_parts.append(inl.symbol)
-                        lines.append(" ".join(line_parts))
-                    elif isinstance(b, Table) and b.rows:
-                        has_merges = any(
-                            c.rowspan > 1 or c.colspan > 1
-                            for r in b.rows for c in r.cells
-                        )
-                        if has_merges:
-                            warnings_out.append(
-                                "Bảng chứa ô gộp (hàng/cột): cấu trúc được giản lược sang dạng bảng Markdown."
-                            )
-
-                        num_cols = max(len(r.cells) for r in b.rows)
-                        if num_cols == 0:
-                            continue
-
-                        # Hàng tiêu đề và căn lề
-                        col_alignments = b.col_alignments or []
-                        align_markers = []
-                        for c_idx in range(num_cols):
-                            align = col_alignments[c_idx].lower() if c_idx < len(col_alignments) else "left"
-                            if align == "center":
-                                align_markers.append(":---:")
-                            elif align == "right":
-                                align_markers.append("---:")
-                            else:
-                                align_markers.append(":---")
-
-                        header_row = b.rows[0]
-                        header_vals = [_extract_cell_markdown(c) for c in header_row.cells]
-                        while len(header_vals) < num_cols:
-                            header_vals.append(" ")
-
-                        table_lines = [
-                            "| " + " | ".join(header_vals) + " |",
-                            "| " + " | ".join(align_markers) + " |",
-                        ]
-
-                        # Các hàng dữ liệu (nếu chỉ có 1 hàng thì bảng vẫn có header + delimiter)
-                        for r in b.rows[1:]:
-                            r_vals = [_extract_cell_markdown(c) for c in r.cells]
-                            while len(r_vals) < num_cols:
-                                r_vals.append(" ")
-                            table_lines.append("| " + " | ".join(r_vals) + " |")
-
-                        lines.append("\n".join(table_lines))
-
-                return {
-                    "ok": True,
-                    "markdown_text": "\n\n".join(lines),
-                    "warnings": warnings_out,
-                    "unsupported": unsupported_out,
-                }
+                return self._document_to_markdown_dict(res.document, res.warnings, res.unsupported)
             finally:
                 if os.path.exists(docx_path):
                     try:
@@ -627,3 +547,105 @@ class BrowserBridge:
                         pass
         except Exception as e:
             return _err_res(e)
+
+    def _document_to_markdown_dict(
+        self,
+        doc: Document,
+        warnings: list[str] | None = None,
+        unsupported: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Tuần tự hóa Document IR thành Markdown dạng text, bảo toàn số cột logic bằng 2D occupancy grid."""
+        lines: list[str] = []
+        warnings_out = list(warnings or [])
+        unsupported_out = list(unsupported or [])
+
+        def _extract_cell_markdown(cell: TableCell) -> str:
+            parts = []
+            for blk in cell.blocks:
+                if hasattr(blk, "inlines"):
+                    for inl in blk.inlines:
+                        if hasattr(inl, "text") and inl.text:
+                            t = inl.text.replace("\r\n", " ").replace("\n", " ").replace("|", r"\|")
+                            parts.append(t)
+                        elif hasattr(inl, "latex") and inl.latex:
+                            parts.append(f"${inl.latex}$")
+                        elif hasattr(inl, "symbol") and inl.symbol:
+                            parts.append(inl.symbol)
+            txt = " ".join(parts).strip()
+            return txt if txt else " "
+
+        for b in doc.blocks:
+            if hasattr(b, "inlines"):
+                line_parts = []
+                for inl in b.inlines:
+                    if hasattr(inl, "text") and inl.text:
+                        line_parts.append(inl.text)
+                    elif hasattr(inl, "latex") and inl.latex:
+                        line_parts.append(f"${inl.latex}$")
+                    elif hasattr(inl, "symbol") and inl.symbol:
+                        line_parts.append(inl.symbol)
+                lines.append(" ".join(line_parts))
+            elif isinstance(b, Table) and b.rows:
+                has_merges = any(
+                    c.rowspan > 1 or c.colspan > 1
+                    for r in b.rows for c in r.cells
+                )
+                if has_merges:
+                    warnings_out.append(
+                        "Bảng chứa ô gộp (hàng/cột): cấu trúc được giản lược sang dạng bảng Markdown."
+                    )
+
+                # 2D Occupancy Grid: phục hồi toạ độ cột và tổng số cột logic
+                occupied: set[tuple[int, int]] = set()
+                placements: list[tuple[int, int, int, int, TableCell]] = []
+                max_c = 0
+                for r_idx, row in enumerate(b.rows):
+                    c_cursor = 0
+                    for cell in row.cells:
+                        while (r_idx, c_cursor) in occupied:
+                            c_cursor += 1
+                        cs = max(1, getattr(cell, "colspan", 1))
+                        rs = max(1, getattr(cell, "rowspan", 1))
+                        placements.append((r_idx, c_cursor, rs, cs, cell))
+                        for dr in range(rs):
+                            for dc in range(cs):
+                                occupied.add((r_idx + dr, c_cursor + dc))
+                        c_cursor += cs
+                        max_c = max(max_c, c_cursor)
+
+                num_cols = max(max_c, 1)
+                num_rows = len(b.rows)
+
+                # Tạo lưới 2D chứa nội dung cell đã trích xuất và ô đệm " "
+                grid: list[list[str]] = [[" " for _ in range(num_cols)] for _ in range(num_rows)]
+                for r, c, rs, cs, cell in placements:
+                    grid[r][c] = _extract_cell_markdown(cell)
+
+                # Căn lề các cột
+                col_alignments = b.col_alignments or []
+                align_markers = []
+                for c_idx in range(num_cols):
+                    align = col_alignments[c_idx].lower() if c_idx < len(col_alignments) else "left"
+                    if align == "center":
+                        align_markers.append(":---:")
+                    elif align == "right":
+                        align_markers.append("---:")
+                    else:
+                        align_markers.append(":---")
+
+                table_lines = [
+                    "| " + " | ".join(grid[0]) + " |",
+                    "| " + " | ".join(align_markers) + " |",
+                ]
+
+                for r_idx in range(1, num_rows):
+                    table_lines.append("| " + " | ".join(grid[r_idx]) + " |")
+
+                lines.append("\n".join(table_lines))
+
+        return {
+            "ok": True,
+            "markdown_text": "\n\n".join(lines),
+            "warnings": warnings_out,
+            "unsupported": unsupported_out,
+        }

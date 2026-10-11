@@ -488,9 +488,10 @@ class DocumentLayoutEngine:
                                     cell_inlines.append(LineBreak())
                                 cell_inlines.append(MathInline(latex=b.latex, ast=b.ast))
 
+                        scale_mult = 1.0
                         if cell_inlines:
                             items, n_t, n_m = self._layout_inlines(
-                                cell_inlines, scale_mult=1.0, missing_symbols=missing_symbols,
+                                cell_inlines, scale_mult=scale_mult, missing_symbols=missing_symbols,
                                 max_item_width=max(usable_w, 1.0),
                             )
                             ntok += n_t
@@ -522,14 +523,48 @@ class DocumentLayoutEngine:
 
                         for item in items:
                             st, w, miss = item[0], item[1], item[2]
+                            tok_str = item[3] if len(item) > 3 else ""
                             if miss == ["__LINE_BREAK__"]:
                                 flush_cur_line()
                                 continue
                             item_asc = item_desc = 0.0
                             if id(st) in self._math_extent:
-                                item_asc, item_desc = self._math_extent[id(st)]
+                                ext = self._math_extent[id(st)]
+                                item_asc = ext[0] * self.S * scale_mult
+                                item_desc = ext[1] * self.S * scale_mult
 
                             sp = 6.0 * self.S * self.opts.space
+
+                            # Nếu đây là một token văn bản quá rộng (vượt quá usable_w), bẻ nhỏ theo từng ký tự
+                            if w > usable_w and tok_str and id(st) not in self._math_extent:
+                                if cur_l:
+                                    flush_cur_line()
+
+                                sub_chars: list[str] = []
+                                for ch in tok_str:
+                                    cand = "".join(sub_chars) + ch
+                                    c_st, c_w, c_miss = self.wr.token(cand)
+                                    c_w_scaled = c_w * self.S * scale_mult
+                                    if sub_chars and c_w_scaled > usable_w:
+                                        chunk_str = "".join(sub_chars)
+                                        f_st, f_w, f_miss = self.wr.token(chunk_str)
+                                        cur_l = [(0.0, f_st, f_w * self.S * scale_mult)]
+                                        cur_lw = f_w * self.S * scale_mult
+                                        cur_asc = item_asc
+                                        cur_desc = item_desc
+                                        flush_cur_line()
+                                        sub_chars = [ch]
+                                    else:
+                                        sub_chars.append(ch)
+                                if sub_chars:
+                                    chunk_str = "".join(sub_chars)
+                                    f_st, f_w, f_miss = self.wr.token(chunk_str)
+                                    cur_l = [(0.0, f_st, f_w * self.S * scale_mult)]
+                                    cur_lw = f_w * self.S * scale_mult
+                                    cur_asc = item_asc
+                                    cur_desc = item_desc
+                                continue
+
                             if cur_l and cur_lw + sp + w > usable_w:
                                 flush_cur_line()
                                 cur_l = [(0.0, st, w)]
@@ -567,6 +602,7 @@ class DocumentLayoutEngine:
                             curr_row_idx,
                             max_height=avail_h,
                             new_y=cur_y,
+                            can_defer_to_next_page=(cur_y > pf.content_top),
                         )
                         if not slice_data.cells or next_row == curr_row_idx:
                             new_page()
@@ -575,6 +611,7 @@ class DocumentLayoutEngine:
                                 curr_row_idx,
                                 max_height=avail_h,
                                 new_y=cur_y,
+                                can_defer_to_next_page=False,
                             )
                             if not slice_data.cells or next_row == curr_row_idx:
                                 break
@@ -620,6 +657,9 @@ class DocumentLayoutEngine:
 
                                         start_x = laid_cell.x + table_engine.cell_padding + extra_x
                                         baseline_y = cell_cur_y + extra_top + self.line_h * 0.8
+                                        if baseline_y > max_page_y:
+                                            # Kẹp an toàn: không vẽ nét vượt ra ngoài lề đáy trang giấy
+                                            break
                                         cell_strokes = self._render_text_line(
                                             l_items,
                                             baseline_y,

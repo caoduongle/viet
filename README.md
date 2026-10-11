@@ -31,7 +31,7 @@ pip install "chuviettay[docs]"
 pip install ".[docs]"
 ```
 
-Gói `docs` bao gồm `markdown-it-py`, `mdit-py-plugins` và `python-docx`. Nếu không cài gói này, ứng dụng vẫn hoạt động 100% với văn bản thuần `.txt` mà không phát sinh lỗi.
+Gói `docs` bao gồm `markdown-it-py`, `mdit-py-plugins` và `python-docx`. Nếu không cài gói này, ứng dụng vẫn hoạt động 100% với văn bản thuần `.txt` mà không phát sinh lỗi. Bố cục bảng biểu (Table) được tối ưu hoá toàn diện: tự động phân trang an toàn chống tràn lề giấy khi có ô gộp nhiều hàng/cột (`rowspan`/`colspan`), bẻ dòng theo ký tự cho các URL/mã băm dài, đồng bộ kích thước công thức toán học theo tỷ lệ viết tay, và chuyển đổi chuẩn xác từ tệp Word `.docx`.
 
 ## Chạy
 

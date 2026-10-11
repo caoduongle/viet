@@ -36,13 +36,20 @@ def test_transitive_row_merge_closure_stays_together():
     engine = TableLayoutEngine(available_width=300.0, line_height=20.0)
     layout = engine.layout_table(table, x0=10.0, y0=10.0)
 
-    # Giả sử chiều cao còn lại của trang chỉ đủ chứa 2 hàng, nhưng nhóm [0, 2] cần 3 hàng.
-    # Vì trang mới bắt đầu (curr_h == 0), thuật toán phải lấy toàn bộ nhóm [0, 2] để không xé rách ô C.
-    h_two_rows = sum(layout.row_heights[0:2]) + 5.0
-    slice_data, next_row = layout.slice_page(start_row_idx=0, max_height=h_two_rows, new_y=10.0)
-
-    assert next_row == 3, f"Bao đóng [0, 2] phải được giữ nguyên vẹn, next_row phải là 3, nhận được {next_row}"
+    # 1. Khi chiều cao đủ chứa cả 3 hàng, toàn bộ nhóm bao đóng [0, 2] phải được giữ nguyên vẹn
+    h_three_rows = sum(layout.row_heights[0:3]) + 5.0
+    slice_data, next_row = layout.slice_page(start_row_idx=0, max_height=h_three_rows, new_y=10.0)
+    assert next_row == 3, f"Bao đóng [0, 2] phải được giữ nguyên vẹn khi đủ chỗ, next_row phải là 3, nhận được {next_row}"
     assert len(slice_data.row_heights) == 3
+
+    # 2. Khi trang trắng (can_defer_to_next_page=False) mà chiều cao chỉ đủ 2 hàng:
+    # Chiến lược tiếp nối có kiểm soát cắt tại hàng 2, tránh tràn ra ngoài trang
+    h_two_rows = sum(layout.row_heights[0:2]) + 5.0
+    slice_data_c, next_row_c = layout.slice_page(
+        start_row_idx=0, max_height=h_two_rows, new_y=10.0, can_defer_to_next_page=False
+    )
+    assert next_row_c == 2, f"Tiếp nối có kiểm soát phải kẹp vừa trang (2 hàng), nhận được {next_row_c}"
+    assert len(slice_data_c.row_heights) == 2
 
 
 def test_pagination_breaks_before_group_if_page_has_content():
@@ -101,3 +108,68 @@ def test_oversized_group_forward_progression_no_hang():
     slice_data, next_row = layout.slice_page(start_row_idx=0, max_height=5.0, new_y=10.0)
     assert next_row > 0, "Bắt buộc phải tiến trình, không được trả về next_row == 0"
     assert len(slice_data.row_heights) >= 1
+
+
+def test_pagination_group_defers_to_next_page_when_not_fitting_remainder():
+    """Khi trang đã có nội dung (can_defer_to_next_page=True), nhóm gộp không vừa phải hoãn sang trang sau."""
+    cell_a = TableCell.from_text("Row 0 Spanning")
+    cell_a.rowspan = 2
+    cell_b = TableCell.from_text("Row 0 B")
+    cell_c = TableCell.from_text("Row 1 C")
+
+    table = Table(
+        rows=[
+            TableRow(cells=[cell_a, cell_b]),
+            TableRow(cells=[cell_c]),
+        ],
+        border_style=TableBorder.ALL,
+    )
+    engine = TableLayoutEngine(available_width=300.0, line_height=20.0)
+    layout = engine.layout_table(table, x0=10.0, y0=200.0)
+
+    # Chiều cao nhóm [0, 1]
+    group_h = sum(layout.row_heights[0:2])
+    # Giả sử trang chỉ còn trống 0.5 * group_h
+    slice_data, next_row = layout.slice_page(
+        start_row_idx=0,
+        max_height=group_h * 0.5,
+        new_y=200.0,
+        can_defer_to_next_page=True,
+    )
+    # Vì can_defer_to_next_page=True, slice_page phải trả về rỗng để engine chuyển trang
+    assert next_row == 0, f"Phải hoãn sang trang tiếp theo (next_row=0), nhận được {next_row}"
+    assert len(slice_data.cells) == 0
+
+
+def test_render_table_strokes_within_printable_bounds(tmp_path, tiny_bank):
+    """Kiểm tra tích hợp: 100% toạ độ nét vẽ của bảng nhiều trang nằm trong giới hạn trang in."""
+    from chuviettay.controller.results import WriteOptions
+    from chuviettay.document.ir import Document, Paragraph, Text
+    from chuviettay.layout.engine import DocumentLayoutEngine
+    from tests.test_xopp_geometry_helper import assert_all_strokes_within_page_bounds
+
+    # Tạo bảng lớn với các ô gộp và nội dung nhiều dòng (30 hàng để đảm bảo > 1 trang)
+    rows = []
+    for r in range(30):
+        if r % 3 == 0:
+            c1 = TableCell.from_text(f"Spanning Cell at row {r}\nLine 2\nLine 3")
+            c1.rowspan = 3
+            c2 = TableCell.from_text(f"Normal cell {r}")
+            rows.append(TableRow(cells=[c1, c2]))
+        else:
+            c2 = TableCell.from_text(f"Normal cell {r}\nExtra details")
+            rows.append(TableRow(cells=[c2]))
+
+    doc = Document(blocks=[
+        Paragraph(inlines=[Text(text="Văn bản mở đầu đoạn")]),
+        Table(rows=rows, border_style=TableBorder.ALL),
+    ])
+
+    out_file = str(tmp_path / "table_paginated.xopp")
+    opts = WriteOptions(line=22.0)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+    res = engine.render(doc, out_file)
+
+    assert res.n_pages >= 2, f"Bảng lớn phải phân trang ra >= 2 trang, nhận được {res.n_pages}"
+    # Khẳng định 100% toạ độ nét nằm trong lề trang in [40, 841.89 - 60.0]
+    assert_all_strokes_within_page_bounds(out_file, max_y=841.89 - 60.0, min_y=40.0 - 5.0)
