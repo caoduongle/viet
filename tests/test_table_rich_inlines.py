@@ -182,3 +182,109 @@ def test_table_descenders_and_formulas_boundary_clamping_at_page_bottom(tiny_ban
     assert_all_strokes_within_page_bounds(out, max_y=841.89 - 60.0, min_y=40.0 - 5.0)
 
 
+
+
+def test_intentional_empty_lines_in_table_cell_retained_with_height(tiny_bank, tmp_path):
+    """Kiểm tra US6 (T025, T026): Các dòng trống có chủ đích (
+
+) trong ô bảng
+    phải được bảo toàn đầy đủ thành các phần tử dòng rỗng với chiều cao dòng chuẩn (line_h),
+    không bị nuốt mất hay làm sụp đổ khoảng cách giữa các dòng."""
+    from tests.conftest import _inst
+    for ch in "abcdefghijklmnopqrstuvwxyz123":
+        if ch not in tiny_bank.letters and ch not in tiny_bank.digits:
+            tiny_bank.letters[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+
+    cell_text = "Line 1\n\nLine 3"
+    cell = TableCell.from_text(cell_text)
+
+    table = Table(
+        rows=[TableRow(cells=[cell])],
+        border_style=TableBorder.ALL,
+    )
+    doc = Document(blocks=[table])
+    out_file = str(tmp_path / "table_empty_lines.xopp")
+
+    opts = WriteOptions(line=20.0, jitter=0.0)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+    res = engine.render(doc, out_file)
+
+    assert res.n_tables == 1
+
+    # Kiểm tra trực tiếp dữ liệu bố cục qua TableLayoutEngine
+    from chuviettay.layout.table_layout import TableLayoutEngine
+    t_engine = TableLayoutEngine(engine.width, engine.line_h)
+
+    # Sử dụng formatter mô phỏng pipeline thực tế
+    layout_data = t_engine.layout_table(table, x0=engine.x0, y0=engine.page_format.content_top)
+    row_h = layout_data.row_heights[0]
+    expected_min_h = 3 * engine.line_h + 2 * t_engine.cell_padding
+    assert row_h >= expected_min_h - 1e-3, (
+        f"Chiều cao hàng phải phản ánh đủ 3 dòng vật lý (kể cả dòng trống): {row_h} < {expected_min_h}"
+    )
+
+    # Trích xuất toạ độ nét vẽ thực tế từ file .xopp
+    from tests.test_xopp_geometry_helper import extract_xopp_pages_strokes
+    pages_strokes = extract_xopp_pages_strokes(out_file)
+    assert len(pages_strokes) == 1
+    content_strokes = pages_strokes[0][4:]  # bỏ 4 nét viền bảng
+
+    # Toạ độ y của nét 'Line 1' và 'Line 3' phải cách nhau ít nhất 2 * line_h
+    l1_ys = []
+    l3_ys = []
+    mid_y = layout_data.y + row_h / 2.0
+    for stroke in content_strokes:
+        for pt in stroke:
+            if pt[1] < mid_y:
+                l1_ys.append(pt[1])
+            else:
+                l3_ys.append(pt[1])
+
+    assert l1_ys and l3_ys, "Cả Line 1 và Line 3 đều phải sinh nét chữ"
+    max_l1_y = max(l1_ys)
+    min_l3_y = min(l3_ys)
+    gap_between_lines = min_l3_y - max_l1_y
+    assert gap_between_lines >= engine.line_h * 0.5, (
+        f"Khoảng cách giữa Line 1 và Line 3 phải đủ rộng cho dòng trống: gap={gap_between_lines:.2f}"
+    )
+
+
+def test_table_cell_stroke_bounding_box_containment_with_jitter(tiny_bank, tmp_path):
+    """Kiểm tra US7 (T028): Toàn bộ nét vẽ chữ và công thức sau biến đổi run tay (jitter=1.0)
+    phải được bảo đảm nằm gọn 100% trong giới hạn cột ô bảng và lề trang in."""
+    from tests.conftest import _inst
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789":
+        if ch not in tiny_bank.letters:
+            tiny_bank.letters[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+        if ch not in tiny_bank.digits:
+            tiny_bank.digits[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+
+    c0 = TableCell.from_text("Cot thu nhat noi dung dai")
+    c1 = TableCell.from_text("Cot thu hai noi dung rat dai va phong phu")
+
+    table = Table(
+        rows=[TableRow(cells=[c0, c1])],
+        border_style=TableBorder.ALL,
+    )
+    doc = Document(blocks=[table])
+    out_file = str(tmp_path / "table_jitter_containment.xopp")
+
+    opts = WriteOptions(width=300.0, jitter=1.0, seed=12345)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+    _ = engine.render(doc, out_file)
+
+    from tests.test_xopp_geometry_helper import (
+        assert_all_strokes_within_page_bounds,
+        extract_xopp_pages_strokes,
+    )
+    # 1. Nằm trong lề trang
+    assert_all_strokes_within_page_bounds(out_file, max_y=841.89 - 60.0, min_y=40.0 - 5.0)
+
+    # 2. Nằm trong ranh giới cột
+    pages_strokes = extract_xopp_pages_strokes(out_file)
+    max_table_x = engine.x0 + engine.width + 6.0
+    for s_idx, stroke in enumerate(pages_strokes[0]):
+        for pt in stroke:
+            x, y = pt
+            assert x <= max_table_x, f"Nét {s_idx} tràn qua mép phải bảng: {x} > {max_table_x}"
+            assert x >= engine.x0 - 5.0, f"Nét {s_idx} tràn ra mép trái bảng: {x} < {engine.x0 - 5.0}"

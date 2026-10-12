@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 import gzip
 import tempfile
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from chuviettay.model.composer import WriteOptions, WriteResult
 from chuviettay.document.ir import (
@@ -50,6 +50,58 @@ class TokenBox:
     missing: list[str] = field(default_factory=list)
 
 
+def resolve_effective_line_height(
+    requested_line: float | None,
+    bank: Any,
+    scale: float,
+) -> float:
+    """Xác định chiều cao dòng an toàn bảo đảm chống đè chữ vật lý (Anti-Collision Floor).
+    Theo hợp đồng CTR-034-LINE-HEIGHT-POLICY."""
+    font_xh = float(getattr(bank, "xh", 7.94) or 7.94)
+    default_bank_line = float(bank.d.get("line", 24.0)) * scale
+    safe_line_floor = max(1.4 * font_xh * scale, 0.65 * default_bank_line)
+
+    if requested_line is None:
+        return default_bank_line
+    if 0.0 < requested_line < safe_line_floor:
+        # Nhập khoảng cách nhỏ (ví dụ 1pt) -> coi là khoảng hở cộng thêm (inter-line gap)
+        return safe_line_floor + requested_line
+    return max(safe_line_floor, requested_line)
+
+
+def _partition_long_token_linear(
+    tok_str: str,
+    usable_w: float,
+    char_width_measurer: Callable[[str], float],
+    scale: float = 1.0,
+    min_chars: int = 1,
+    letter_gap: float = 0.0,
+) -> list[str]:
+    """Phân chia một token dài thành các phân đoạn vừa với usable_w trong O(N) thời gian
+    sử dụng phép đo thuần túy, tuyệt đối không làm đột biến trạng thái Writer."""
+    if not tok_str:
+        return []
+    chunks: list[str] = []
+    curr_chunk: list[str] = []
+    curr_w = 0.0
+    scaled_gap = letter_gap * scale
+
+    for ch in tok_str:
+        cw = char_width_measurer(ch) * scale
+        added_w = cw + (scaled_gap if curr_chunk else 0.0)
+        if curr_chunk and (curr_w + added_w > usable_w) and len(curr_chunk) >= min_chars:
+            chunks.append("".join(curr_chunk))
+            curr_chunk = [ch]
+            curr_w = cw
+        else:
+            curr_chunk.append(ch)
+            curr_w += added_w
+
+    if curr_chunk:
+        chunks.append("".join(curr_chunk))
+    return chunks
+
+
 class DocumentLayoutEngine:
     """Điều phối bố cục các khối (Paragraph, Heading, Table, PageBreak...) và sinh nét vẽ."""
 
@@ -67,7 +119,7 @@ class DocumentLayoutEngine:
         self.rnd = random.Random(opts.seed)
         self.J = opts.jitter
         self.S = opts.scale
-        self.line_h = opts.line if opts.line is not None else (float(bank.d["line"]) * self.S)
+        self.line_h = resolve_effective_line_height(opts.line, bank, self.S)
         self.x0 = self.page_format.margin_left
         if self.page_format.background.style == "lined":
             m1 = self.page_format.background.margin if self.page_format.background.margin is not None else 72.0
@@ -167,17 +219,34 @@ class DocumentLayoutEngine:
             else:
                 merged_inlines.append(inl)
 
+        xh = getattr(self.bank, "xh", 7.94)
+        lg = max(getattr(self.opts, "letter_gap", 1.0) * xh * 0.1, 0.22 * xh)
+
         for inline in merged_inlines:
             if isinstance(inline, Text):
                 norm = normalize_text(inline.text or "")
                 for tok in norm.split():
-                    st, w, miss = self.wr.token(tok)
-                    ntok += 1
-                    if miss:
-                        nmiss += 1
-                        for m in miss:
-                            self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                    items.append((st, w * self.S * scale_mult, miss, tok))
+                    est_w = self.wr.measure_text_width(tok) * self.S * scale_mult
+                    if max_item_width is not None and max_item_width > 0 and est_w > max_item_width:
+                        chunks = _partition_long_token_linear(
+                            tok,
+                            max_item_width,
+                            self.wr.get_char_advance_width,
+                            scale=self.S * scale_mult,
+                            min_chars=1,
+                            letter_gap=lg,
+                        )
+                    else:
+                        chunks = [tok]
+
+                    for chunk in chunks:
+                        st, w, miss = self.wr.token(chunk)
+                        ntok += 1
+                        if miss:
+                            nmiss += 1
+                            for m in miss:
+                                self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
+                        items.append((st, w * self.S * scale_mult, miss, chunk))
 
             elif isinstance(inline, Symbol):
                 sym = inline.symbol
@@ -467,8 +536,7 @@ class DocumentLayoutEngine:
 
                 elif isinstance(block, Table):
                     def measure_word_bounds(word: str) -> float:
-                        _, w, _ = self.wr.token(word)
-                        return w * self.S
+                        return self.wr.measure_text_width(word) * self.S
 
                     table_engine = TableLayoutEngine(
                         self.width,
@@ -522,12 +590,20 @@ class DocumentLayoutEngine:
                                 cur_asc = 0.0
                                 cur_desc = 0.0
 
+                        last_was_break = False
                         for item in items:
                             st, w, miss = item[0], item[1], item[2]
-                            tok_str = item[3] if len(item) > 3 else ""
                             if miss == ["__LINE_BREAK__"]:
-                                flush_cur_line()
+                                if cur_l:
+                                    flush_cur_line()
+                                else:
+                                    # Dòng trống có chủ đích (ví dụ \n\n hoặc ngắt dòng đầu ô)
+                                    cell_lines.append([])
+                                    cell_metrics.append(LineVerticalMetrics(height=self.line_h))
+                                last_was_break = True
                                 continue
+                            last_was_break = False
+
                             item_asc = item_desc = 0.0
                             if id(st) in self._math_extent:
                                 ext = self._math_extent[id(st)]
@@ -535,55 +611,6 @@ class DocumentLayoutEngine:
                                 item_desc = ext[1] * self.S * scale_mult
 
                             sp = 6.0 * self.S * self.opts.space
-
-                            # Nếu đây là một token văn bản quá rộng (vượt quá usable_w), bẻ nhỏ theo từng ký tự
-                            if w > usable_w and tok_str and id(st) not in self._math_extent:
-                                if cur_l:
-                                    flush_cur_line()
-
-                                sub_chars: list[str] = []
-                                pending_chars = list(tok_str)
-                                while pending_chars:
-                                    ch = pending_chars.pop(0)
-                                    cand = "".join(sub_chars) + ch
-                                    c_w = self.wr.measure_text_width(cand)
-                                    c_w_scaled = c_w * self.S * scale_mult
-                                    if sub_chars and c_w_scaled > usable_w:
-                                        chunk_str = "".join(sub_chars)
-                                        f_st, f_w, f_miss = self.wr.token(chunk_str)
-                                        while len(sub_chars) > 1 and f_w * self.S * scale_mult > usable_w:
-                                            popped = sub_chars.pop()
-                                            pending_chars.insert(0, popped)
-                                            chunk_str = "".join(sub_chars)
-                                            f_st, f_w, f_miss = self.wr.token(chunk_str)
-                                        cur_l = [(0.0, f_st, f_w * self.S * scale_mult)]
-                                        cur_lw = f_w * self.S * scale_mult
-                                        cur_asc = item_asc
-                                        cur_desc = item_desc
-                                        flush_cur_line()
-                                        sub_chars = [ch]
-                                    else:
-                                        sub_chars.append(ch)
-                                if sub_chars:
-                                    chunk_str = "".join(sub_chars)
-                                    f_st, f_w, f_miss = self.wr.token(chunk_str)
-                                    while len(sub_chars) > 1 and f_w * self.S * scale_mult > usable_w:
-                                        popped = sub_chars.pop()
-                                        chunk_str = "".join(sub_chars)
-                                        f_st, f_w, f_miss = self.wr.token(chunk_str)
-                                        cur_l = [(0.0, f_st, f_w * self.S * scale_mult)]
-                                        cur_lw = f_w * self.S * scale_mult
-                                        cur_asc = item_asc
-                                        cur_desc = item_desc
-                                        flush_cur_line()
-                                        sub_chars = [popped]
-                                        chunk_str = popped
-                                        f_st, f_w, f_miss = self.wr.token(chunk_str)
-                                    cur_l = [(0.0, f_st, f_w * self.S * scale_mult)]
-                                    cur_lw = f_w * self.S * scale_mult
-                                    cur_asc = item_asc
-                                    cur_desc = item_desc
-                                continue
 
                             if cur_l and cur_lw + sp + w > usable_w:
                                 flush_cur_line()
@@ -598,6 +625,9 @@ class DocumentLayoutEngine:
                                 cur_asc = max(cur_asc, item_asc)
                                 cur_desc = max(cur_desc, item_desc)
                         flush_cur_line()
+                        if last_was_break:
+                            cell_lines.append([])
+                            cell_metrics.append(LineVerticalMetrics(height=self.line_h))
                         return cell_lines, cell_metrics
 
                     full_table_data = table_engine.layout_table(
@@ -683,8 +713,34 @@ class DocumentLayoutEngine:
                                         jitter_tol = 1.5 * getattr(self.opts, "jitter", 1.0)
                                         line_bottom_y = baseline_y + cur_desc + jitter_tol
                                         if line_bottom_y > max_page_y:
-                                            # Kẹp an toàn: không vẽ nét vượt ra ngoài lề đáy trang giấy
-                                            break
+                                            if cur_y <= pf.content_top + 1e-6:
+                                                # Phần tử đơn lẻ quá cao trên trang mới: vẽ kẹp và cảnh báo
+                                                cell_strokes = self._render_text_line(
+                                                    l_items,
+                                                    baseline_y,
+                                                    start_x,
+                                                )
+                                                cur_page.extend(cell_strokes)
+                                                total_strokes += len(cell_strokes)
+                                                total_lines += 1
+                                                cell_cur_y += line_step_h
+                                                layout_warnings.append(
+                                                    f"Dòng {l_idx} trong ô ({laid_cell.row}, {laid_cell.col}) vượt quá chiều cao trang in; đã vẽ kẹp trong giới hạn."
+                                                )
+                                                continue
+                                            else:
+                                                # Chuyển tiếp các dòng chưa vẽ sang trang kế tiếp
+                                                rem_lines = laid_cell.rendered_lines[l_idx:]
+                                                rem_metrics = metrics_list[l_idx:]
+                                                actual_r = curr_row_idx + laid_cell.row
+                                                if actual_r < len(full_table_data.cells):
+                                                    for orig_c in full_table_data.cells[actual_r]:
+                                                        if orig_c.col == laid_cell.col:
+                                                            orig_c.rendered_lines = rem_lines
+                                                            orig_c.line_metrics = rem_metrics
+                                                            orig_c.is_continuation = True
+                                                    next_row = actual_r
+                                                break
                                         cell_strokes = self._render_text_line(
                                             l_items,
                                             baseline_y,

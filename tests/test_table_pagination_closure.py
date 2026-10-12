@@ -207,13 +207,15 @@ def test_multi_page_content_continuation_preserves_all_lines(tmp_path, tiny_bank
 
     opts = WriteOptions(line=22.0, jitter=0.0)
     engine = DocumentLayoutEngine(tiny_bank, opts)
+
     res = engine.render(doc, out_file)
+
 
     # 1. Bảng phải được phân bổ qua >= 2 trang
     assert res.n_pages >= 2, f"Ô 35 dòng phải tràn qua ít nhất 2 trang, nhận được {res.n_pages} trang"
 
-    # 2. Toàn bộ 35 dòng của ô dài (cộng với dòng cột bên) phải được kết xuất
-    assert res.n_lines >= 36, f"Toàn bộ 35 dòng phải được bảo toàn, nhận được {res.n_lines} dòng"
+    # 2. Toàn bộ 35 dòng của ô dài (cộng với 3 dòng của cột phụ) phải được kết xuất chính xác 38 dòng
+    assert res.n_lines == 38, f"Toàn bộ 35 dòng của ô dài + 3 dòng cột phụ phải được bảo toàn chính xác, nhận được {res.n_lines} dòng"
 
     # 3. 100% nét vẽ nằm trong giới hạn trang in trên mọi trang
     assert_all_strokes_within_page_bounds(out_file, max_y=841.89 - 60.0, min_y=40.0 - 5.0)
@@ -254,7 +256,7 @@ def test_multi_page_three_pages_continuation_preserves_all_lines(tmp_path, tiny_
     res = engine.render(doc, out_file)
 
     assert res.n_pages >= 3, f"Ô 75 dòng phải tràn qua ít nhất 3 trang, nhận được {res.n_pages} trang"
-    assert res.n_lines >= 75, f"Toàn bộ 75 dòng phải được bảo toàn, nhận được {res.n_lines} dòng"
+    assert res.n_lines == 75, f"Toàn bộ 75 dòng phải được bảo toàn chính xác, nhận được {res.n_lines} dòng"
     assert_all_strokes_within_page_bounds(out_file, max_y=841.89 - 60.0, min_y=40.0 - 5.0)
 
 
@@ -289,5 +291,52 @@ def test_table_slicing_warning_propagation_to_bridge_and_report(tmp_path, tiny_b
     wr = WriteResult("test.xopp", 1, 10, 5, 0, warnings=res_dict["warnings"])
     report_lines = write_report_lines(wr)
     assert any("Cảnh báo" in line and "tiếp nối" in line for line in report_lines)
+
+
+def test_tall_row_combined_with_multi_page_rowspan_and_borders(tmp_path, tiny_bank):
+    """Kiểm tra US4 (T019): Bảng kết hợp hàng siêu cao chia tiếp nối qua 3+ trang
+    và các ô rowspan vươn qua nhiều hàng, bảo đảm BorderLookupGrid sinh nét viền đúng,
+    không văng lỗi IndexError và các ô sau không bị lệch chỉ số."""
+    from tests.conftest import _inst
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789":
+        if ch not in tiny_bank.letters:
+            tiny_bank.letters[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+        if ch not in tiny_bank.digits:
+            tiny_bank.digits[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+
+    from chuviettay.controller.results import WriteOptions
+    from chuviettay.document.ir import Document, Table, TableBorder, TableCell, TableRow
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    # Hàng 0: Ô 1 (70 dòng), Ô 2 (rowspan=2)
+    lines_70 = [f"Dong {i:02d} rat dai noi dung" for i in range(70)]
+    cell_tall = TableCell.from_text("\n".join(lines_70))
+    cell_span = TableCell.from_text("Nhan gop")
+    cell_span.rowspan = 2
+
+    # Hàng 1: Ô thường
+    cell_short = TableCell.from_text("Ngan")
+
+    # Hàng 2: Ô thường
+    cell_h2 = TableCell.from_text("Hang 2 cuoi")
+
+    table = Table(
+        rows=[
+            TableRow(cells=[cell_tall, cell_span]),
+            TableRow(cells=[cell_short]),
+            TableRow(cells=[cell_h2]),
+        ],
+        border_style=TableBorder.ALL,
+    )
+    doc = Document(blocks=[table])
+    out_file = str(tmp_path / "table_rowspan_3pages.xopp")
+
+    opts = WriteOptions(line=22.0, jitter=0.0)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+    res = engine.render(doc, out_file)
+
+    assert res.n_pages >= 3, f"Bảng phải phân bổ qua ít nhất 3 trang, nhận được {res.n_pages}"
+    assert res.n_lines >= 70, "Toàn bộ dòng của ô cao phải được kết xuất"
+
 
 

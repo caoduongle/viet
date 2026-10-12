@@ -39,7 +39,7 @@ GOLDEN_REAL = {
         "xopp": "a2669fc850c02d1cfd3b47f8bfbadd818ba336dc152aa4ad975a4cec24100951",
     },
     "table": {
-        "xopp": "bfa7b717d444908e1107ebc5cd6055963957ef2a047a9a3758671936ecd7b2ec",
+        "xopp": "b5df9f7ad27ab25c57f3f27486f483c8181fb44b023e71578482a597f88a939c",
     },
     "markdown_list": {
         "xopp": "448890bdc4d3772b3423c09407024df7f3d90015686bc76c748c04736b5e7672",

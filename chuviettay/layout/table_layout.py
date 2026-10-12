@@ -91,11 +91,13 @@ def partition_cell_lines_by_height(
     total_lines = len(rendered_lines)
     cum_h = 2 * cell_padding
     split_k = total_lines
+    safety_margin = 4.0
+    effective_target = max(10.0, target_height - safety_margin)
 
     for idx in range(total_lines):
         m = line_metrics[idx] if idx < len(line_metrics) else None
         line_step_h = m.height if m and m.height > 0 else 20.0
-        if idx >= min_lines and cum_h + line_step_h > target_height:
+        if idx >= min_lines and cum_h + line_step_h > effective_target:
             split_k = idx
             break
         cum_h += line_step_h
@@ -119,6 +121,12 @@ class TableLayoutData:
     row_heights: list[float]
     cells: list[list[LaidOutCell]]
     warnings: list[str] = field(default_factory=list)
+
+    def reindex_rows(self) -> None:
+        """Đồng bộ hóa lại thuộc tính cell.row cho toàn bộ các ô trong self.cells."""
+        for r_idx, row_cells in enumerate(self.cells):
+            for cell in row_cells:
+                cell.row = r_idx
 
     def slice_page(
         self,
@@ -240,6 +248,15 @@ class TableLayoutData:
                     self.cells[start_row_idx] = part1_cells
                     self.row_heights.insert(start_row_idx + 1, max_p2_h)
                     self.cells.insert(start_row_idx + 1, part2_cells)
+
+                    # Đồng bộ lại chỉ số cell.row cho toàn bộ các hàng
+                    self.reindex_rows()
+
+                    # Cập nhật rowspan cho các ô từ hàng trước đó vươn qua điểm chèn
+                    for r_prev in range(start_row_idx):
+                        for c_prev in self.cells[r_prev]:
+                            if r_prev + c_prev.rowspan > start_row_idx + 1:
+                                c_prev.rowspan += 1
 
                     num_rows = len(self.row_heights)
                     end_idx = start_row_idx + 1
@@ -426,20 +443,22 @@ class TableLayoutEngine:
         return padded_rows
 
     def _extract_cell_text(self, cell: TableCell) -> str:
-        """Trích xuất chuỗi văn bản đại diện trong ô."""
-        parts = []
+        """Trích xuất chuỗi văn bản đại diện trong ô, bảo toàn ranh giới giữa các khối đoạn văn."""
+        block_texts = []
         for block in cell.blocks:
+            parts = []
             if isinstance(block, Paragraph):
                 for inline in block.inlines:
                     if isinstance(inline, Text):
-                        parts.append(inline.text)
+                        parts.append(inline.text or "")
                     elif isinstance(inline, MathInline):
                         parts.append(inline.latex or "math")
                     elif isinstance(inline, Symbol):
                         parts.append(inline.symbol)
             elif isinstance(block, MathBlock):
                 parts.append(block.latex or "math")
-        return " ".join(parts).strip()
+            block_texts.append(" ".join(parts).strip())
+        return "\n".join(block_texts)
 
     def compute_column_widths(self, table: Table) -> list[float]:
         """Tính toán phân bổ bề rộng cho từng cột xét cả colspan và vị trí thực theo occupancy grid."""
@@ -513,14 +532,11 @@ class TableLayoutEngine:
         return [round(w, 2) for w in final_widths]
 
     def wrap_cell_text(self, text: str, width: float) -> list[str]:
-        """Ngắt dòng văn bản thô theo bề rộng cột trừ đi khoảng đệm, hỗ trợ bẻ token dài theo ký tự."""
+        """Ngắt dòng văn bản thô theo bề rộng cột trừ đi khoảng đệm, hỗ trợ bẻ token dài theo ký tự và giữ dòng trống."""
         usable_w = max(10.0, width - 2 * self.cell_padding)
-        words = text.split()
-        if not words:
+        if not text:
             return []
         lines: list[str] = []
-        cur_line: list[str] = []
-        cur_w = 0.0
 
         def get_w(s: str) -> float:
             if self.calc_text_bounds is not None:
@@ -528,44 +544,50 @@ class TableLayoutEngine:
             return len(s) * self.char_w
 
         space_len = self.char_w * 0.8
+        paragraphs = text.split("\n")
 
-        for w in words:
-            w_len = get_w(w)
-            # Nếu từ này vừa trên dòng hiện tại
-            if cur_line and cur_w + space_len + w_len <= usable_w:
-                cur_line.append(w)
-                cur_w += space_len + w_len
+        for para in paragraphs:
+            words = para.split()
+            if not words:
+                lines.append("")
                 continue
 
-            # Nếu không vừa, đẩy dòng hiện tại vào danh sách
+            cur_line: list[str] = []
+            cur_w = 0.0
+            for w in words:
+                w_len = get_w(w)
+                if cur_line and cur_w + space_len + w_len <= usable_w:
+                    cur_line.append(w)
+                    cur_w += space_len + w_len
+                    continue
+
+                if cur_line:
+                    lines.append(" ".join(cur_line))
+                    cur_line = []
+                    cur_w = 0.0
+
+                if w_len <= usable_w:
+                    cur_line.append(w)
+                    cur_w = w_len
+                else:
+                    chunk: list[str] = []
+                    chunk_w = 0.0
+                    for ch in w:
+                        ch_w = get_w(ch)
+                        if chunk and chunk_w + ch_w > usable_w:
+                            lines.append("".join(chunk))
+                            chunk = [ch]
+                            chunk_w = ch_w
+                        else:
+                            chunk.append(ch)
+                            chunk_w += ch_w
+                    if chunk:
+                        cur_line = ["".join(chunk)]
+                        cur_w = chunk_w
+
             if cur_line:
                 lines.append(" ".join(cur_line))
-                cur_line = []
-                cur_w = 0.0
 
-            # Nếu từ này vừa đứng một mình trên dòng mới
-            if w_len <= usable_w:
-                cur_line.append(w)
-                cur_w = w_len
-            else:
-                # Token vượt quá usable_w: bẻ nhỏ theo từng ký tự
-                chunk: list[str] = []
-                chunk_w = 0.0
-                for ch in w:
-                    ch_w = get_w(ch)
-                    if chunk and chunk_w + ch_w > usable_w:
-                        lines.append("".join(chunk))
-                        chunk = [ch]
-                        chunk_w = ch_w
-                    else:
-                        chunk.append(ch)
-                        chunk_w += ch_w
-                if chunk:
-                    cur_line = ["".join(chunk)]
-                    cur_w = chunk_w
-
-        if cur_line:
-            lines.append(" ".join(cur_line))
         return lines
 
     def layout_table(

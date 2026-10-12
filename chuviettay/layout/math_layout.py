@@ -663,21 +663,50 @@ class MathLayoutEngine:
                 canvas.polys(polys, 0.0, -base.size.ascent, self._pen(eff))
             return canvas.build(wb, ascent, descent)
 
-        height = {"overbrace": 0.55, "underbrace": 0.55, "dot": 0.3, "ddot": 0.3, "dddot": 0.3,
-                  "vec": 0.5, "overrightarrow": 0.5, "overleftarrow": 0.5, "overleftrightarrow": 0.5,
-                  "underrightarrow": 0.5, "underleftarrow": 0.5}.get(kind, 0.38) * xh
-        width = min(wb, 1.0 * xh) if kind in _VAR_NARROW_ACCENTS and kind != "bar" else wb
+        gap_map = {
+            "bar": 0.08,
+            "overline": 0.08,
+            "hat": 0.06,
+            "widehat": 0.06,
+            "tilde": 0.06,
+            "widetilde": 0.06,
+            "dot": 0.08,
+            "ddot": 0.08,
+            "dddot": 0.08,
+            "vec": 0.10,
+        }
+        height_map = {
+            "bar": 0.16,
+            "overline": 0.16,
+            "hat": 0.28,
+            "widehat": 0.28,
+            "tilde": 0.24,
+            "widetilde": 0.24,
+            "dot": 0.20,
+            "ddot": 0.20,
+            "dddot": 0.20,
+            "vec": 0.35,
+            "overbrace": 0.55,
+            "underbrace": 0.55,
+            "overrightarrow": 0.5,
+            "overleftarrow": 0.5,
+            "overleftrightarrow": 0.5,
+            "underrightarrow": 0.5,
+            "underleftarrow": 0.5,
+        }
+        gap = gap_map.get(kind, 0.10) * xh
+        height = height_map.get(kind, 0.30) * xh
+        width = min(wb, 1.0 * xh) if kind in _VAR_NARROW_ACCENTS and kind not in ("bar", "overline") else wb
         polys = vg.accent_polylines(kind, width, height)
         if polys is None:
             return canvas.build(wb, ascent, descent)
-        gap = 0.15 * xh
         x0 = (wb - width) / 2.0
         if kind in _UNDER_ACCENTS:
             y0 = base.size.descent + gap
             descent = y0 + height
         else:
             y0 = -(base.size.ascent + gap + height)
-            ascent = -y0
+            ascent = min(-y0, max(base.size.ascent + gap + height * 0.6, 1.25 * xh))
         canvas.polys(polys, x0, y0, self._pen(eff))
         return canvas.build(wb, ascent, descent)
 

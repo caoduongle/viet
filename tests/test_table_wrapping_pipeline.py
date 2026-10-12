@@ -120,3 +120,53 @@ def test_writer_state_invariance_during_token_width_measurement(tiny_bank):
     assert writer.counts == initial_counts, "writer.counts bị thay đổi sau khi đo measure_text_width"
     assert writer.last == initial_last, "writer.last bị thay đổi sau khi đo measure_text_width"
     assert writer.assembled == initial_assembled, "writer.assembled bị thay đổi sau khi đo measure_text_width"
+
+
+def test_linear_token_partitioning_execution_and_single_synthesis(tiny_bank):
+    """Kiểm tra US5 (T022, T023, T024): Phân chia token dài O(N) trong < 10ms
+    và self.wr.token() được gọi đúng MỘT lần cho mỗi chunk cuối cùng,
+    không có bất kỳ phép thử đột biến nào làm biến đổi Writer."""
+    import time
+    from chuviettay.layout.engine import _partition_long_token_linear, DocumentLayoutEngine
+    from chuviettay.controller.results import WriteOptions
+    from chuviettay.document.ir import Text
+
+    # 500 ký tự không dấu cách
+    long_tok = "abcdef0123456789" * 32
+    usable_w = 120.0
+
+    opts = WriteOptions(jitter=0.0)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+
+    # 1. Đo thời gian phân vùng O(N)
+    t0 = time.perf_counter()
+    xh = getattr(tiny_bank, "xh", 7.94)
+    lg = max(getattr(engine.opts, "letter_gap", 1.0) * xh * 0.1, 0.22 * xh)
+    chunks = _partition_long_token_linear(
+        long_tok,
+        usable_w=usable_w,
+        char_width_measurer=engine.wr.get_char_advance_width,
+        scale=engine.S,
+        min_chars=1,
+        letter_gap=lg,
+    )
+    t_elapsed = time.perf_counter() - t0
+    assert t_elapsed < 0.010, f"Phân chia 500 ký tự phải hoàn thành < 10ms, thực tế {t_elapsed * 1000:.2f}ms"
+    assert len(chunks) > 1
+
+    # 2. Đếm số lần self.wr.token() được gọi
+    orig_token = engine.wr.token
+    call_args = []
+
+    def mock_token(core: str):
+        call_args.append(core)
+        return orig_token(core)
+
+    engine.wr.token = mock_token
+    items, n_tok, n_miss = engine._layout_inlines([Text(long_tok)], max_item_width=usable_w)
+
+    # 3. Phải được gọi đúng len(chunks) lần, đúng một lần cho mỗi chunk
+    assert len(call_args) == len(chunks), (
+        f"self.wr.token phải được gọi đúng {len(chunks)} lần (mỗi chunk 1 lần), thực tế {len(call_args)} lần"
+    )
+    assert call_args == chunks
