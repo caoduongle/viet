@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import math
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from chuviettay.document.ir import MathBlock, MathInline, Paragraph, Symbol, Table, TableBorder, TableCell, TableRow, Text
@@ -74,6 +74,38 @@ class LaidOutCell:
     rendered_lines: list[Any] = field(default_factory=list)
     line_metrics: list[LineVerticalMetrics] = field(default_factory=list)
     is_continuation: bool = False
+
+
+def partition_cell_lines_by_height(
+    rendered_lines: list[Any],
+    line_metrics: list[LineVerticalMetrics],
+    target_height: float,
+    cell_padding: float = 5.0,
+    min_lines: int = 1,
+) -> tuple[list[Any], list[LineVerticalMetrics], list[Any], list[LineVerticalMetrics]]:
+    """Phân chia rendered_lines và line_metrics theo chiều cao target_height.
+    Trả về: (slice_lines, slice_metrics, rem_lines, rem_metrics)."""
+    if not rendered_lines:
+        return [], [], [], []
+
+    total_lines = len(rendered_lines)
+    cum_h = 2 * cell_padding
+    split_k = total_lines
+
+    for idx in range(total_lines):
+        m = line_metrics[idx] if idx < len(line_metrics) else None
+        line_step_h = m.height if m and m.height > 0 else 20.0
+        if idx >= min_lines and cum_h + line_step_h > target_height:
+            split_k = idx
+            break
+        cum_h += line_step_h
+
+    slice_lines = list(rendered_lines[:split_k])
+    slice_metrics = list(line_metrics[:split_k]) if line_metrics else []
+    rem_lines = list(rendered_lines[split_k:])
+    rem_metrics = list(line_metrics[split_k:]) if line_metrics else []
+
+    return slice_lines, slice_metrics, rem_lines, rem_metrics
 
 
 @dataclass
@@ -163,11 +195,57 @@ class TableLayoutData:
                     end_idx = sub_end
                     curr_h = sub_h
                 else:
-                    # Ngay cả hàng đơn lẻ đầu tiên đã vượt quá max_height: lấy 1 hàng để bảo đảm tiến lên
-                    end_idx = end_idx + 1
-                    curr_h = min(self.row_heights[start_row_idx], max_height)
+                    # Ngay cả hàng đơn lẻ đầu tiên đã vượt quá max_height: chia hàng động sang trang sau
+                    part1_cells: list[LaidOutCell] = []
+                    part2_cells: list[LaidOutCell] = []
+                    max_p1_h = 0.0
+                    max_p2_h = 0.0
+
+                    for cell in self.cells[start_row_idx]:
+                        s_lines, s_metrics, r_lines, r_metrics = partition_cell_lines_by_height(
+                            cell.rendered_lines,
+                            getattr(cell, "line_metrics", []),
+                            max_height,
+                            min_lines=1,
+                        )
+                        h1 = max(10.0, (sum(m.height for m in s_metrics) if s_metrics else len(s_lines) * 20.0) + 10.0)
+                        h2 = max(10.0, (sum(m.height for m in r_metrics) if r_metrics else len(r_lines) * 20.0) + 10.0)
+                        max_p1_h = max(max_p1_h, h1)
+                        max_p2_h = max(max_p2_h, h2)
+
+                        c1 = replace(
+                            cell,
+                            rendered_lines=s_lines,
+                            line_metrics=s_metrics,
+                            height=h1,
+                        )
+                        c2 = replace(
+                            cell,
+                            rendered_lines=r_lines,
+                            line_metrics=r_metrics,
+                            height=h2,
+                            row=start_row_idx + 1,
+                            is_continuation=True,
+                        )
+                        part1_cells.append(c1)
+                        part2_cells.append(c2)
+
+                    part1_h = min(max_p1_h, max_height)
+                    for c in part1_cells:
+                        c.height = part1_h
+                    for c in part2_cells:
+                        c.height = max_p2_h
+
+                    self.row_heights[start_row_idx] = part1_h
+                    self.cells[start_row_idx] = part1_cells
+                    self.row_heights.insert(start_row_idx + 1, max_p2_h)
+                    self.cells.insert(start_row_idx + 1, part2_cells)
+
+                    num_rows = len(self.row_heights)
+                    end_idx = start_row_idx + 1
+                    curr_h = part1_h
                     slice_warnings.append(
-                        f"Hàng {start_row_idx} vượt quá chiều cao trang in ({self.row_heights[start_row_idx]:.1f}pt > {max_height:.1f}pt); nội dung đã được kẹp an toàn."
+                        f"Hàng {start_row_idx} dài hơn trang in ({part1_h + max_p2_h:.1f}pt > {max_height:.1f}pt); nội dung đã được chia tiếp nối sang trang sau."
                     )
                 break
 
@@ -187,6 +265,23 @@ class TableLayoutData:
             for cell in self.cells[r]:
                 eff_rs = min(cell.rowspan, end_idx - r)
                 cell_h = sum(self.row_heights[r : r + eff_rs])
+
+                # Nếu ô có rowspan vươn qua end_idx, phân đoạn dòng cho lát cắt hiện tại
+                if cell.rowspan > eff_rs and cell.rendered_lines:
+                    s_lines, s_metrics, r_lines, r_metrics = partition_cell_lines_by_height(
+                        cell.rendered_lines,
+                        getattr(cell, "line_metrics", []),
+                        cell_h,
+                        min_lines=1,
+                    )
+                    cell.rendered_lines = r_lines
+                    cell.line_metrics = r_metrics
+                    cur_lines = s_lines
+                    cur_metrics = s_metrics
+                else:
+                    cur_lines = cell.rendered_lines
+                    cur_metrics = getattr(cell, "line_metrics", [])
+
                 row_cells.append(
                     LaidOutCell(
                         x=cell.x,
@@ -199,9 +294,9 @@ class TableLayoutData:
                         row=r_offset,
                         colspan=cell.colspan,
                         rowspan=eff_rs,
-                        rendered_lines=cell.rendered_lines,
-                        line_metrics=getattr(cell, "line_metrics", []),
-                        is_continuation=False,
+                        rendered_lines=cur_lines,
+                        line_metrics=cur_metrics,
+                        is_continuation=cell.is_continuation,
                     )
                 )
 
@@ -212,6 +307,25 @@ class TableLayoutData:
                         if prev_r + prev_cell.rowspan > start_row_idx:
                             rem_rs = min(prev_r + prev_cell.rowspan - start_row_idx, end_idx - start_row_idx)
                             cont_h = sum(self.row_heights[start_row_idx : start_row_idx + rem_rs])
+
+                            # Phân đoạn các dòng còn lại cho lát cắt tiếp nối này
+                            if (prev_r + prev_cell.rowspan) > end_idx and prev_cell.rendered_lines:
+                                s_lines, s_metrics, r_lines, r_metrics = partition_cell_lines_by_height(
+                                    prev_cell.rendered_lines,
+                                    getattr(prev_cell, "line_metrics", []),
+                                    cont_h,
+                                    min_lines=0,
+                                )
+                                prev_cell.rendered_lines = r_lines
+                                prev_cell.line_metrics = r_metrics
+                                cont_lines = s_lines
+                                cont_metrics = s_metrics
+                            else:
+                                cont_lines = prev_cell.rendered_lines
+                                cont_metrics = getattr(prev_cell, "line_metrics", [])
+                                prev_cell.rendered_lines = []
+                                prev_cell.line_metrics = []
+
                             row_cells.append(
                                 LaidOutCell(
                                     x=prev_cell.x,
@@ -224,8 +338,8 @@ class TableLayoutData:
                                     row=0,
                                     colspan=prev_cell.colspan,
                                     rowspan=rem_rs,
-                                    rendered_lines=[],
-                                    line_metrics=[],
+                                    rendered_lines=cont_lines,
+                                    line_metrics=cont_metrics,
                                     is_continuation=True,
                                 )
                             )

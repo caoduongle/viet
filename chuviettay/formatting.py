@@ -54,6 +54,9 @@ def write_report_lines(result: WriteResult) -> list[str]:
         lines.append("Ký hiệu thiếu mẫu (%d): %s" % (
             len(sym_items),
             ", ".join("%s (x%d)" % (s, c) for s, c in sym_items[:MAX_MISSING_SHOWN])))
+    if getattr(result, "warnings", None):
+        for w in result.warnings:
+            lines.append(f"Cảnh báo: {w}")
     return lines
 
 

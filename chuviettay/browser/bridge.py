@@ -199,6 +199,9 @@ class BrowserBridge:
                 else:
                     result = self._ctl.write_text(text, write_opts, out_path, token_layout_callback=_token_cb)
 
+                if getattr(result, "warnings", None):
+                    warnings_list.extend(result.warnings)
+
                 with open(out_path, "rb") as f:
                     xopp_bytes = f.read()
 

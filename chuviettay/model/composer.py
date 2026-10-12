@@ -246,6 +246,7 @@ class WriteResult:
     n_math_blocks: int = 0                 # tổng số khối công thức toán học đã dàn trang
     n_pages: int = 1                       # tổng số trang của tài liệu
     n_images: int = 0                      # tổng số hình ảnh giữ nguyên ở nền
+    warnings: list[str] = field(default_factory=list)  # các cảnh báo bố cục/phân trang/cắt xén
 
     def missing_sorted(self) -> list[tuple[str, int]]:
         """[(token, số lần gặp), ...] gặp nhiều nhất xếp trước, bằng nhau thì theo chữ

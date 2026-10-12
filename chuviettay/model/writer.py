@@ -51,6 +51,7 @@ class Writer:
         self.last: dict[str, int] = {}       # tag -> chỉ số mẫu chọn lần trước (né lặp)
         self.missing: dict[str, int] = {}     # phần chưa có mẫu -> số lần gặp
         self.assembled: list[str] = []        # các từ đã ghép tự động từ chữ cái
+        self._char_width_cache: dict[str, float] = {}  # bộ đệm đo độ rộng ký tự thuần tuý
 
     def pick(self, lst: list, tag: str):
         """Chọn ngẫu nhiên 1 phần tử trong `lst`, né KHÔNG chọn trùng chỉ số đã chọn
@@ -129,6 +130,63 @@ class Writer:
                 return fb
 
         return None
+
+    def get_char_advance_width(self, char: str) -> float:
+        """Đo độ rộng tiến bước (advance width) của 1 ký tự mà KHÔNG gọi pick()
+        hay làm biến đổi trạng thái nội bộ của Writer."""
+        if char in self._char_width_cache:
+            return self._char_width_cache[char]
+
+        b = self.b
+        xh = getattr(b, "xh", 7.94)
+        sample = None
+        if getattr(b, "letters", None) and char in b.letters and b.letters[char]:
+            sample = b.letters[char][0]
+        elif self.loose and char.isupper() and getattr(b, "letters", None) and char.lower() in b.letters and b.letters[char.lower()]:
+            sample = b.letters[char.lower()][0]
+        elif getattr(b, "words", None) and len(char) == 1 and char in b.words and b.words[char]:
+            sample = b.words[char][0]
+        elif self.loose and char.isupper() and getattr(b, "words", None) and len(char) == 1 and char.lower() in b.words and b.words[char.lower()]:
+            sample = b.words[char.lower()][0]
+        elif getattr(b, "digits", None) and char in b.digits and b.digits[char]:
+            sample = b.digits[char][0]
+        elif getattr(b, "punct", None) and char in b.punct and b.punct[char]:
+            sample = b.punct[char][0]
+        elif getattr(b, "symbols", None) and char in b.symbols and b.symbols[char]:
+            sample = b.symbols[char][0]
+
+        if sample and "w" in sample:
+            w = float(sample["w"])
+        else:
+            if char not in "+-=<>/*":
+                from chuviettay.model.text_utils import get_vector_glyph_fallback
+                fb = get_vector_glyph_fallback(char, xh=xh)
+                if fb and "w" in fb:
+                    w = float(fb["w"])
+                else:
+                    w = 0.6 * xh
+            else:
+                w = 0.6 * xh
+
+        self._char_width_cache[char] = w
+        return w
+
+    def measure_text_width(self, text: str, scale: float = 1.0) -> float:
+        """Đo độ rộng hình học thuần túy của một chuỗi ký tự mà KHÔNG làm đột biến
+        Writer.counts, Writer.last hay Writer.assembled."""
+        import unicodedata
+        if not text:
+            return 0.0
+        nfc_text = unicodedata.normalize("NFC", text)
+        xh = getattr(self.b, "xh", 7.94)
+        letter_gap = max(self.letter_gap * xh * 0.1, 0.22 * xh)
+        total_w = 0.0
+        for idx, ch in enumerate(nfc_text):
+            cw = self.get_char_advance_width(ch)
+            if idx > 0:
+                total_w += letter_gap
+            total_w += cw
+        return total_w * scale
 
     def assemble_word(self, core: str) -> tuple[list[Stroke], float] | None:
         """Ghép MỘT từ từ các mẫu chữ cái đơn lẻ, hỗ trợ Dual-Path (mẫu nguyên chữ hoặc phân rã dấu thanh),

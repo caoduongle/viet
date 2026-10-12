@@ -173,3 +173,121 @@ def test_render_table_strokes_within_printable_bounds(tmp_path, tiny_bank):
     assert res.n_pages >= 2, f"Bảng lớn phải phân trang ra >= 2 trang, nhận được {res.n_pages}"
     # Khẳng định 100% toạ độ nét nằm trong lề trang in [40, 841.89 - 60.0]
     assert_all_strokes_within_page_bounds(out_file, max_y=841.89 - 60.0, min_y=40.0 - 5.0)
+
+
+def test_multi_page_content_continuation_preserves_all_lines(tmp_path, tiny_bank):
+    """Kiểm tra P1: Hàng đơn lẻ hoặc ô bảng chứa rất nhiều dòng văn bản (35 dòng)
+    khi vượt quá chiều cao trang in thì phải tiếp nối nội dung sang các trang sau,
+    100% số dòng văn bản được bảo toàn đầy đủ, không bị cắt xén âm thầm.
+    """
+    from tests.conftest import _inst
+    for ch in "abcdefghijklmnopqrstuvwxyz":
+        if ch not in tiny_bank.letters:
+            tiny_bank.letters[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+    for ch in "0123456789":
+        if ch not in tiny_bank.digits:
+            tiny_bank.digits[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+
+    from chuviettay.controller.results import WriteOptions
+    from chuviettay.document.ir import Document, Table, TableBorder, TableCell, TableRow
+    from chuviettay.layout.engine import DocumentLayoutEngine
+    from tests.test_xopp_geometry_helper import assert_all_strokes_within_page_bounds
+
+    # Tạo ô chứa 35 dòng riêng biệt
+    raw_lines = [f"Dong thu {i:02d} cua van ban bang" for i in range(35)]
+    tall_cell = TableCell.from_text("\n".join(raw_lines))
+    short_cell = TableCell.from_text("Cot ben phai")
+
+    table = Table(
+        rows=[TableRow(cells=[tall_cell, short_cell])],
+        border_style=TableBorder.ALL,
+    )
+    doc = Document(blocks=[table])
+    out_file = str(tmp_path / "table_tall_continuation.xopp")
+
+    opts = WriteOptions(line=22.0, jitter=0.0)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+    res = engine.render(doc, out_file)
+
+    # 1. Bảng phải được phân bổ qua >= 2 trang
+    assert res.n_pages >= 2, f"Ô 35 dòng phải tràn qua ít nhất 2 trang, nhận được {res.n_pages} trang"
+
+    # 2. Toàn bộ 35 dòng của ô dài (cộng với dòng cột bên) phải được kết xuất
+    assert res.n_lines >= 36, f"Toàn bộ 35 dòng phải được bảo toàn, nhận được {res.n_lines} dòng"
+
+    # 3. 100% nét vẽ nằm trong giới hạn trang in trên mọi trang
+    assert_all_strokes_within_page_bounds(out_file, max_y=841.89 - 60.0, min_y=40.0 - 5.0)
+
+    # 4. Cảnh báo chia tiếp nối hàng xuất hiện trong WriteResult.warnings (US5)
+    assert len(res.warnings) >= 1
+    assert any("tiếp nối sang trang sau" in w for w in res.warnings)
+
+
+def test_multi_page_three_pages_continuation_preserves_all_lines(tmp_path, tiny_bank):
+    """Kiểm tra P1 nâng cao: Một ô bảng chứa 75 dòng văn bản
+    buộc phải chia tiếp nối qua ít nhất 3 trang in liên tiếp,
+    100% số dòng văn bản được bảo toàn trên cả 3 trang."""
+    from tests.conftest import _inst
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789":
+        if ch not in tiny_bank.letters:
+            tiny_bank.letters[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+        if ch not in tiny_bank.digits:
+            tiny_bank.digits[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+
+    from chuviettay.controller.results import WriteOptions
+    from chuviettay.document.ir import Document, Table, TableBorder, TableCell, TableRow
+    from chuviettay.layout.engine import DocumentLayoutEngine
+    from tests.test_xopp_geometry_helper import assert_all_strokes_within_page_bounds
+
+    raw_lines = [f"Dong thu {i:02d} van ban rat dai" for i in range(75)]
+    tall_cell = TableCell.from_text("\n".join(raw_lines))
+
+    table = Table(
+        rows=[TableRow(cells=[tall_cell])],
+        border_style=TableBorder.ALL,
+    )
+    doc = Document(blocks=[table])
+    out_file = str(tmp_path / "table_three_pages.xopp")
+
+    opts = WriteOptions(line=22.0, jitter=0.0)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+    res = engine.render(doc, out_file)
+
+    assert res.n_pages >= 3, f"Ô 75 dòng phải tràn qua ít nhất 3 trang, nhận được {res.n_pages} trang"
+    assert res.n_lines >= 75, f"Toàn bộ 75 dòng phải được bảo toàn, nhận được {res.n_lines} dòng"
+    assert_all_strokes_within_page_bounds(out_file, max_y=841.89 - 60.0, min_y=40.0 - 5.0)
+
+
+def test_table_slicing_warning_propagation_to_bridge_and_report(tmp_path, tiny_bank):
+    """Kiểm tra US5 (T016, T017, T018): Cảnh báo khi một hàng quá cao vượt quá trang
+    phải được truyền thành công đến WriteResult.warnings, BrowserBridge payload và write_report_lines."""
+    from tests.conftest import _inst
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789":
+        if ch not in tiny_bank.letters:
+            tiny_bank.letters[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+        if ch not in tiny_bank.digits:
+            tiny_bank.digits[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+
+    from chuviettay.browser.bridge import BrowserBridge
+    from chuviettay.formatting import write_report_lines
+
+    bank_file = str(tmp_path / "bank.json.gz")
+    tiny_bank.save(bank_file)
+
+    raw_words = " ".join([f"tu{i} dai van ban bang" for i in range(180)])
+    table_md = f"| Cot A | Cot B |\n|---|---|\n| {raw_words} | Phu |"
+
+    bridge = BrowserBridge(bank_path=bank_file)
+    bridge.init()
+    res_dict = bridge.write_text(table_md, options={"line": 22.0}, fmt="md")
+
+    assert res_dict["ok"] is True
+    assert len(res_dict["warnings"]) >= 1, "Cảnh báo cắt/tiếp nối bảng phải có trong bridge response"
+    assert any("tiếp nối" in w for w in res_dict["warnings"])
+
+    from chuviettay.model.composer import WriteResult
+    wr = WriteResult("test.xopp", 1, 10, 5, 0, warnings=res_dict["warnings"])
+    report_lines = write_report_lines(wr)
+    assert any("Cảnh báo" in line and "tiếp nối" in line for line in report_lines)
+
+

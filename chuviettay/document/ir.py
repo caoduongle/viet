@@ -101,6 +101,9 @@ class TableCell:
     @classmethod
     def from_text(cls, text: str) -> TableCell:
         """Tạo nhanh ô chứa một đoạn văn bản thuần."""
+        lines = text.split("\n")
+        if len(lines) > 1:
+            return cls(blocks=[Paragraph(inlines=[Text(text=line)]) for line in lines])
         return cls(blocks=[Paragraph(inlines=[Text(text=text)])])
 
 

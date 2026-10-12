@@ -245,17 +245,18 @@ class DocumentLayoutEngine:
     def render(self, document: Document, out_path: str) -> WriteResult:
         """Thực hiện bố cục toàn bộ Document IR và ghi file .xopp."""
         pf = self.page_format
+        page_w = pf.width
+        page_h = pf.height
         cur_page: list[str] = []
         cur_y = pf.content_top
-        max_page_y = pf.max_page_y
+        max_page_y = min(pf.max_page_y, page_h - 60.0)
         total_lines = 0
         total_strokes = 0
         ntok = nmiss = 0
         total_tables = 0
         total_math_blocks = 0
         missing_symbols: dict[str, int] = {}
-        page_w = pf.width
-        page_h = pf.height
+        layout_warnings: list[str] = []
         bg = pf.background
         snap_ruling = bool(self.opts.snap_to_ruling and bg.style in ("ruled", "lined"))
         r1 = bg.spacing if (bg.spacing is not None and bg.spacing > 0) else 24.0
@@ -541,13 +542,20 @@ class DocumentLayoutEngine:
                                     flush_cur_line()
 
                                 sub_chars: list[str] = []
-                                for ch in tok_str:
+                                pending_chars = list(tok_str)
+                                while pending_chars:
+                                    ch = pending_chars.pop(0)
                                     cand = "".join(sub_chars) + ch
-                                    c_st, c_w, c_miss = self.wr.token(cand)
+                                    c_w = self.wr.measure_text_width(cand)
                                     c_w_scaled = c_w * self.S * scale_mult
                                     if sub_chars and c_w_scaled > usable_w:
                                         chunk_str = "".join(sub_chars)
                                         f_st, f_w, f_miss = self.wr.token(chunk_str)
+                                        while len(sub_chars) > 1 and f_w * self.S * scale_mult > usable_w:
+                                            popped = sub_chars.pop()
+                                            pending_chars.insert(0, popped)
+                                            chunk_str = "".join(sub_chars)
+                                            f_st, f_w, f_miss = self.wr.token(chunk_str)
                                         cur_l = [(0.0, f_st, f_w * self.S * scale_mult)]
                                         cur_lw = f_w * self.S * scale_mult
                                         cur_asc = item_asc
@@ -559,6 +567,18 @@ class DocumentLayoutEngine:
                                 if sub_chars:
                                     chunk_str = "".join(sub_chars)
                                     f_st, f_w, f_miss = self.wr.token(chunk_str)
+                                    while len(sub_chars) > 1 and f_w * self.S * scale_mult > usable_w:
+                                        popped = sub_chars.pop()
+                                        chunk_str = "".join(sub_chars)
+                                        f_st, f_w, f_miss = self.wr.token(chunk_str)
+                                        cur_l = [(0.0, f_st, f_w * self.S * scale_mult)]
+                                        cur_lw = f_w * self.S * scale_mult
+                                        cur_asc = item_asc
+                                        cur_desc = item_desc
+                                        flush_cur_line()
+                                        sub_chars = [popped]
+                                        chunk_str = popped
+                                        f_st, f_w, f_miss = self.wr.token(chunk_str)
                                     cur_l = [(0.0, f_st, f_w * self.S * scale_mult)]
                                     cur_lw = f_w * self.S * scale_mult
                                     cur_asc = item_asc
@@ -590,9 +610,7 @@ class DocumentLayoutEngine:
                         continue
 
                     curr_row_idx = 0
-                    num_rows = len(full_table_data.row_heights)
-
-                    while curr_row_idx < num_rows:
+                    while curr_row_idx < len(full_table_data.row_heights):
                         avail_h = max_page_y - cur_y
                         if avail_h < self.line_h + 2 * table_engine.cell_padding and cur_y > pf.content_top:
                             new_page()
@@ -604,6 +622,8 @@ class DocumentLayoutEngine:
                             new_y=cur_y,
                             can_defer_to_next_page=(cur_y > pf.content_top),
                         )
+                        if slice_data.warnings:
+                            layout_warnings.extend(slice_data.warnings)
                         if not slice_data.cells or next_row == curr_row_idx:
                             new_page()
                             avail_h = max_page_y - cur_y
@@ -613,6 +633,8 @@ class DocumentLayoutEngine:
                                 new_y=cur_y,
                                 can_defer_to_next_page=False,
                             )
+                            if slice_data.warnings:
+                                layout_warnings.extend(slice_data.warnings)
                             if not slice_data.cells or next_row == curr_row_idx:
                                 break
 
@@ -657,7 +679,10 @@ class DocumentLayoutEngine:
 
                                         start_x = laid_cell.x + table_engine.cell_padding + extra_x
                                         baseline_y = cell_cur_y + extra_top + self.line_h * 0.8
-                                        if baseline_y > max_page_y:
+                                        cur_desc = m.descent if m and m.descent > 0 else 0.3 * self.line_h * self.S
+                                        jitter_tol = 1.5 * getattr(self.opts, "jitter", 1.0)
+                                        line_bottom_y = baseline_y + cur_desc + jitter_tol
+                                        if line_bottom_y > max_page_y:
                                             # Kẹp an toàn: không vẽ nét vượt ra ngoài lề đáy trang giấy
                                             break
                                         cell_strokes = self._render_text_line(
@@ -673,7 +698,7 @@ class DocumentLayoutEngine:
                         cur_y += slice_data.height
                         curr_row_idx = next_row
 
-                        if curr_row_idx < num_rows:
+                        if curr_row_idx < len(full_table_data.row_heights):
                             new_page()
 
                     cur_y += self.line_h * 0.4
@@ -730,6 +755,7 @@ class DocumentLayoutEngine:
             n_tables=total_tables,
             n_math_blocks=total_math_blocks,
             n_pages=pb.n_pages,
+            warnings=layout_warnings,
         )
 
         if all_missing and self.opts.missing_grid:

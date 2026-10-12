@@ -65,3 +65,58 @@ def test_table_long_url_and_hash_wrapping_in_real_pipeline(tiny_bank, tmp_path):
             assert x <= max_table_x, (
                 f"Nét {s_idx} có toạ độ x={x:.2f} tràn ra ngoài ranh giới cột bảng ({max_table_x:.2f} pt)"
             )
+
+    # 3. Kiểm tra ranh giới từng ô (US4 - T014):
+    # Cột 0 chứa 'Mo ta' phải nằm trong [x0, divider_x]
+    # Cột 1 chứa URL và Hash phải nằm hoàn toàn trong [divider_x, max_table_x]
+    from chuviettay.layout.table_layout import TableLayoutEngine
+    t_engine = TableLayoutEngine(engine.width, engine.line_h)
+    col_widths = t_engine.compute_column_widths(table)
+    divider_x = engine.x0 + col_widths[0]
+
+    # Các nét sau nét viền bảng là nét nội dung chữ
+    content_strokes = pages_strokes[0][7:]
+    for s_idx, stroke in enumerate(content_strokes):
+        xs = [pt[0] for pt in stroke]
+        min_s_x, max_s_x = min(xs), max(xs)
+        if min_s_x >= divider_x - 1.0:
+            # Nét thuộc cột 1 (URL/hash)
+            assert max_s_x <= max_table_x, f"Nét {s_idx} của cột 1 tràn qua mép phải: {max_s_x} > {max_table_x}"
+            assert min_s_x >= divider_x - 1.0, f"Nét {s_idx} của cột 1 lấn sang cột 0: {min_s_x} < {divider_x}"
+        else:
+            # Nét thuộc cột 0 ('Mo ta')
+            assert max_s_x <= divider_x + 1.0, f"Nét {s_idx} của cột 0 lấn sang cột 1: {max_s_x} > {divider_x}"
+            assert min_s_x >= engine.x0 - 1.0, f"Nét {s_idx} của cột 0 tràn ra lề trái: {min_s_x} < {engine.x0}"
+
+
+def test_writer_state_invariance_during_token_width_measurement(tiny_bank):
+    """Kiểm tra US3 (T012): Hàm đo measure_text_width() là hàm đo thuần (pure),
+    tuyệt đối KHÔNG thay đổi trạng thái sinh nét của Writer:
+    writer.counts, writer.last, writer.assembled không bị biến đổi khi thử đo các token/tiền tố dài."""
+    import random
+    from chuviettay.model.writer import Writer
+
+    rnd = random.Random(42)
+    writer = Writer(tiny_bank, rnd, jitter=0.0, loose_case=False, space=1.0)
+
+    # Đưa writer vào một trạng thái ban đầu có các từ đã sinh
+    writer.counts["test"] = 3
+    writer.last["test"] = 1
+    writer.assembled = ["test_assembled"]
+
+    initial_counts = dict(writer.counts)
+    initial_last = dict(writer.last)
+    initial_assembled = list(writer.assembled)
+
+    long_token = "https://example.com/very/long/unbroken/path/123456"
+
+    # Đo thử độ rộng của rất nhiều tiền tố
+    for k in range(1, len(long_token) + 1):
+        cand = long_token[:k]
+        w = writer.measure_text_width(cand)
+        assert w >= 0.0
+
+    # Khẳng định tuyệt đối bất biến trạng thái:
+    assert writer.counts == initial_counts, "writer.counts bị thay đổi sau khi đo measure_text_width"
+    assert writer.last == initial_last, "writer.last bị thay đổi sau khi đo measure_text_width"
+    assert writer.assembled == initial_assembled, "writer.assembled bị thay đổi sau khi đo measure_text_width"
