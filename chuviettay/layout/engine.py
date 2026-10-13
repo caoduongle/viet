@@ -192,14 +192,17 @@ class DocumentLayoutEngine:
             rot = self.rnd.gauss(0, 0.010 * self.J)
             dy = self.rnd.gauss(0, 0.35 * self.J)
             for pts in place(st, 0.0, 0.0, s, rot):
-                fin = []
+                raw_pts = []
                 for x, y in pts:
                     X = start + x
                     pt_y = base_y + dy + y + slope * X + amp * math.sin(6.283 * X / wl + ph)
-                    if max_y is not None:
-                        pt_y = min(pt_y, max_y)
-                    fin.append((xo + X, pt_y))
-                out.append(xopp.stroke_xml(fin, self.bank.pen, self.opts.color, self.effective_wscale * (1 + self.rnd.gauss(0, 0.02 * self.J))))
+                    raw_pts.append((xo + X, pt_y))
+                if max_y is not None and raw_pts:
+                    stroke_max_y = max(p[1] for p in raw_pts)
+                    if stroke_max_y > max_y:
+                        overshoot = stroke_max_y - max_y
+                        raw_pts = [(p[0], p[1] - overshoot) for p in raw_pts]
+                out.append(xopp.stroke_xml(raw_pts, self.bank.pen, self.opts.color, self.effective_wscale * (1 + self.rnd.gauss(0, 0.02 * self.J))))
 
         return out
 
@@ -722,8 +725,8 @@ class DocumentLayoutEngine:
                                         if line_bottom_y > max_page_y:
                                             if cur_y <= pf.content_top + 1e-6:
                                                 # Phần tử đơn lẻ quá cao trên trang mới: co tỷ lệ, vẽ kẹp và cảnh báo
-                                                denom = cur_desc + jitter_tol
-                                                downscale = max(0.2, min(1.0, (max_page_y - baseline_y) / denom if denom > 0 else 0.5))
+                                                denom = max(1e-6, cur_desc)
+                                                downscale = max(0.2, min(1.0, (max_page_y - baseline_y - jitter_tol) / denom))
                                                 if self.token_layout_callback is not None:
                                                     page_idx = pb.n_pages
                                                     for it in l_items:
@@ -761,27 +764,22 @@ class DocumentLayoutEngine:
                                                 target_sid = laid_cell.source_cell_id
                                                 found_target = False
                                                 if target_sid is not None:
-                                                    for search_r in range(curr_row_idx, len(full_table_data.cells)):
+                                                    for search_r in range(0, len(full_table_data.cells)):
                                                         for orig_c in full_table_data.cells[search_r]:
                                                             if orig_c.source_cell_id == target_sid:
                                                                 orig_c.rendered_lines = rem_lines
                                                                 orig_c.line_metrics = rem_metrics
                                                                 orig_c.is_continuation = True
-                                                                next_row = min(next_row, search_r)
+                                                                if search_r >= curr_row_idx:
+                                                                    next_row = min(next_row, search_r)
                                                                 found_target = True
                                                                 break
                                                         if found_target:
                                                             break
                                                 if not found_target:
-                                                    actual_r = curr_row_idx + laid_cell.row
-                                                    if actual_r < len(full_table_data.cells):
-                                                        for orig_c in full_table_data.cells[actual_r]:
-                                                            if orig_c.col == laid_cell.col:
-                                                                orig_c.rendered_lines = rem_lines
-                                                                orig_c.line_metrics = rem_metrics
-                                                                orig_c.is_continuation = True
-                                                                next_row = min(next_row, actual_r)
-                                                                break
+                                                    layout_warnings.append(
+                                                        f"Không tìm thấy ô nguồn có ID {target_sid} khi chuyển tiếp dòng ô ({laid_cell.row}, {laid_cell.col}); bảo tồn nội dung tránh ghi đè."
+                                                    )
                                                 break
 
                                         if self.token_layout_callback is not None:

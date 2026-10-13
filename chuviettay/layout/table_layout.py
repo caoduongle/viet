@@ -617,9 +617,8 @@ class TableLayoutEngine:
         row_heights = [max(10.0, self.line_height + 2 * self.cell_padding)] * num_rows
         prepared_cells: list[dict[str, Any]] = []
 
-        for r, c, rs, cs, cell in placements:
-            if getattr(cell, "source_cell_id", None) is None:
-                cell.source_cell_id = r * 1000 + c
+        for p_idx, (r, c, rs, cs, cell) in enumerate(placements):
+            sid = p_idx + 1
             eff_cs = min(cs, num_cols - c)
             spanned_w = sum(col_widths[c : c + eff_cs]) if eff_cs > 0 else col_widths[min(c, num_cols - 1)]
             usable_w = max(10.0, spanned_w - 2 * self.cell_padding)
@@ -657,6 +656,7 @@ class TableLayoutEngine:
                 "rendered_lines": rendered_lines,
                 "line_metrics": line_metrics,
                 "needed_h": needed_h,
+                "source_cell_id": sid,
             })
 
         # Đối với các ô rowspan > 1, đảm bảo sum(row_heights[r : r+rs]) >= needed_h
@@ -702,7 +702,7 @@ class TableLayoutEngine:
                     rowspan=rs,
                     rendered_lines=item["rendered_lines"],
                     line_metrics=item["line_metrics"],
-                    source_cell_id=getattr(item["cell"], "source_cell_id", None) or (r * 1000 + c),
+                    source_cell_id=item.get("source_cell_id", r * 1000 + c),
                 )
             )
 
