@@ -144,3 +144,23 @@ def test_real_path_markdown_list(tiny_bank_path, tmp_path):
     assert actual_thieu_sha == GOLDEN_REAL["markdown_list"]["thieu"], (
         f"markdown_list: file _thieu.xopp khác bản gốc đường thật. Mã băm mới: {actual_thieu_sha}"
     )
+
+
+def test_real_path_stable_variants(tiny_bank_path, tmp_path):
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+    out = str(tmp_path / "stable.xopp")
+    result = ctl.write_text("xin ba bà chào Xin 12 1,2 xin. (xin) zzz bá", WriteOptions(seed=7, stable_variants=True), out)
+
+    actual_xopp_sha = sha(out)
+    expected_xopp_sha = "5e439465d32e82c3bf517fdbb60ca95a69488eb934327429db1620fbb21f4e32"
+    assert actual_xopp_sha == expected_xopp_sha, (
+        f"stable_variants: file .xopp khác bản gốc cố định. Mã băm mới: {actual_xopp_sha}"
+    )
+    assert result.missing_grid_path, "stable_variants: kỳ vọng có file _thieu.xopp nhưng không có"
+    actual_thieu_sha = sha(result.missing_grid_path)
+    expected_thieu_sha = "675c31b5796f2515179eb504fae88cb16f4adc8f446b02104b75b3c1838d11b3"
+    assert actual_thieu_sha == expected_thieu_sha, (
+        f"stable_variants: file _thieu.xopp khác bản gốc cố định. Mã băm mới: {actual_thieu_sha}"
+    )
+

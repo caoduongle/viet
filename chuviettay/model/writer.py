@@ -52,6 +52,11 @@ class Writer:
         self.missing: dict[str, int] = {}     # phần chưa có mẫu -> số lần gặp
         self.assembled: list[str] = []        # các từ đã ghép tự động từ chữ cái
         self._char_width_cache: dict[str, float] = {}  # bộ đệm đo độ rộng ký tự thuần tuý
+        self._token_counts: dict[str, int] = {}
+        self._token_last: dict[tuple[str, str], int] = {}
+        self._current_tok: str = ""
+        self._current_k: int = 0
+        self._char_idx: int = 0
 
     def pick(self, lst: list, tag: str):
         """Chọn ngẫu nhiên 1 phần tử trong `lst`, né KHÔNG chọn trùng chỉ số đã chọn
@@ -60,20 +65,25 @@ class Writer:
         if not lst:
             return None
         if self.stable_variants:
-            import hashlib
-            tag_count = self.counts.get(tag, 0)
-            self.counts[tag] = tag_count + 1
-            seed_val = self.seed if self.seed is not None else 0
-            digest = hashlib.sha256(f"{seed_val}\x00{tag}\x00{tag_count}".encode("utf-8")).digest()
-            i = int.from_bytes(digest[:4], "big") % len(lst)
-            if len(lst) > 1 and self.last.get(tag) == i:
-                extra = int.from_bytes(digest[4:8], "big") % (len(lst) - 1)
+            from chuviettay.model.rng import ScopedRNG
+            char_idx = self._char_idx
+            self._char_idx += 1
+            master_seed = self.seed if self.seed is not None else 0
+            scoped_rng = ScopedRNG(master_seed, "tok", self._current_tok, self._current_k, "variant", tag, char_idx)
+            i = scoped_rng.randrange(len(lst))
+            avoid_idx = self.last.get(tag)
+            if avoid_idx is None:
+                avoid_idx = self._token_last.get((self._current_tok, tag))
+            if len(lst) > 1 and avoid_idx == i:
+                extra = scoped_rng.randrange(len(lst) - 1)
                 i = (i + 1 + extra) % len(lst)
+            self.last[tag] = i
+            self._token_last[(self._current_tok, tag)] = i
         else:
             i = self.rnd.randrange(len(lst))
             if len(lst) > 1 and self.last.get(tag) == i:
                 i = (i + 1 + self.rnd.randrange(len(lst) - 1)) % len(lst)
-        self.last[tag] = i
+            self.last[tag] = i
         return lst[i]
 
     # -- một từ tiếng Việt
@@ -349,9 +359,18 @@ class Writer:
             pair_gap = contour_pair_gap(rc_prev, lc_curr, xh=xh) * self.letter_gap
             advance = prev_w + rsb_prev + pair_gap + lsb_curr
 
-            if self.J > 0 and self.rnd:
-                jitter_amt = self.rnd.uniform(-0.015 * self.J * xh, 0.015 * self.J * xh)
-                advance += jitter_amt
+            if self.J > 0:
+                if self.stable_variants:
+                    from chuviettay.model.rng import ScopedRNG
+                    master_seed = self.seed if self.seed is not None else 0
+                    char_idx = self._char_idx
+                    self._char_idx += 1
+                    scoped_rng = ScopedRNG(master_seed, "tok", self._current_tok, self._current_k, "jitter", char_idx)
+                    jitter_amt = scoped_rng.uniform(-0.015 * self.J * xh, 0.015 * self.J * xh)
+                    advance += jitter_amt
+                elif self.rnd:
+                    jitter_amt = self.rnd.uniform(-0.015 * self.J * xh, 0.015 * self.J * xh)
+                    advance += jitter_amt
 
             candidate_x = cur_x + advance
             candidate_placed = [shift(st, candidate_x, 0.0) for st in ch_strokes]
@@ -409,14 +428,20 @@ class Writer:
         return body_strokes, total_w
 
     # -- số
-    def _resolve_dgap(self, first: bool, is_hyphen: bool = False) -> float:
+    def _resolve_dgap(self, first: bool, is_hyphen: bool = False, digit_idx: int = 0) -> float:
         """Tính khoảng cách tự nhiên giữa 2 chữ số liên tiếp trong cùng một số,
         được chuẩn hóa theo tỷ lệ chiều cao chữ xh và chống giãn cách quá xa."""
         if first:
             return 0.0
-        b, rnd = self.b, self.rnd
+        b = self.b
         xh = getattr(b, "xh", 7.94) or 7.94
         raw_gaps = b.d.get("dgaps")
+        if self.stable_variants:
+            from chuviettay.model.rng import ScopedRNG
+            master_seed = self.seed if self.seed is not None else 0
+            rnd = ScopedRNG(master_seed, "tok", self._current_tok, self._current_k, "dgap", digit_idx)
+        else:
+            rnd = self.rnd
         # Lọc các khoảng cách hợp lý (tương tự như cách engine lọc wgaps: 6.0 <= g <= 20.0)
         # Đối với chữ số: dgap chỉ nên trong khoảng 0.5 đến 0.55 * xh (tối đa ~3.8 khi xh=7.0, ~4.3 khi xh=7.94)
         valid_gaps = [float(g) for g in raw_gaps if 0.5 <= float(g) <= 0.55 * xh] if raw_gaps else []
@@ -459,7 +484,7 @@ class Writer:
         xh = getattr(b, "xh", 7.94) or 7.94
         out: list[Stroke] = []
         x, missing, first = 0.0, [], True
-        for ch in s:
+        for d_idx, ch in enumerate(s):
             if ch in ",.":
                 lib = b.punct.get(ch) or b.punct.get(",") or b.punct.get(".")
                 if not lib:
@@ -480,7 +505,7 @@ class Writer:
                 missing.append(ch)
                 continue
             g = self.pick(lib, "d" + ch)
-            gap = self._resolve_dgap(first, is_hyphen=(ch == "-"))
+            gap = self._resolve_dgap(first, is_hyphen=(ch == "-"), digit_idx=d_idx)
             d_st, d_w = self._normalize_punct_sample(g)
             out += [shift(st, x + gap, 0) for st in d_st]
             w_advance = float(g.get("w", d_w))
@@ -488,9 +513,20 @@ class Writer:
             first = False
         return out, x, missing
 
-    def symbol(self, sym: str) -> tuple[list[Stroke], float, list[str]]:
+    def symbol(self, sym: str, k: int | None = None) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một ký hiệu toán học / glyph đặc biệt từ bank.symbols.
         Nếu chưa có mẫu, trả về ([], fallback_width, [sym])."""
+        if self.stable_variants:
+            if k is None:
+                k_idx = self._token_counts.get(sym, 0)
+                self._token_counts[sym] = k_idx + 1
+            else:
+                k_idx = k
+            self._current_tok = sym
+            self._current_k = k_idx
+            self._char_idx = 0
+            self.last = {}
+
         b = self.b
         if getattr(b, "symbols", None) and sym in b.symbols:
             inst = self.pick(b.symbols[sym], "sym:" + sym)
@@ -509,13 +545,24 @@ class Writer:
         return 0.3
 
     # -- một token (đã tách khoảng trắng)
-    def token(self, tok: str) -> tuple[list[Stroke], float, list[str]]:
+    def token(self, tok: str, k: int | None = None) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một token (đã tách theo khoảng trắng, có thể còn kèm dấu ngoặc/dấu câu
         bao quanh) thành nét viết tay. -> (nét, độ rộng, danh sách phần còn thiếu mẫu).
 
         Thử khớp NGUYÊN token trước (ví dụ cụm "cà phê" đã dạy như một nhãn); nếu
         không có mới tách ra lead (dấu mở ngoặc/nháy đầu) + core (phần thân: số hoặc
         từ) + trail (dấu đóng ngoặc/dấu câu cuối) rồi ghép từng phần."""
+        if self.stable_variants:
+            if k is None:
+                k_idx = self._token_counts.get(tok, 0)
+                self._token_counts[tok] = k_idx + 1
+            else:
+                k_idx = k
+            self._current_tok = tok
+            self._current_k = k_idx
+            self._char_idx = 0
+            self.last = {}
+
         b = self.b
         xh = getattr(b, "xh", 7.94) or 7.94
         pen_w = float(b.pen.get("width", 1.41)) if b.pen else 1.41

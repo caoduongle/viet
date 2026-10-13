@@ -106,10 +106,16 @@ class FidelityLayoutEngine:
                             self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
 
                     w_scaled = w * eff_scale
-                    gap_scaled = (
-                        (self.rnd.choice(gaps) * eff_scale * self.opts.space)
-                        if idx > 0 else 0.0
-                    )
+                    if self.opts.stable_variants:
+                        from chuviettay.model.rng import ScopedRNG
+                        prev_w = words[idx - 1] if idx > 0 else ""
+                        gap_rng = ScopedRNG(self.effective_seed, "wgap", prev_w, w_tok)
+                        gap_scaled = (gap_rng.choice(gaps) * eff_scale * self.opts.space) if idx > 0 else 0.0
+                    else:
+                        gap_scaled = (
+                            (self.rnd.choice(gaps) * eff_scale * self.opts.space)
+                            if idx > 0 else 0.0
+                        )
                     token_data.append((w_tok, st, w, gap_scaled))
                     total_w += gap_scaled + w_scaled
 
@@ -135,11 +141,15 @@ class FidelityLayoutEngine:
                     cur_x += gap * scale_adj
                     if st:
                         placed = place(st, cur_x, baseline_y, final_scale, 0.0)
-                        wscale = (
-                            self.opts.wscale * (1 + self.rnd.gauss(0, 0.02 * self.opts.jitter))
-                            if self.opts.jitter > 0
-                            else self.opts.wscale
-                        )
+                        if self.opts.jitter > 0:
+                            if self.opts.stable_variants:
+                                from chuviettay.model.rng import ScopedRNG
+                                wscale_rng = ScopedRNG(self.effective_seed, "tok", w_tok, "geom")
+                                wscale = self.opts.wscale * (1 + wscale_rng.gauss(0, 0.02 * self.opts.jitter))
+                            else:
+                                wscale = self.opts.wscale * (1 + self.rnd.gauss(0, 0.02 * self.opts.jitter))
+                        else:
+                            wscale = self.opts.wscale
                         for pts in placed:
                             total_strokes += 1
                             page_strokes.append(

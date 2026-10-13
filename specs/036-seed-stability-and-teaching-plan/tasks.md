@@ -86,16 +86,16 @@
 
 ### Tests for User Story 3
 
-- [ ] T022 [P] [US3] Viết lại toàn diện bộ kiểm thử `tests/test_stable_variants.py` so sánh tag thật và nét thật, chứng minh ĐỎ trên mã nguồn cũ
+- [x] T022 [P] [US3] Viết lại toàn diện bộ kiểm thử `tests/test_stable_variants.py` so sánh tag thật và nét thật, chứng minh ĐỎ trên mã nguồn cũ
 
 ### Implementation for User Story 3
 
-- [ ] T023 [US3] Tích hợp `ScopedRNG` vào `Writer` trong `chuviettay/model/writer.py`: hỗ trợ tham số `k` trong `token(tok, k=None)`, tự động đếm tần suất token qua `self._token_counts`
-- [ ] T024 [US3] Áp dụng `ScopedRNG` cho các vị trí tiêu thụ ngẫu nhiên trong `Writer` (`pick`, `jitter`, `_resolve_dgap`) và cô lập chống lặp biến thể trong phạm vi token khi `stable_variants=True`
-- [ ] T025 [US3] Cập nhật `chuviettay/layout/engine.py`: neo luồng ngẫu nhiên cho word gap `(wgap)`, sóng dòng `(line)`, viền bảng `(tbl_border)` và công thức toán khi `stable_variants=True`
-- [ ] T026 [US3] Cập nhật `chuviettay/fidelity/engine.py`: neo luồng ngẫu nhiên cho word gap và wscale khi `stable_variants=True`
-- [ ] T027 [US3] Chạy `pytest tests/test_stable_variants.py` và xác minh test chuyển từ ĐỎ sang XANH
-- [ ] T028 [US3] Chạy `pytest tests/test_golden_master_real_path.py` xác minh 100% SHA-256 cũ không đổi từng byte; bổ sung ca golden master riêng cho `stable_variants=True`
+- [x] T023 [US3] Tích hợp `ScopedRNG` vào `Writer` trong `chuviettay/model/writer.py`: hỗ trợ tham số `k` trong `token(tok, k=None)`, tự động đếm tần suất token qua `self._token_counts`
+- [x] T024 [US3] Áp dụng `ScopedRNG` cho các vị trí tiêu thụ ngẫu nhiên trong `Writer` (`pick`, `jitter`, `_resolve_dgap`) và cô lập chống lặp biến thể trong phạm vi token khi `stable_variants=True`
+- [x] T025 [US3] Cập nhật `chuviettay/layout/engine.py`: neo luồng ngẫu nhiên cho word gap `(wgap)`, sóng dòng `(line)`, viền bảng `(tbl_border)` và công thức toán khi `stable_variants=True`
+- [x] T026 [US3] Cập nhật `chuviettay/fidelity/engine.py`: neo luồng ngẫu nhiên cho word gap và wscale khi `stable_variants=True`
+- [x] T027 [US3] Chạy `pytest tests/test_stable_variants.py` và xác minh test chuyển từ ĐỎ sang XANH
+- [x] T028 [US3] Chạy `pytest tests/test_golden_master_real_path.py` xác minh 100% SHA-256 cũ không đổi từng byte; bổ sung ca golden master riêng cho `stable_variants=True`
 
 **Checkpoint**: User Story 3 hoàn thành, giải quyết triệt để hiện tượng nhấp nháy chữ viết tay khi soạn thảo.
 

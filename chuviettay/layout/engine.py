@@ -183,29 +183,57 @@ class DocumentLayoutEngine:
         if not line_items:
             return out
 
-        slope, amp = self.rnd.gauss(0, 0.0015 * self.J), 0.45 * self.J
-        wl, ph = self.rnd.uniform(140, 260), self.rnd.uniform(0, 6.283)
-        xo = start_x + self.rnd.gauss(0, 1.2 * self.J)
+        if self.opts.stable_variants:
+            from chuviettay.model.rng import ScopedRNG
+            first_tok = line_items[0][4] if len(line_items[0]) > 4 else ""
+            line_rng = ScopedRNG(self.effective_seed, "line", first_tok, round(base_y, 1))
+            slope, amp = line_rng.gauss(0, 0.0015 * self.J), 0.45 * self.J
+            wl, ph = line_rng.uniform(140, 260), line_rng.uniform(0, 6.283)
+            xo = start_x + line_rng.gauss(0, 1.2 * self.J)
+        else:
+            slope, amp = self.rnd.gauss(0, 0.0015 * self.J), 0.45 * self.J
+            wl, ph = self.rnd.uniform(140, 260), self.rnd.uniform(0, 6.283)
+            xo = start_x + self.rnd.gauss(0, 1.2 * self.J)
 
-        for item in line_items:
+        for it_idx, item in enumerate(line_items):
             start, st = item[0], item[1]
             if not st:
                 continue
-            s = self.S * scale_mult * (1 + self.rnd.gauss(0, 0.02 * self.J))
-            rot = self.rnd.gauss(0, 0.010 * self.J)
-            dy = self.rnd.gauss(0, 0.35 * self.J)
-            for pts in place(st, 0.0, 0.0, s, rot):
-                raw_pts = []
-                for x, y in pts:
-                    X = start + x
-                    pt_y = base_y + dy + y + slope * X + amp * math.sin(6.283 * X / wl + ph)
-                    raw_pts.append((xo + X, pt_y))
-                if max_y is not None and raw_pts:
-                    stroke_max_y = max(p[1] for p in raw_pts)
-                    if stroke_max_y > max_y:
-                        overshoot = stroke_max_y - max_y
-                        raw_pts = [(p[0], p[1] - overshoot) for p in raw_pts]
-                out.append(xopp.stroke_xml(raw_pts, self.bank.pen, self.opts.color, self.effective_wscale * (1 + self.rnd.gauss(0, 0.02 * self.J))))
+            if self.opts.stable_variants:
+                tok_str = item[4] if len(item) > 4 else ""
+                geom_rng = ScopedRNG(self.effective_seed, "tok", tok_str, "geom", it_idx)
+                s = self.S * scale_mult * (1 + geom_rng.gauss(0, 0.02 * self.J))
+                rot = geom_rng.gauss(0, 0.010 * self.J)
+                dy = geom_rng.gauss(0, 0.35 * self.J)
+                wscale_mult = 1 + geom_rng.gauss(0, 0.02 * self.J)
+                for pts in place(st, 0.0, 0.0, s, rot):
+                    raw_pts = []
+                    for x, y in pts:
+                        X = start + x
+                        pt_y = base_y + dy + y + slope * X + amp * math.sin(6.283 * X / wl + ph)
+                        raw_pts.append((xo + X, pt_y))
+                    if max_y is not None and raw_pts:
+                        stroke_max_y = max(p[1] for p in raw_pts)
+                        if stroke_max_y > max_y:
+                            overshoot = stroke_max_y - max_y
+                            raw_pts = [(p[0], p[1] - overshoot) for p in raw_pts]
+                    out.append(xopp.stroke_xml(raw_pts, self.bank.pen, self.opts.color, self.effective_wscale * wscale_mult))
+            else:
+                s = self.S * scale_mult * (1 + self.rnd.gauss(0, 0.02 * self.J))
+                rot = self.rnd.gauss(0, 0.010 * self.J)
+                dy = self.rnd.gauss(0, 0.35 * self.J)
+                for pts in place(st, 0.0, 0.0, s, rot):
+                    raw_pts = []
+                    for x, y in pts:
+                        X = start + x
+                        pt_y = base_y + dy + y + slope * X + amp * math.sin(6.283 * X / wl + ph)
+                        raw_pts.append((xo + X, pt_y))
+                    if max_y is not None and raw_pts:
+                        stroke_max_y = max(p[1] for p in raw_pts)
+                        if stroke_max_y > max_y:
+                            overshoot = stroke_max_y - max_y
+                            raw_pts = [(p[0], p[1] - overshoot) for p in raw_pts]
+                    out.append(xopp.stroke_xml(raw_pts, self.bank.pen, self.opts.color, self.effective_wscale * (1 + self.rnd.gauss(0, 0.02 * self.J))))
 
         return out
 
@@ -274,7 +302,13 @@ class DocumentLayoutEngine:
 
             elif isinstance(inline, MathInline):
                 math_ast = inline.ast or parse_latex_math(inline.latex)
-                math_engine = MathLayoutEngine(self.bank, S=1.0, writer=self.wr, rnd=self.rnd)
+                if self.opts.stable_variants:
+                    from chuviettay.model.rng import ScopedRNG
+                    math_seed = ScopedRNG(self.effective_seed, "math", inline.latex).seed
+                    math_rnd = random.Random(math_seed)
+                else:
+                    math_rnd = self.rnd
+                math_engine = MathLayoutEngine(self.bank, S=1.0, writer=self.wr, rnd=math_rnd)
                 # Công thức rộng hơn dòng/ô: thu nhỏ vừa khít (tối thiểu 50%); nếu vẫn quá rộng thì ngắt dòng
                 # sau quan hệ/toán tử (như công thức display) thay vì tràn lề
                 avail = (max_item_width if max_item_width is not None else self.width) / max(self.S * scale_mult, 1e-6)
@@ -440,7 +474,13 @@ class DocumentLayoutEngine:
                     flush_line()
                     continue
 
-                sp = self.rnd.choice(self.gaps) * self.S * scale_mult * self.opts.space * (1 + self.rnd.gauss(0, 0.06 * self.J))
+                if self.opts.stable_variants:
+                    from chuviettay.model.rng import ScopedRNG
+                    prev_tok = cur_line[-1][4] if cur_line and len(cur_line[-1]) > 4 else ""
+                    wgap_rng = ScopedRNG(self.effective_seed, "wgap", prev_tok, tok_str)
+                    sp = wgap_rng.choice(self.gaps) * self.S * scale_mult * self.opts.space * (1 + wgap_rng.gauss(0, 0.06 * self.J))
+                else:
+                    sp = self.rnd.choice(self.gaps) * self.S * scale_mult * self.opts.space * (1 + self.rnd.gauss(0, 0.06 * self.J))
                 if cur_line and curw + sp + w > avail_w:
                     flush_line()
 
@@ -458,7 +498,13 @@ class DocumentLayoutEngine:
             """Công thức display: căn giữa, tự ngắt dòng sau quan hệ/toán tử nếu quá rộng, thu nhỏ nếu cần."""
             nonlocal cur_y, total_lines, total_strokes, ntok, nmiss, total_math_blocks
             math_ast = block.ast or parse_latex_math(block.latex)
-            math_engine = MathLayoutEngine(self.bank, S=self.S, writer=self.wr, rnd=self.rnd, display=True)
+            if self.opts.stable_variants:
+                from chuviettay.model.rng import ScopedRNG
+                math_seed = ScopedRNG(self.effective_seed, "math", block.latex).seed
+                math_rnd = random.Random(math_seed)
+            else:
+                math_rnd = self.rnd
+            math_engine = MathLayoutEngine(self.bank, S=self.S, writer=self.wr, rnd=math_rnd, display=True)
             avail_w = max(self.width - indent, 1.0)
             lines = math_engine.layout_lines(math_ast, avail_w)
             math_miss_count = sum(math_engine.missing_symbols.values())
@@ -682,11 +728,16 @@ class DocumentLayoutEngine:
                                 break
 
                         # 1. Sinh nét viền bảng cho trang hiện tại
+                        if self.opts.stable_variants:
+                            from chuviettay.model.rng import ScopedRNG
+                            tbl_seed = ScopedRNG(self.effective_seed, "tbl_border", total_tables, curr_row_idx).randrange(0, 1000000)
+                        else:
+                            tbl_seed = self.rnd.randint(0, 1000000)
                         border_strokes = table_engine.generate_border_strokes(
                             slice_data,
                             block.border_style,
                             jitter=self.J,
-                            seed=self.rnd.randint(0, 1000000),
+                            seed=tbl_seed,
                         )
                         for bs in border_strokes:
                             cur_page.append(xopp.stroke_xml(bs.points, self.bank.pen, self.opts.color, self.effective_wscale))
