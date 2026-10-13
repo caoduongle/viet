@@ -24,12 +24,26 @@ class FidelityLayoutEngine:
     def __init__(self, bank: Bank, opts: WriteOptions) -> None:
         self.bank = bank
         self.opts = opts
-        self.rnd = random.Random(opts.seed)
-        self.wr = Writer(bank, self.rnd, opts.jitter, not opts.strict_case, opts.space, assemble_letters=opts.assemble_letters)
+        self.opts.validate()
+        from chuviettay.model.rng import resolve_effective_seed
+
+        self.effective_seed = resolve_effective_seed(opts.seed, getattr(opts, "stable_variants", False))
+        self.rnd = random.Random(self.effective_seed)
+        self.wr = Writer(
+            bank,
+            self.rnd,
+            opts.jitter,
+            not opts.strict_case,
+            opts.space,
+            assemble_letters=opts.assemble_letters,
+            letter_gap=getattr(opts, "letter_gap", 1.0),
+            pen_clearance_factor=getattr(opts, "pen_clearance_factor", 0.8),
+            stable_variants=getattr(opts, "stable_variants", False),
+            seed=self.effective_seed,
+        )
 
     def render(self, document: FixedDocument, out_path: str) -> WriteResult:
         """Kết xuất FixedDocument thành tệp .xopp đa trang liên kết PDF nền."""
-        self.opts.validate()
 
         # Xác định tên tệp PDF nền (ưu tiên đường dẫn relative để đảm bảo tính di động)
         bg_pdf = document.background_pdf_path
@@ -204,6 +218,7 @@ class FidelityLayoutEngine:
             n_pages=len(document.pages),
             n_images=total_images,
             n_tables=total_tables,
+            seed_used=self.effective_seed,
             missing_grid_path=missing_grid_path,
             missing_letters=missing_lets,
             assembled_words=list(self.wr.assembled),

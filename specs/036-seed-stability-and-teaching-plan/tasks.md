@@ -60,19 +60,19 @@
 
 ### Tests for User Story 2
 
-- [ ] T012 [P] [US2] Viết test kiểm chuẩn seed, kiểm chứng `Random(-5) == Random(5)`, và tái tạo bit-exact qua `seed_used` trong `tests/test_seed_lifecycle.py`
-- [ ] T013 [P] [US2] Viết unit test cho hàm web `parseSeed()` trong `tests/test_web_parse_seed.test.mjs`
+- [x] T012 [P] [US2] Viết test kiểm chuẩn seed, kiểm chứng `Random(-5) == Random(5)`, và tái tạo bit-exact qua `seed_used` trong `tests/test_seed_lifecycle.py`
+- [x] T013 [P] [US2] Viết unit test cho hàm web `parseSeed()` trong `tests/test_web_parse_seed.test.mjs`
 
 ### Implementation for User Story 2
 
-- [ ] T014 [US2] Cập nhật `WriteOptions.validate()` trong `chuviettay/controller/results.py`: chỉ chấp nhận `seed is None` hoặc `int` (không phải `bool`) trong $[0, 2^{32}-1]$, ném `ValueError` tiếng Việt
-- [ ] T015 [US2] Bổ sung trường `seed_used: int | None = None` vào `WriteResult` trong `chuviettay/controller/results.py`
-- [ ] T016 [US2] Xác định hạt giống hiệu dụng một lần duy nhất và ghi nhận `result.seed_used` trong `chuviettay/layout/engine.py`
-- [ ] T017 [US2] Cập nhật `chuviettay/fidelity/engine.py`: truyền đủ `seed`, `stable_variants`, `letter_gap`, `pen_clearance_factor` vào `Writer` và ghi nhận `result.seed_used`
-- [ ] T018 [US2] Cập nhật `chuviettay/cli.py`: bổ sung mô tả cho `--seed` trong help và in thông báo `"Seed đã dùng: N (chạy lại với --seed N để có đúng kết quả này)"` khi seed tự sinh
-- [ ] T019 [US2] Cập nhật `chuviettay/browser/bridge.py`: thu thập và trả về danh sách `ignored_options` cùng trường `seed_used`
-- [ ] T020 [US2] Tách hàm thuần `parseSeed(inputVal, currentSeed)` trong `webapp/js/write.js`, chấp nhận giá trị `0`, giữ nguyên seed hiện tại khi lỗi, loại bỏ `parseInt(...) || 42`
-- [ ] T021 [US2] Chạy `pytest tests/test_seed_lifecycle.py` và `node --test tests/test_web_parse_seed.test.mjs`, xác minh XANH
+- [x] T014 [US2] Cập nhật `WriteOptions.validate()` trong `chuviettay/controller/results.py`: chỉ chấp nhận `seed is None` hoặc `int` (không phải `bool`) trong $[0, 2^{32}-1]$, ném `ValueError` tiếng Việt
+- [x] T015 [US2] Bổ sung trường `seed_used: int | None = None` vào `WriteResult` trong `chuviettay/controller/results.py`
+- [x] T016 [US2] Xác định hạt giống hiệu dụng một lần duy nhất và ghi nhận `result.seed_used` trong `chuviettay/layout/engine.py`
+- [x] T017 [US2] Cập nhật `chuviettay/fidelity/engine.py`: truyền đủ `seed`, `stable_variants`, `letter_gap`, `pen_clearance_factor` vào `Writer` và ghi nhận `result.seed_used`
+- [x] T018 [US2] Cập nhật `chuviettay/cli.py`: bổ sung mô tả cho `--seed` trong help và in thông báo `"Seed đã dùng: N (chạy lại với --seed N để có đúng kết quả này)"` khi seed tự sinh
+- [x] T019 [US2] Cập nhật `chuviettay/browser/bridge.py`: thu thập và trả về danh sách `ignored_options` cùng trường `seed_used`
+- [x] T020 [US2] Tách hàm thuần `parseSeed(inputVal, currentSeed)` trong `webapp/js/write.js`, chấp nhận giá trị `0`, giữ nguyên seed hiện tại khi lỗi, loại bỏ `parseInt(...) || 42`
+- [x] T021 [US2] Chạy `pytest tests/test_seed_lifecycle.py` và `node --test tests/test_web_parse_seed.test.mjs`, xác minh XANH
 
 **Checkpoint**: User Story 2 hoàn thành độc lập, vòng đời hạt giống hoàn toàn minh bạch trên mọi tầng giao diện.
 

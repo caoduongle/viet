@@ -104,6 +104,9 @@ class WriteOptions:
             raise ValueError(f"jitter phải là số không âm hữu hạn, nhận được: {self.jitter}")
         if not math.isfinite(self.wscale) or self.wscale <= 0:
             raise ValueError(f"wscale phải là số dương hữu hạn, nhận được: {self.wscale}")
+        if self.seed is not None:
+            if isinstance(self.seed, bool) or not isinstance(self.seed, int) or not (0 <= self.seed <= 4294967295):
+                raise ValueError("Hạt giống (seed) phải là số nguyên không âm trong khoảng [0, 4294967295] hoặc None.")
         if self.color is not None:
             self.color = parse_color(self.color)
 
@@ -246,6 +249,7 @@ class WriteResult:
     n_math_blocks: int = 0                 # tổng số khối công thức toán học đã dàn trang
     n_pages: int = 1                       # tổng số trang của tài liệu
     n_images: int = 0                      # tổng số hình ảnh giữ nguyên ở nền
+    seed_used: int | None = None           # hạt giống hiệu dụng đã sử dụng để kết xuất
     warnings: list[str] = field(default_factory=list)  # các cảnh báo bố cục/phân trang/cắt xén
 
     def missing_sorted(self) -> list[tuple[str, int]]:

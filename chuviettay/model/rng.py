@@ -13,9 +13,20 @@ from __future__ import annotations
 import hashlib
 import math
 import random
+import secrets
 from typing import Any, Sequence, TypeVar
 
 T = TypeVar("T")
+
+
+def resolve_effective_seed(seed: int | None, stable_variants: bool) -> int:
+    """Xác định hạt giống hiệu dụng một lần duy nhất tại đầu mỗi phiên viết
+    theo hợp đồng CTR-036-SEED-LIFECYCLE."""
+    if seed is not None:
+        return seed
+    if stable_variants:
+        return 0
+    return secrets.randbits(32)
 
 
 def derive_seed(master_seed: int, *keys: Any) -> int:

@@ -116,7 +116,10 @@ class DocumentLayoutEngine:
         self.opts.validate()
         self.token_layout_callback = token_layout_callback
         self.page_format = opts.resolve_page_format()
-        self.rnd = random.Random(opts.seed)
+        from chuviettay.model.rng import resolve_effective_seed
+
+        self.effective_seed = resolve_effective_seed(opts.seed, getattr(opts, "stable_variants", False))
+        self.rnd = random.Random(self.effective_seed)
         self.J = opts.jitter
         self.S = opts.scale
         self.effective_wscale = opts.wscale
@@ -161,7 +164,7 @@ class DocumentLayoutEngine:
             letter_gap=getattr(opts, "letter_gap", 1.0),
             pen_clearance_factor=getattr(opts, "pen_clearance_factor", 0.8),
             stable_variants=getattr(opts, "stable_variants", False),
-            seed=opts.seed,
+            seed=self.effective_seed,
         )
         # id(danh sách nét của mục công thức inline) -> (ascent, descent) theo toạ độ kho (S=1): để nới chiều cao dòng
         self._math_extent: dict[int, tuple[float, float]] = {}
@@ -869,6 +872,7 @@ class DocumentLayoutEngine:
             n_tables=total_tables,
             n_math_blocks=total_math_blocks,
             n_pages=pb.n_pages,
+            seed_used=self.effective_seed,
             warnings=layout_warnings,
         )
 

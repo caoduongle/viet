@@ -168,6 +168,7 @@ class BrowserBridge:
             # Lọc các trường hợp lệ của WriteOptions
             valid_fields = {f.name for f in dataclasses.fields(WriteOptions)}
             filtered_opts = {k: v for k, v in opts_dict.items() if k in valid_fields}
+            ignored_options = sorted([k for k in opts_dict.keys() if k not in valid_fields])
             write_opts = WriteOptions(**filtered_opts)
 
             with tempfile.NamedTemporaryFile(suffix=".xopp", delete=False) as tmp:
@@ -218,6 +219,8 @@ class BrowserBridge:
                     "missing_sorted": missing_sorted,
                     "missing_token_boxes": missing_token_boxes,
                     "warnings": warnings_list,
+                    "seed_used": getattr(result, "seed_used", None),
+                    "ignored_options": ignored_options,
                 }
                 return res_data
             finally:

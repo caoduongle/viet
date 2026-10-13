@@ -160,6 +160,13 @@ async function requestRender(params) {
       updatePaginationControls();
       renderCurrentPage();
       updateInfoPanel(res);
+
+      if (res.seed_used !== undefined && res.seed_used !== null) {
+        const badgeSeed = document.getElementById("badge-seed-used");
+        if (badgeSeed) {
+          badgeSeed.textContent = `(Đã dùng: ${res.seed_used})`;
+        }
+      }
     } else {
       console.warn("Lỗi render:", res?.error);
       showWarning(res?.error || "Lỗi không xác định khi kết xuất văn bản.");
@@ -612,6 +619,24 @@ function setupPreviewNavigation() {
 }
 
 // -------------------------------------------------------------
+// Hàm thuần túy kiểm chuẩn và phân tích Seed (CTR-036-SEED-LIFECYCLE)
+// -------------------------------------------------------------
+export function parseSeed(inputVal, currentSeed) {
+  if (inputVal === null || inputVal === undefined) {
+    return { seed: currentSeed, valid: false, message: "Để trống; giữ nguyên seed hiện tại." };
+  }
+  const str = String(inputVal).trim();
+  if (str === "") {
+    return { seed: currentSeed, valid: false, message: "Để trống; giữ nguyên seed hiện tại." };
+  }
+  const num = Number(str);
+  if (Number.isInteger(num) && num >= 0 && num <= 4294967295) {
+    return { seed: num, valid: true, message: null };
+  }
+  return { seed: currentSeed, valid: false, message: "Seed không hợp lệ; giữ nguyên seed hiện tại." };
+}
+
+// -------------------------------------------------------------
 // Modal Tuỳ chọn viết (T047)
 // -------------------------------------------------------------
 function setupOptionsModal() {
@@ -663,7 +688,12 @@ function setupOptionsModal() {
   const optSeed = document.getElementById("opt-seed");
   if (optSeed) {
     optSeed.addEventListener("change", (e) => {
-      writeOptions.seed = parseInt(e.target.value, 10) || 42;
+      const parsed = parseSeed(e.target.value, writeOptions.seed);
+      writeOptions.seed = parsed.seed;
+      optSeed.value = parsed.seed;
+      if (!parsed.valid && parsed.message) {
+        console.warn(parsed.message);
+      }
     });
   }
 

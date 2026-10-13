@@ -125,6 +125,8 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
 
     for line in write_report_lines(result):
         print(line)
+    if getattr(a, "seed", None) is None and result.seed_used is not None:
+        print(f"Seed đã dùng: {result.seed_used} (chạy lại với --seed {result.seed_used} để có đúng kết quả này)")
 
 
 
@@ -244,7 +246,11 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--jitter", type=float, default=1.0, help="độ 'run tay' ngẫu nhiên (0 = tắt)")
     w.add_argument("--wscale", type=float, default=1.0, help="nhân độ dày nét")
     w.add_argument("--color", help="đổi màu, ví dụ #1a237e")
-    w.add_argument("--seed", type=int)
+    w.add_argument(
+        "--seed",
+        type=int,
+        help="Hạt giống ngẫu nhiên (số nguyên không âm trong khoảng [0, 4294967295]) để tái tạo kết quả viết tay.",
+    )
     w.add_argument("--strict-case", action="store_true", help="không dùng chữ thường thay cho chữ hoa đầu từ")
     w.add_argument("--paper", default="a4",
                    choices=["a5", "a4", "a3", "letter", "legal", "16:9", "4:3", "custom"],
