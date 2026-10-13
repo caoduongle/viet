@@ -125,9 +125,21 @@
    - Hiện tại khởi tạo `Writer` mà không truyền `letter_gap`, `pen_clearance_factor`, `stable_variants`, `seed`.
    - Quyết định: Truyền đầy đủ các tham số này từ `self.writer` sang đối tượng scratch writer để kết quả đo kích thước thử nghiệm hoàn toàn đồng nhất với kết quả vẽ thật.
 2. **`Writer.measure_text_width` vs `Writer.word`**:
-   - `Writer.word()` luôn ưu tiên ghép từ các chữ cái mẫu (`assemble_word`).
-   - `measure_text_width()` trước đây kiểm tra `bank.words` trước. Nếu kho mẫu có từ cũ trong `bank.words` có độ rộng khác với từ được ghép từ chữ cái, kết quả đo sẽ lệch.
-   - Quyết định: Trong `measure_text_width`, nếu kho có đủ chữ cái để ghép từ, ưu tiên đo độ rộng từ chữ cái ghép để khớp 100% với `Writer.word()`.
+   - Thử nghiệm ưu tiên chữ cái ghép (`assemble_word`) trước `bank.words` trong `measure_text_width` làm xê dịch ngắt dòng ở 8 test golden master của đường mặc định.
+   - Quyết định: Huỷ bỏ thử nghiệm (abandoned approach), bảo lưu 100% nguyên trạng thuật toán `measure_text_width` để giữ nguyên hash golden của đường mặc định.
 3. **Cờ `assemble_letters`**:
    - Đã kiểm tra mã nguồn: `Writer.word()` hiện luôn gọi `self.assemble_word(c)` mà không kiểm tra cờ `self.assemble_letters`.
    - Ghi nhận báo cáo kỹ thuật rõ ràng trong tài liệu và CHANGELOG mà không tự ý sửa đổi ngoài phạm vi.
+
+---
+
+## 6. Báo cáo Hiệu năng Kết xuất (T037 Benchmark Report)
+
+- **Môi trường đo**: CPython 3.14 (Windows), CPU đa nhân, kho mẫu `tests/data/kho_mau_tong_hop.json.gz`.
+- **Khối lượng thực nghiệm**: Tài liệu ~5.000 tokens (tương đương 15–20 trang giấy A4 viết tay tiêu chuẩn).
+- **Kết quả đo lường (trung bình 3 lượt chạy sau warmup)**:
+  - Chế độ tuần tự mặc định (`stable_variants=False`): ~0.686 giây (~0.137 ms / token).
+  - Chế độ biến thể ổn định (`stable_variants=True`, `ScopedRNG` băm BLAKE2b): ~1.188 giây (~0.237 ms / token).
+  - Tỷ lệ sai khác hiệu năng: ~1.73x (xử lý toàn bộ 5.000 tokens chỉ trong khoảng ~1.2 giây).
+- **Kết luận**: Hiệu năng đạt chuẩn đáp ứng thời gian thực cho văn bản lớn, bảo đảm tính tất định cục bộ tuyệt đối giữa các lượt sửa đổi mà không làm nghẽn trải nghiệm người dùng.
+

@@ -32,13 +32,9 @@ def resolve_effective_seed(seed: int | None, stable_variants: bool) -> int:
 def derive_seed(master_seed: int, *keys: Any) -> int:
     """Dẫn xuất một số nguyên 64-bit từ master_seed và chuỗi các khóa ngữ cảnh
     bằng hàm băm chính tắc blake2b với phân tách byte null (\\x00)."""
-    hasher = hashlib.blake2b(digest_size=8)
-    hasher.update(str(master_seed).encode("utf-8"))
-    hasher.update(b"\x00")
-    for k in keys:
-        hasher.update(str(k).encode("utf-8"))
-        hasher.update(b"\x00")
-    return int.from_bytes(hasher.digest(), "big")
+    payload = ("%d\x00" % master_seed + "\x00".join(map(str, keys)) + "\x00").encode("utf-8")
+    return int.from_bytes(hashlib.blake2b(payload, digest_size=8).digest(), "big")
+
 
 
 class ScopedRNG:

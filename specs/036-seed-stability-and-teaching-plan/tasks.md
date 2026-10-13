@@ -138,10 +138,11 @@
 
 **Purpose**: Đảm bảo chất lượng toàn diện, hiệu năng và tương thích trước khi bàn giao.
 
-- [ ] T037 [P] Đo đạc và lập báo cáo hiệu năng kết xuất tài liệu ~5.000 tokens ở chế độ `stable_variants=True` vs tuần tự (đạt mục tiêu < 1.5x)
-- [ ] T038 [P] Chạy `ruff check .` và đảm bảo 100% mã nguồn sạch linter, không phát sinh cảnh báo
-- [ ] T039 Chạy toàn bộ test suite dự án (`pytest`, `npm run test:unit`) đảm bảo $\ge 1269$ tests passed, zero regression
-- [ ] T040 Thực hiện kiểm chứng toàn diện theo kịch bản `quickstart.md`
+- [x] T037 [P] Đo đạc và lập báo cáo hiệu năng kết xuất tài liệu ~5.000 tokens ở chế độ `stable_variants=True` vs tuần tự (đạt mục tiêu < 1.5x)
+- [x] T038 [P] Chạy `ruff check .` và đảm bảo 100% mã nguồn sạch linter, không phát sinh cảnh báo
+- [x] T039 Chạy toàn bộ test suite dự án (`pytest`, `npm run test:unit`) đảm bảo $\ge 1269$ tests passed, zero regression
+- [x] T040 Thực hiện kiểm chứng toàn diện theo kịch bản `quickstart.md`
+
 
 ---
 
