@@ -65,3 +65,26 @@ def test_table_row_height_floor_prevents_border_intersection():
     )
     # line_height của table engine phải bảo đảm sàn an toàn
     assert table_engine.line_height >= safe_floor
+
+
+def test_auto_xh_synchronized_with_line_height_floor():
+    """Kiểm tra US5 (T019, T020): Khi bật auto_xh và line=1.0pt, engine.line_h
+    được tính toán dựa trên self.S đã co giãn theo target_xh / current_xh,
+    bảo đảm sàn an toàn tự động tỷ lệ thuận với cỡ chữ thực tế."""
+    bank = Bank(KHO_TONG_HOP)
+    current_xh = float(getattr(bank, "xh", 7.94) or 7.94)
+    target_xh = 12.0  # Phóng to xh lên 12.0 pt
+    opts = WriteOptions(scale=1.0, line=1.0, auto_xh=True, target_xh=target_xh)
+    engine = DocumentLayoutEngine(bank, opts)
+
+    # self.S phải được cập nhật theo tỷ lệ phóng to
+    expected_scale = 1.0 * (target_xh / current_xh)
+    assert engine.S == pytest.approx(expected_scale, rel=1e-3)
+
+    # safe_floor phải tỷ lệ thuận với expected_scale
+    scaled_font_xh = current_xh * expected_scale
+    scaled_bank_line = float(bank.d.get("line", 24.0)) * expected_scale
+    expected_safe_floor = max(1.4 * scaled_font_xh, 0.65 * scaled_bank_line)
+
+    # engine.line_h phải >= expected_safe_floor + 1.0 (vì 1.0 < safe_floor)
+    assert engine.line_h >= expected_safe_floor + 1.0 - 1e-3

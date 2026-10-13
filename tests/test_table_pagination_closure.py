@@ -339,4 +339,216 @@ def test_tall_row_combined_with_multi_page_rowspan_and_borders(tmp_path, tiny_ba
     assert res.n_lines >= 70, "Toàn bộ dòng của ô cao phải được kết xuất"
 
 
+def test_oversized_single_element_clamping_and_downscale_truthful_warning(tmp_path, tiny_bank):
+    """Kiểm tra US1 (T006, T007, T008): Phần tử đơn lẻ quá khổ trên trang mới được co tỷ lệ
+    và kẹp tọa độ vật lý (y <= max_page_y), cảnh báo ghi nhận trung thực."""
+    from tests.conftest import _inst
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789":
+        if ch not in tiny_bank.letters:
+            tiny_bank.letters[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+        if ch not in tiny_bank.digits:
+            tiny_bank.digits[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+
+    from chuviettay.controller.results import WriteOptions
+    from chuviettay.document.ir import Document, Table, TableBorder, TableCell, TableRow
+    from chuviettay.layout.engine import DocumentLayoutEngine
+    from tests.test_xopp_geometry_helper import assert_all_strokes_within_page_bounds
+
+    # Dùng khổ giấy tùy chỉnh cực thấp: cao 100 pt, lề trên 20, lề dưới 20 -> usable_height = 60 pt
+    # Dòng trong ô yêu cầu chiều cao vượt quá 60 pt
+    cell_tall_single = TableCell.from_text("Dong cuc cao khong the chia nho")
+    table = Table(
+        rows=[TableRow(cells=[cell_tall_single])],
+        border_style=TableBorder.ALL,
+    )
+    doc = Document(blocks=[table])
+    out_file = str(tmp_path / "oversized_element.xopp")
+
+    opts = WriteOptions(
+        paper="custom",
+        paper_width=100.0,
+        paper_height=100.0,
+        margin_top=20.0,
+        margin_bottom=20.0,
+        line=50.0,
+        jitter=0.0,
+    )
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+    res = engine.render(doc, out_file)
+
+    # 1. 100% tọa độ nét vẽ phải nằm trong giới hạn trang in: y <= 100.0 - 20.0 = 80.0
+    assert_all_strokes_within_page_bounds(out_file, max_y=80.0 + 1e-3, min_y=20.0 - 5.0)
+
+    # 2. Cảnh báo phải được ghi nhận trung thực và chứa tỷ lệ co
+    assert any("quá khổ trên trang mới; đã co tỷ lệ" in w for w in res.warnings), (
+        f"Cảnh báo phải ghi nhận chính xác co tỷ lệ, nhận được: {res.warnings}"
+    )
+    assert not any("đã vẽ kẹp trong giới hạn" in w and "co tỷ lệ" not in w for w in res.warnings), (
+        "Không được dùng thông điệp vẽ kẹp cũ thiếu thông tin co tỷ lệ"
+    )
+
+
+def test_stable_cell_identity_and_multi_page_rowspan_continuation(tmp_path, tiny_bank):
+    """Kiểm tra US2 (T009, T010, T011, T012): Ô gộp rowspan=4 trải dài qua 3+ trang bảo toàn
+    100% dòng văn bản và tra cứu đúng ô nguồn bằng source_cell_id mà không làm sai lệch các ô kế cận."""
+    from tests.conftest import _inst
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789":
+        if ch not in tiny_bank.letters:
+            tiny_bank.letters[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+        if ch not in tiny_bank.digits:
+            tiny_bank.digits[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+
+    from chuviettay.controller.results import WriteOptions
+    from chuviettay.document.ir import Document, Table, TableBorder, TableCell, TableRow
+    from chuviettay.layout.engine import DocumentLayoutEngine
+    from tests.test_xopp_geometry_helper import assert_all_strokes_within_page_bounds
+
+    # Hàng 0: Cột 0 là ô gộp rowspan=4 chứa 75 dòng văn bản; Cột 1 là ô ngắn
+    lines_75 = [f"Dong {i:02d} du lieu thong ke" for i in range(75)]
+    cell_span4 = TableCell.from_text("\n".join(lines_75))
+    cell_span4.rowspan = 4
+    cell_r0_b = TableCell.from_text("Cot1 Hang0")
+
+    # Các hàng tiếp theo chỉ có ô ở Cột 1
+    cell_r1_b = TableCell.from_text("Cot1 Hang1")
+    cell_r2_b = TableCell.from_text("Cot1 Hang2")
+    cell_r3_b = TableCell.from_text("Cot1 Hang3")
+
+    table = Table(
+        rows=[
+            TableRow(cells=[cell_span4, cell_r0_b]),
+            TableRow(cells=[cell_r1_b]),
+            TableRow(cells=[cell_r2_b]),
+            TableRow(cells=[cell_r3_b]),
+        ],
+        border_style=TableBorder.ALL,
+    )
+    doc = Document(blocks=[table])
+    out_file = str(tmp_path / "table_rowspan4_multipage.xopp")
+
+    opts = WriteOptions(line=22.0, jitter=0.0)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+    res = engine.render(doc, out_file)
+
+    # 1. Bảng phải trải qua ít nhất 3 trang
+    assert res.n_pages >= 3, f"Bảng 75 dòng phải phân trang qua ít nhất 3 trang, nhận được {res.n_pages}"
+
+    # 2. Toàn bộ 75 dòng của ô gộp và các dòng của các ô khác phải được kết xuất đầy đủ (tối thiểu 79 dòng)
+    assert res.n_lines >= 79, f"Toàn bộ 75 dòng và 4 ô phụ phải được kết xuất đầy đủ, nhận được {res.n_lines} dòng"
+
+    # 3. 100% tọa độ nét vẽ phải nằm trong phạm vi lề in hợp lệ
+    assert_all_strokes_within_page_bounds(out_file, max_y=841.89 - 60.0, min_y=40.0 - 5.0)
+
+
+def test_dynamic_row_split_non_overlapping_rowspan_and_borders():
+    """Kiểm tra US3 (T013, T014, T015): Khi chia hàng động, phần 1 có rowspan=1 và phần 2 có
+    rowspan=max(1, cell.rowspan), không tạo vùng chiếm chỗ hàng chồng lấn trong BorderLookupGrid."""
+    from chuviettay.document.ir import Table, TableBorder, TableCell, TableRow
+    from chuviettay.layout.table_layout import TableLayoutEngine, BorderLookupGrid
+
+    # Hàng 0: Cột 0 là ô rất cao (100 dòng), Cột 1 là ô gộp rowspan=2
+    cell_tall = TableCell.from_text("\n".join([f"Dong {i}" for i in range(100)]))
+    cell_span = TableCell.from_text("Gop 2 hang")
+    cell_span.rowspan = 2
+
+    # Hàng 1: ô đơn
+    cell_r1 = TableCell.from_text("Hang 1 Cot 0")
+
+    table = Table(
+        rows=[
+            TableRow(cells=[cell_tall, cell_span]),
+            TableRow(cells=[cell_r1]),
+        ],
+        border_style=TableBorder.ALL,
+    )
+
+    te = TableLayoutEngine(available_width=400.0, line_height=20.0)
+    layout = te.layout_table(table, x0=10.0, y0=10.0)
+
+    # Cắt lát với max_height nhỏ để kích hoạt chia hàng động ngay tại hàng 0
+    slice1, next_row = layout.slice_page(start_row_idx=0, max_height=100.0, new_y=10.0, can_defer_to_next_page=False)
+
+    # 1. Trong lát cắt 1, ô phần 1 phải có rowspan == 1
+    assert len(slice1.cells) >= 1
+    for c in slice1.cells[0]:
+        assert c.rowspan == 1, f"Ô trong lát cắt 1 sau khi chia phải có rowspan=1, nhận được {c.rowspan}"
+
+    # 2. BorderLookupGrid không có ranh giới ngang nào bị che sai trong lát cắt 1 (vì chỉ có 1 hàng)
+    grid1 = BorderLookupGrid.from_cells(len(slice1.row_heights), len(slice1.col_widths), slice1.cells)
+    for row_mask in grid1.horiz_spanned:
+        for val in row_mask:
+            assert val is False, "Lát cắt 1 chỉ có 1 hàng hiệu dụng, không được có ranh giới ngang nào bị che"
+
+    # 3. Kiểm tra hàng tiếp theo trong layout gốc: phần 2 của ô gộp không đè lên phần 1
+    assert next_row == 1
+    part2_row_cells = layout.cells[1]
+    for c in part2_row_cells:
+        assert c.row == 1, f"Chỉ số hàng của ô phần 2 phải là 1, nhận được {c.row}"
+
+
+def test_labeled_line_sequence_verification_across_multipage_continuation(tmp_path, tiny_bank):
+    """Kiểm tra US6 (T021): Toàn bộ 60 dòng văn bản có nhãn LINE_0001 .. LINE_0060 được bảo toàn 100%,
+    không bị lặp dòng hay mất dòng, xuất hiện đúng thứ tự tuần tự qua bảng phân chia nhiều trang (>= 4 trang)."""
+    from tests.conftest import _inst, extract_rendered_line_labels_from_tokens
+    for ch in "abcdefghijklmnopqrstuvwxyz0123456789_":
+        if ch not in tiny_bank.letters:
+            tiny_bank.letters[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+        if ch not in tiny_bank.digits:
+            tiny_bank.digits[ch] = [_inst(4.0, [[0, 0, 2, -6, 4, 0]])]
+    if "_" not in tiny_bank.symbols:
+        tiny_bank.symbols["_"] = [_inst(4.0, [[0, 0, 4, 0]])]
+
+    from chuviettay.controller.results import WriteOptions
+    from chuviettay.document.ir import Document, Table, TableBorder, TableCell, TableRow
+    from chuviettay.layout.engine import DocumentLayoutEngine, TokenBox
+    from tests.test_xopp_geometry_helper import assert_all_strokes_within_page_bounds
+
+    raw_lines = [f"LINE_{i:04d} noi dung dong du lieu thu {i}" for i in range(1, 61)]
+    cell_span4 = TableCell.from_text("\n".join(raw_lines))
+    cell_span4.rowspan = 4
+
+    table = Table(
+        rows=[
+            TableRow(cells=[cell_span4, TableCell.from_text("Cot 1 Hang 0")]),
+            TableRow(cells=[TableCell.from_text("Cot 1 Hang 1")]),
+            TableRow(cells=[TableCell.from_text("Cot 1 Hang 2")]),
+            TableRow(cells=[TableCell.from_text("Cot 1 Hang 3")]),
+        ],
+        border_style=TableBorder.ALL,
+    )
+    doc = Document(blocks=[table])
+    out_file = str(tmp_path / "table_labeled_lines_multipage.xopp")
+
+    opts = WriteOptions(
+        paper="custom",
+        paper_width=400.0,
+        paper_height=400.0,
+        margin_top=30.0,
+        margin_bottom=30.0,
+        line=24.0,
+        jitter=0.0,
+    )
+    recorded_tokens: list[TokenBox] = []
+    engine = DocumentLayoutEngine(
+        tiny_bank,
+        opts,
+        token_layout_callback=recorded_tokens.append,
+    )
+    res = engine.render(doc, out_file)
+
+    # 1. Bảng phải phân trang trải qua ít nhất 4 trang
+    assert res.n_pages >= 4, f"Bảng 60 dòng phải phân trang qua ít nhất 4 trang, nhận được {res.n_pages} trang"
+
+    # 2. Toàn bộ 60 nhãn LINE_0001 .. LINE_0060 phải xuất hiện đầy đủ, đơn nhất và đúng thứ tự tuần tự
+    labels = extract_rendered_line_labels_from_tokens([b.token for b in recorded_tokens], prefix="LINE_")
+    expected_labels = [f"LINE_{i:04d}" for i in range(1, 61)]
+    assert labels == expected_labels, (
+        f"Kỳ vọng 100% dòng từ LINE_0001 đến LINE_0060 đúng thứ tự tuần tự. Nhận được {len(labels)} nhãn."
+    )
+
+    # 3. 100% tọa độ nét vẽ phải nằm trong giới hạn trang in
+    assert_all_strokes_within_page_bounds(out_file, max_y=400.0 - 30.0 + 1e-3, min_y=30.0 - 5.0)
+
+
+
 

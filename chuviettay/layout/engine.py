@@ -119,6 +119,16 @@ class DocumentLayoutEngine:
         self.rnd = random.Random(opts.seed)
         self.J = opts.jitter
         self.S = opts.scale
+        self.effective_wscale = opts.wscale
+        if getattr(opts, "auto_xh", False):
+            current_xh = getattr(bank, "xh", 7.94) or 7.94
+            target_xh = getattr(opts, "target_xh", 7.94)
+            if current_xh > 0 and abs(current_xh - target_xh) > 0.05:
+                self.S = opts.scale * (target_xh / current_xh)
+            base_pen = float(bank.pen.get("width", 1.41)) if bank.pen else 1.41
+            desired_pen = 0.178 * target_xh * (self.S / (target_xh / current_xh if current_xh > 0 else 1.0))
+            self.effective_wscale = opts.wscale * (desired_pen / base_pen if base_pen > 0 else 1.0)
+
         self.line_h = resolve_effective_line_height(opts.line, bank, self.S)
         self.x0 = self.page_format.margin_left
         if self.page_format.background.style == "lined":
@@ -140,16 +150,6 @@ class DocumentLayoutEngine:
             else:
                 self.width = self.page_format.usable_width
         self.gaps = [g for g in bank.d["wgaps"] if 6.0 <= g <= 20.0] or [11.0]
-        self.S = opts.scale
-        self.effective_wscale = opts.wscale
-        if getattr(opts, "auto_xh", False):
-            current_xh = getattr(bank, "xh", 7.94) or 7.94
-            target_xh = getattr(opts, "target_xh", 7.94)
-            if current_xh > 0 and abs(current_xh - target_xh) > 0.05:
-                self.S = opts.scale * (target_xh / current_xh)
-            base_pen = float(bank.pen.get("width", 1.41)) if bank.pen else 1.41
-            desired_pen = 0.178 * target_xh * (self.S / (target_xh / current_xh if current_xh > 0 else 1.0))
-            self.effective_wscale = opts.wscale * (desired_pen / base_pen if base_pen > 0 else 1.0)
 
         self.wr = Writer(
             bank,
@@ -169,10 +169,11 @@ class DocumentLayoutEngine:
 
     def _render_text_line(
         self,
-        line_items: list[tuple[float, list[Stroke], float]],
+        line_items: list[Any],
         base_y: float,
         start_x: float,
         scale_mult: float = 1.0,
+        max_y: float | None = None,
     ) -> list[str]:
         """Tạo danh sách các thẻ <stroke> XML cho một dòng chữ với hiệu ứng run tay ngẫu nhiên."""
         out = []
@@ -183,7 +184,8 @@ class DocumentLayoutEngine:
         wl, ph = self.rnd.uniform(140, 260), self.rnd.uniform(0, 6.283)
         xo = start_x + self.rnd.gauss(0, 1.2 * self.J)
 
-        for start, st, w in line_items:
+        for item in line_items:
+            start, st = item[0], item[1]
             if not st:
                 continue
             s = self.S * scale_mult * (1 + self.rnd.gauss(0, 0.02 * self.J))
@@ -193,7 +195,10 @@ class DocumentLayoutEngine:
                 fin = []
                 for x, y in pts:
                     X = start + x
-                    fin.append((xo + X, base_y + dy + y + slope * X + amp * math.sin(6.283 * X / wl + ph)))
+                    pt_y = base_y + dy + y + slope * X + amp * math.sin(6.283 * X / wl + ph)
+                    if max_y is not None:
+                        pt_y = min(pt_y, max_y)
+                    fin.append((xo + X, pt_y))
                 out.append(xopp.stroke_xml(fin, self.bank.pen, self.opts.color, self.effective_wscale * (1 + self.rnd.gauss(0, 0.02 * self.J))))
 
         return out
@@ -404,8 +409,10 @@ class DocumentLayoutEngine:
                             )
 
                 render_items = [(start, st, w) for start, st, w, _, _ in cur_line]
-                line_strokes = self._render_text_line(render_items, line_base_y, line_start_x,
-                                                      scale_mult=scale_mult)
+                line_strokes = self._render_text_line(
+                    render_items, line_base_y, line_start_x,
+                    scale_mult=scale_mult,
+                )
                 cur_page.extend(line_strokes)
                 total_strokes += len(line_strokes)
                 total_lines += 1
@@ -614,13 +621,13 @@ class DocumentLayoutEngine:
 
                             if cur_l and cur_lw + sp + w > usable_w:
                                 flush_cur_line()
-                                cur_l = [(0.0, st, w)]
+                                cur_l = [(0.0, st, w, miss, item[3] if len(item) > 3 else "")]
                                 cur_lw = w
                                 cur_asc = item_asc
                                 cur_desc = item_desc
                             else:
                                 start_rel = cur_lw + (sp if cur_l else 0.0)
-                                cur_l.append((start_rel, st, w))
+                                cur_l.append((start_rel, st, w, miss, item[3] if len(item) > 3 else ""))
                                 cur_lw = start_rel + w
                                 cur_asc = max(cur_asc, item_asc)
                                 cur_desc = max(cur_desc, item_desc)
@@ -714,37 +721,90 @@ class DocumentLayoutEngine:
                                         line_bottom_y = baseline_y + cur_desc + jitter_tol
                                         if line_bottom_y > max_page_y:
                                             if cur_y <= pf.content_top + 1e-6:
-                                                # Phần tử đơn lẻ quá cao trên trang mới: vẽ kẹp và cảnh báo
+                                                # Phần tử đơn lẻ quá cao trên trang mới: co tỷ lệ, vẽ kẹp và cảnh báo
+                                                denom = cur_desc + jitter_tol
+                                                downscale = max(0.2, min(1.0, (max_page_y - baseline_y) / denom if denom > 0 else 0.5))
+                                                if self.token_layout_callback is not None:
+                                                    page_idx = pb.n_pages
+                                                    for it in l_items:
+                                                        if len(it) >= 5 and it[4]:
+                                                            self.token_layout_callback(
+                                                                TokenBox(
+                                                                    page=page_idx,
+                                                                    token=it[4],
+                                                                    x=round(start_x + it[0], 2),
+                                                                    y=round(cell_cur_y + extra_top, 2),
+                                                                    width=round(it[2], 2),
+                                                                    height=round(line_step_h * downscale, 2),
+                                                                    missing=it[3] if len(it) > 3 else [],
+                                                                )
+                                                            )
                                                 cell_strokes = self._render_text_line(
                                                     l_items,
                                                     baseline_y,
                                                     start_x,
+                                                    scale_mult=downscale,
+                                                    max_y=max_page_y,
                                                 )
                                                 cur_page.extend(cell_strokes)
                                                 total_strokes += len(cell_strokes)
                                                 total_lines += 1
-                                                cell_cur_y += line_step_h
+                                                cell_cur_y += line_step_h * downscale
                                                 layout_warnings.append(
-                                                    f"Dòng {l_idx} trong ô ({laid_cell.row}, {laid_cell.col}) vượt quá chiều cao trang in; đã vẽ kẹp trong giới hạn."
+                                                    f"Dòng {l_idx} trong ô ({laid_cell.row}, {laid_cell.col}) quá khổ trên trang mới; đã co tỷ lệ {downscale:.2f}x và kẹp tọa độ trong giới hạn trang."
                                                 )
                                                 continue
                                             else:
                                                 # Chuyển tiếp các dòng chưa vẽ sang trang kế tiếp
                                                 rem_lines = laid_cell.rendered_lines[l_idx:]
                                                 rem_metrics = metrics_list[l_idx:]
-                                                actual_r = curr_row_idx + laid_cell.row
-                                                if actual_r < len(full_table_data.cells):
-                                                    for orig_c in full_table_data.cells[actual_r]:
-                                                        if orig_c.col == laid_cell.col:
-                                                            orig_c.rendered_lines = rem_lines
-                                                            orig_c.line_metrics = rem_metrics
-                                                            orig_c.is_continuation = True
-                                                    next_row = actual_r
+                                                target_sid = laid_cell.source_cell_id
+                                                found_target = False
+                                                if target_sid is not None:
+                                                    for search_r in range(curr_row_idx, len(full_table_data.cells)):
+                                                        for orig_c in full_table_data.cells[search_r]:
+                                                            if orig_c.source_cell_id == target_sid:
+                                                                orig_c.rendered_lines = rem_lines
+                                                                orig_c.line_metrics = rem_metrics
+                                                                orig_c.is_continuation = True
+                                                                next_row = min(next_row, search_r)
+                                                                found_target = True
+                                                                break
+                                                        if found_target:
+                                                            break
+                                                if not found_target:
+                                                    actual_r = curr_row_idx + laid_cell.row
+                                                    if actual_r < len(full_table_data.cells):
+                                                        for orig_c in full_table_data.cells[actual_r]:
+                                                            if orig_c.col == laid_cell.col:
+                                                                orig_c.rendered_lines = rem_lines
+                                                                orig_c.line_metrics = rem_metrics
+                                                                orig_c.is_continuation = True
+                                                                next_row = min(next_row, actual_r)
+                                                                break
                                                 break
+
+                                        if self.token_layout_callback is not None:
+                                            page_idx = pb.n_pages
+                                            for it in l_items:
+                                                if len(it) >= 5 and it[4]:
+                                                    self.token_layout_callback(
+                                                        TokenBox(
+                                                            page=page_idx,
+                                                            token=it[4],
+                                                            x=round(start_x + it[0], 2),
+                                                            y=round(cell_cur_y + extra_top, 2),
+                                                            width=round(it[2], 2),
+                                                            height=round(line_step_h, 2),
+                                                            missing=it[3] if len(it) > 3 else [],
+                                                        )
+                                                    )
                                         cell_strokes = self._render_text_line(
                                             l_items,
                                             baseline_y,
                                             start_x,
+                                            scale_mult=1.0,
+                                            max_y=max_page_y,
                                         )
                                         cur_page.extend(cell_strokes)
                                         total_strokes += len(cell_strokes)

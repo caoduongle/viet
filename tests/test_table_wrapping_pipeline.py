@@ -138,20 +138,28 @@ def test_linear_token_partitioning_execution_and_single_synthesis(tiny_bank):
     opts = WriteOptions(jitter=0.0)
     engine = DocumentLayoutEngine(tiny_bank, opts)
 
-    # 1. Đo thời gian phân vùng O(N)
-    t0 = time.perf_counter()
+    # 1. Đo độ phức tạp tuyến tính O(N) bằng bất biến số lần gọi hàm đo ký tự (không dùng ngưỡng thời gian nhạy cảm với môi trường)
+    measure_calls = 0
+
+    def counting_char_measurer(ch: str) -> float:
+        nonlocal measure_calls
+        measure_calls += 1
+        return engine.wr.get_char_advance_width(ch)
+
     xh = getattr(tiny_bank, "xh", 7.94)
     lg = max(getattr(engine.opts, "letter_gap", 1.0) * xh * 0.1, 0.22 * xh)
     chunks = _partition_long_token_linear(
         long_tok,
         usable_w=usable_w,
-        char_width_measurer=engine.wr.get_char_advance_width,
+        char_width_measurer=counting_char_measurer,
         scale=engine.S,
         min_chars=1,
         letter_gap=lg,
     )
-    t_elapsed = time.perf_counter() - t0
-    assert t_elapsed < 0.010, f"Phân chia 500 ký tự phải hoàn thành < 10ms, thực tế {t_elapsed * 1000:.2f}ms"
+    # Bất biến O(N): số lần đo ký tự phải đúng bằng độ dài chuỗi (mỗi ký tự đo đúng 1 lần), N = 512
+    assert measure_calls == len(long_tok), (
+        f"Độ phức tạp tuyến tính O(N): số lần gọi measurer phải bằng độ dài chuỗi ({len(long_tok)}), thực tế {measure_calls}"
+    )
     assert len(chunks) > 1
 
     # 2. Đếm số lần self.wr.token() được gọi
@@ -170,3 +178,26 @@ def test_linear_token_partitioning_execution_and_single_synthesis(tiny_bank):
         f"self.wr.token phải được gọi đúng {len(chunks)} lần (mỗi chunk 1 lần), thực tế {len(call_args)} lần"
     )
     assert call_args == chunks
+
+
+def test_whole_word_model_preserved_intact_when_fitting_column(tiny_bank):
+    """Kiểm tra US4 (T016, T017, T018): Từ có mẫu nguyên khối trong bank.words (ví dụ 'xin', 'chào')
+    được measure_text_width trả về độ rộng nguyên khối và không bị bẻ vụn thành ký tự khi vừa cột."""
+    from chuviettay.controller.results import WriteOptions
+    from chuviettay.document.ir import Text
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    opts = WriteOptions(jitter=0.0)
+    engine = DocumentLayoutEngine(tiny_bank, opts)
+
+    # Từ 'xin' trong tiny_bank có mẫu nguyên khối với w = 9.0 pt
+    w_whole = engine.wr.measure_text_width("xin")
+    sample_w = float(tiny_bank.words["xin"][0]["w"])
+    assert abs(w_whole - sample_w) < 1e-3, (
+        f"measure_text_width phải ưu tiên mẫu nguyên từ trong bank.words: {w_whole} != {sample_w}"
+    )
+
+    # Khi max_item_width vừa vặn chứa 'xin' (15.0 pt > 9.0 pt):
+    items, n_tok, n_miss = engine._layout_inlines([Text("xin")], max_item_width=15.0)
+    assert len(items) == 1
+    assert items[0][3] == "xin", "Từ nguyên khối phải được giữ nguyên vẹn, không bị tách thành x, i, n"

@@ -180,6 +180,44 @@ class Writer:
         nfc_text = unicodedata.normalize("NFC", text)
         xh = getattr(self.b, "xh", 7.94)
         letter_gap = max(self.letter_gap * xh * 0.1, 0.22 * xh)
+
+        # 1. Khớp thẳng mẫu nguyên từ (whole-word) trong bank.words
+        if getattr(self.b, "words", None) and nfc_text in self.b.words and self.b.words[nfc_text]:
+            sample = self.b.words[nfc_text][0]
+            if "w" in sample:
+                return float(sample["w"]) * scale
+
+        if (
+            self.loose
+            and nfc_text[:1].isupper()
+            and getattr(self.b, "words", None)
+            and nfc_text[:1].lower() + nfc_text[1:] in self.b.words
+            and self.b.words[nfc_text[:1].lower() + nfc_text[1:]]
+        ):
+            sample = self.b.words[nfc_text[:1].lower() + nfc_text[1:]][0]
+            if "w" in sample:
+                return float(sample["w"]) * scale
+
+        # 2. Khớp mẫu nguyên từ cho phần thân (core) khi có dấu câu/ngoặc bao quanh
+        m_tok = TOKRE.match(nfc_text)
+        if m_tok:
+            lead, core, trail = m_tok.groups()
+            if core and core != nfc_text:
+                core_sample = None
+                if getattr(self.b, "words", None) and core in self.b.words and self.b.words[core]:
+                    core_sample = self.b.words[core][0]
+                elif (
+                    self.loose
+                    and core[:1].isupper()
+                    and getattr(self.b, "words", None)
+                    and core[:1].lower() + core[1:] in self.b.words
+                    and self.b.words[core[:1].lower() + core[1:]]
+                ):
+                    core_sample = self.b.words[core[:1].lower() + core[1:]][0]
+                if core_sample and "w" in core_sample:
+                    lead_w = sum(self.get_char_advance_width(c) for c in lead) + (len(lead) * letter_gap if lead else 0.0)
+                    trail_w = sum(self.get_char_advance_width(c) for c in trail) + (len(trail) * letter_gap if trail else 0.0)
+                    return (lead_w + float(core_sample["w"]) + trail_w) * scale
         total_w = 0.0
         for idx, ch in enumerate(nfc_text):
             cw = self.get_char_advance_width(ch)

@@ -74,6 +74,7 @@ class LaidOutCell:
     rendered_lines: list[Any] = field(default_factory=list)
     line_metrics: list[LineVerticalMetrics] = field(default_factory=list)
     is_continuation: bool = False
+    source_cell_id: int | None = None
 
 
 def partition_cell_lines_by_height(
@@ -226,6 +227,8 @@ class TableLayoutData:
                             rendered_lines=s_lines,
                             line_metrics=s_metrics,
                             height=h1,
+                            rowspan=1,
+                            source_cell_id=cell.source_cell_id,
                         )
                         c2 = replace(
                             cell,
@@ -233,7 +236,9 @@ class TableLayoutData:
                             line_metrics=r_metrics,
                             height=h2,
                             row=start_row_idx + 1,
+                            rowspan=max(1, cell.rowspan),
                             is_continuation=True,
+                            source_cell_id=cell.source_cell_id,
                         )
                         part1_cells.append(c1)
                         part2_cells.append(c2)
@@ -314,6 +319,7 @@ class TableLayoutData:
                         rendered_lines=cur_lines,
                         line_metrics=cur_metrics,
                         is_continuation=cell.is_continuation,
+                        source_cell_id=cell.source_cell_id,
                     )
                 )
 
@@ -358,6 +364,7 @@ class TableLayoutData:
                                     rendered_lines=cont_lines,
                                     line_metrics=cont_metrics,
                                     is_continuation=True,
+                                    source_cell_id=prev_cell.source_cell_id,
                                 )
                             )
 
@@ -611,6 +618,8 @@ class TableLayoutEngine:
         prepared_cells: list[dict[str, Any]] = []
 
         for r, c, rs, cs, cell in placements:
+            if getattr(cell, "source_cell_id", None) is None:
+                cell.source_cell_id = r * 1000 + c
             eff_cs = min(cs, num_cols - c)
             spanned_w = sum(col_widths[c : c + eff_cs]) if eff_cs > 0 else col_widths[min(c, num_cols - 1)]
             usable_w = max(10.0, spanned_w - 2 * self.cell_padding)
@@ -693,6 +702,7 @@ class TableLayoutEngine:
                     rowspan=rs,
                     rendered_lines=item["rendered_lines"],
                     line_metrics=item["line_metrics"],
+                    source_cell_id=getattr(item["cell"], "source_cell_id", None) or (r * 1000 + c),
                 )
             )
 

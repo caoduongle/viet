@@ -33,7 +33,7 @@ GOLDEN_REAL = {
         "thieu": "acb51aba82031bdbdb376ab26d802b51292874722e59185c924aaf40774afa36",
     },
     "assemble_letters": {
-        "xopp": "1d71a384018f13878f4da6abea651407b2af413b17d171c9b72ef6895a2fd589",
+        "xopp": "70e9ecaa3a8aa81dd0781ce719826c98aead718c60635ef9e14bd103e9b8aeed",
     },
     "math": {
         "xopp": "a2669fc850c02d1cfd3b47f8bfbadd818ba336dc152aa4ad975a4cec24100951",

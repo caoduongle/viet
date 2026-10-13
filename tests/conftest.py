@@ -287,3 +287,8 @@ def legacy_words_only_bank(legacy_words_only_bank_path):
     return Bank(legacy_words_only_bank_path)
 
 
+def extract_rendered_line_labels_from_tokens(tokens: list[str], prefix: str = "LINE_") -> list[str]:
+    """Lọc danh sách các nhãn dòng theo tiền tố prefix từ danh sách token đã kết xuất."""
+    return [t for t in tokens if t.startswith(prefix)]
+
+

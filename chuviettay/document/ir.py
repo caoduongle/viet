@@ -97,6 +97,7 @@ class TableCell:
     blocks: list[Block] = field(default_factory=list)
     colspan: int = 1
     rowspan: int = 1
+    source_cell_id: int | None = None
 
     @classmethod
     def from_text(cls, text: str) -> TableCell:
