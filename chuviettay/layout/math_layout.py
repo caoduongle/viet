@@ -138,7 +138,18 @@ class MathLayoutEngine:
         """Bản đo thử độc lập (Writer/RNG riêng) để ước lượng kích thước mà không làm lệch kết quả chính."""
         from chuviettay.model.writer import Writer
         w = self.writer
-        sw = Writer(self.bank, random.Random(0), w.J, w.loose, w.space, assemble_letters=w.assemble_letters)
+        sw = Writer(
+            self.bank,
+            random.Random(0),
+            w.J,
+            w.loose,
+            w.space,
+            stable_variants=w.stable_variants,
+            seed=w.seed,
+            assemble_letters=w.assemble_letters,
+            letter_gap=w.letter_gap,
+            pen_clearance_factor=w.pen_clearance_factor,
+        )
         return MathLayoutEngine(self.bank, S=self.S, writer=sw, rnd=random.Random(0), display=self.display)
 
     def _script(self, node: MathNode, scale: float, depth: int) -> MathLayoutItem:

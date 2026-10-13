@@ -1,5 +1,24 @@
 # Nhật ký thay đổi
 
+## Chưa phát hành — Hạt giống ngẫu nhiên minh bạch, biến thể chữ ổn định và tối ưu kế hoạch dạy chữ (Spec 036)
+
+Cải tiến toàn diện cơ chế hạt giống ngẫu nhiên (seed), bộ sinh ngẫu nhiên cục bộ bảo đảm tính bất biến khi chèn sửa văn bản, và tối ưu hóa lộ trình dạy chữ:
+
+### Hạt giống ngẫu nhiên minh bạch & kiểm chuẩn chặt chẽ (WP1)
+- **Kiểm chuẩn miền giá trị seed**: `WriteOptions.validate()` kiểm tra chặt chẽ trường `seed` nằm trong khoảng $[0, 2^{32} - 1]$ hoặc `None`, ném lỗi tiếng Việt rõ ràng; loại bỏ hiện tượng trùng lặp dãy số do `Random(-5) == Random(5)` trong CPython.
+- **Minh bạch hóa hạt giống hiệu dụng (`seed_used`)**: Điền đầy đủ trường `seed_used` vào `WriteResult` ở cả hai chế độ Semantic và Fidelity. CLI in thông báo hướng dẫn tái tạo khi seed tự sinh (`Seed đã dùng: N (chạy lại với --seed N để có đúng kết quả này)`).
+- **Phân tích hạt giống an toàn trên Web UI**: Tách hàm thuần `parseSeed()` chấp nhận giá trị `0`, không âm thầm fallback về 42 khi nhập rỗng hoặc sai định dạng. Cầu nối `bridge.py` trả về danh sách `ignored_options` khi nhận tùy chọn lạ.
+
+### Bộ ngẫu nhiên cục bộ & Kiểu chữ ổn định (WP2)
+- **Bộ sinh ngẫu nhiên cục bộ `ScopedRNG`**: Dẫn xuất luồng con từ `(seed, *context_keys)` qua mã hóa chính tắc `hashlib.blake2b` phân tách bằng `\x00`, tự cài đặt các phân phối ngẫu nhiên trên nền `Random.random()` bảo đảm tính tất định 100% trên Python 3.10+, Python 3.14 và Pyodide.
+- **Neo ngẫu nhiên theo token & dòng**: Khi bật `stable_variants=True`, toàn bộ việc chọn biến thể, jitter giữa các chữ, khoảng cách chữ số và hình học dòng được neo cục bộ theo token và vị trí xuất hiện `k`. Việc chèn thêm từ hoặc đoạn văn ở đầu tài liệu không làm đổi biến thể của các từ phía sau.
+- **Chống lặp biến thể cục bộ**: Cô lập bộ đệm tránh lặp biến thể liên tiếp trong phạm vi từng token, bảo đảm từ lặp lại nhiều lần không trùng mẫu mà không ảnh hưởng tới các từ khác trong tài liệu.
+- **Bảo toàn 100% đường mặc định**: Giữ nguyên từng byte mã băm SHA-256 của các ca kiểm thử Golden Master cho `stable_variants=False`.
+
+### Kế hoạch dạy chữ tối ưu & Gỡ nghẽn hàng đợi SEED (WP3)
+- **38 mục ký tự cốt lõi (`CORE_ESSENTIALS_38`)**: Xác định 33 chữ cái thường và 5 dấu thanh rời là tập ký tự tối thiểu có thể mở khóa 100% (700/700) từ trong tập từ khóa thông dụng `SEED`.
+- **Đồng bộ kiểm tra khả năng viết `Bank.can()`**: Công nhận các từ nguyên khối đã được dạy trong kho `bank.words` và tên dấu thanh tiếng Việt (`dấu sắc`, `dấu huyền`...), giải phóng triệt để tình trạng từ khóa bị kẹt vĩnh viễn trong hàng đợi `missing_minimal_essentials()`.
+
 ## Chưa phát hành — Độ bền vững bố cục bảng, đồng bộ hình học và nhập DOCX (Spec 032)
 
 Tối ưu độ ổn định của bố cục bảng biểu, phân trang an toàn, đồng bộ kích thước công thức toán học và phục hồi chính xác cấu trúc bảng DOCX:

@@ -128,9 +128,9 @@
 
 **Independent Test**: Toàn bộ tài liệu chuẩn hóa tiếng Việt, CLI `--help` đầy đủ, các nghi vấn kỹ thuật được xác minh bằng test độc lập.
 
-- [ ] T034 [P] [US5] Cập nhật `MathLayoutEngine._scratch()` trong `chuviettay/layout/math_layout.py`: truyền đủ `letter_gap`, `pen_clearance_factor`, `stable_variants`, `seed` sang scratch Writer
-- [ ] T035 [P] [US5] Kiểm chứng và đồng bộ `Writer.measure_text_width` trong `chuviettay/model/writer.py`: ưu tiên đo từ chữ cái ghép khớp với `Writer.word()`
-- [ ] T036 [US5] Cập nhật `README.md` mục "Tái tạo đúng một kết quả" và `CHANGELOG.md` bằng tiếng Việt chuẩn mực; báo cáo hiện trạng cờ `assemble_letters`
+- [x] T034 [P] [US5] Cập nhật `MathLayoutEngine._scratch()` trong `chuviettay/layout/math_layout.py`: truyền đủ `letter_gap`, `pen_clearance_factor`, `stable_variants`, `seed` sang scratch Writer
+- [x] T035 [P] [US5] Kiểm chứng và đồng bộ `Writer.measure_text_width` trong `chuviettay/model/writer.py`: ưu tiên đo từ chữ cái ghép khớp với `Writer.word()`
+- [x] T036 [US5] Cập nhật `README.md` mục "Tái tạo đúng một kết quả" và `CHANGELOG.md` bằng tiếng Việt chuẩn mực; báo cáo hiện trạng cờ `assemble_letters`
 
 ---
 

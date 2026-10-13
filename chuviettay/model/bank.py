@@ -259,6 +259,7 @@ class Bank:
     def __init__(self, path: str):
         self.path = path
         self.d = load_and_validate(path)
+        self._is_legacy_v1: bool = bool(self.d.get("_legacy_v1", False))
         self.words: dict[str, list[dict]] = self.d["words"]
         self.digits: dict[str, list[dict]] = self.d["digits"]
         self.punct: dict[str, list[dict]] = self.d["punct"]
@@ -556,13 +557,16 @@ class Bank:
 
         with self._lock:
             # 1. Khớp nguyên khối với từ đã lưu trong bank.words (US4 / WP3)
-            words_dict = getattr(self, "words", {})
-            if w_clean in words_dict and bool(words_dict.get(w_clean)):
-                return True
-            if not strict_case and w_clean[:1].isupper():
-                lower_first = w_clean[:1].lower() + w_clean[1:]
-                if lower_first in words_dict and bool(words_dict.get(lower_first)):
+            # Với kho di trú từ v1 (legacy words only), hợp đồng char-first yêu cầu học chữ cái đơn
+            # trong bank.letters thay vì dùng từ nguyên khối cũ.
+            if not getattr(self, "_is_legacy_v1", False):
+                words_dict = getattr(self, "words", {})
+                if w_clean in words_dict and bool(words_dict.get(w_clean)):
                     return True
+                if not strict_case and w_clean[:1].isupper():
+                    lower_first = w_clean[:1].lower() + w_clean[1:]
+                    if lower_first in words_dict and bool(words_dict.get(lower_first)):
+                        return True
 
             # 2. Khớp với chữ số, dấu câu, ký hiệu hoặc dấu thanh rời
             if w_clean in self.digits or w_clean in self.punct or w_clean in getattr(self, "symbols", {}):

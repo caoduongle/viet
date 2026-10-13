@@ -282,8 +282,11 @@ Kho mẫu (`Bank`) sử dụng kiến trúc lai kết hợp các cơ chế sau �
   chỉ cần gửi file này — kể cả với bản `.exe` không có cửa sổ console.
 - **Chế độ chi tiết**: `python3 hw_note.py -v write ...` hoặc `python3 hw_gui.py -v` ghi thêm log mức
   DEBUG và in ra màn hình. (`-v` đặt **trước** tên lệnh.)
-- **Tái tạo đúng một kết quả**: `write ... --seed 7` cho ra đúng cùng file mỗi lần (mặc định mỗi lần
-  một khác vì có "run tay" ngẫu nhiên).
+- **Tái tạo đúng một kết quả (Seed & Ổn định kiểu chữ)**:
+  - `write ... --seed 7` cho ra đúng cùng một file mỗi lần (mặc định mỗi lần một khác vì có run tay ngẫu nhiên). Giá trị seed là số nguyên không âm trong khoảng `[0, 2^32 - 1]`.
+  - Khi không truyền `--seed`: hệ thống tự sinh ngẫu nhiên an toàn và thông báo rõ trên màn hình: `Seed đã dùng: N (chạy lại với --seed N để có đúng kết quả này)`. Trên giao diện Web và GUI, giá trị hạt giống hiệu dụng được hiển thị trực tiếp bên cạnh ô Seed.
+  - **Kiểu chữ ổn định (`--stable-variants`)**: Khi bật tính năng này (hoặc tích chọn trên Web/GUI), hệ thống sử dụng bộ ngẫu nhiên cục bộ (`ScopedRNG`) neo theo từng token và dòng. Khi bạn chèn thêm từ hoặc chỉnh sửa các đoạn văn phía trước, toàn bộ các từ phía sau vẫn giữ nguyên 100% biến thể nét chữ và khoảng cách, ngăn chặn triệt để hiện tượng nhấp nháy chữ viết tay khi soạn thảo.
+  - **Cơ chế ghép chữ (`--assemble` / `assemble_letters`)**: Trong kiến trúc Char-First hiện tại, việc ghép từ từ các chữ cái mẫu (`Writer.assemble_word`) luôn được ưu tiên tự động; cờ `--assemble` và checkbox tương ứng được duy trì để bảo đảm tính tương thích ngược hoàn toàn.
 - **Thử lõi mà không cần giao diện**:
 
   ```python

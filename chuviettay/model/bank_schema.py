@@ -411,7 +411,9 @@ def load_and_validate(path: str) -> dict[str, Any]:
 
     version = validate_bank_dict(d, context=path, allow_legacy=True)
     if version < CURRENT_VERSION:
+        is_v1 = (version == 1)
         d = migrate_bank_dict(d, version, context=path)
+        d["_legacy_v1"] = is_v1
         validate_bank_dict(d, context=path, allow_legacy=False)
 
     return d
