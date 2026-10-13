@@ -548,18 +548,34 @@ class Bank:
     # -------------------------------------------------------------- truy vấn
     def can(self, w: str, strict_case: bool = False) -> bool:
         """Có đủ mẫu để viết được từ/token `w` không (tất cả ký tự cấu thành có mẫu trong
-        letters, digits, punct, symbols và marks)?
-        Tuyệt đối không phụ thuộc vào self.words hay self.tl theo chuẩn char-first."""
+        letters, digits, punct, symbols và marks, hoặc có sẵn mẫu nguyên khối trong words)?
+        """
         w_clean = w.strip()
         if not w_clean:
             return False
 
         with self._lock:
+            # 1. Khớp nguyên khối với từ đã lưu trong bank.words (US4 / WP3)
+            words_dict = getattr(self, "words", {})
+            if w_clean in words_dict and bool(words_dict.get(w_clean)):
+                return True
+            if not strict_case and w_clean[:1].isupper():
+                lower_first = w_clean[:1].lower() + w_clean[1:]
+                if lower_first in words_dict and bool(words_dict.get(lower_first)):
+                    return True
+
+            # 2. Khớp với chữ số, dấu câu, ký hiệu hoặc dấu thanh rời
             if w_clean in self.digits or w_clean in self.punct or w_clean in getattr(self, "symbols", {}):
                 return True
+            from chuviettay.model.text_utils import HW3_TONE_NAMES
+            if w_clean.lower() in HW3_TONE_NAMES:
+                t_code = HW3_TONE_NAMES[w_clean.lower()]
+                if t_code in self.marks and bool(self.marks.get(t_code)):
+                    return True
             if w_clean in self.marks and bool(self.marks.get(w_clean)):
                 return True
 
+            # 3. Khớp ghép từ các chữ cái mẫu (char-first)
             letters_dict = getattr(self, "letters", {})
             if not letters_dict:
                 return False

@@ -42,10 +42,27 @@ khủng tiếc dành thị lái tương bữa chả kiếp trận im bức mãi 
 dài đỡ sơ ngờ nổ đạo đem linh chức chất thẳng chống mơ tổ hoạt mắn lịch gắng quen chừng thù khóa
 """.split()
 
+from chuviettay.model.char_catalog import TONE_MARKS, VIETNAMESE_LOWERCASE
+
+CORE_ESSENTIALS_38: tuple[str, ...] = VIETNAMESE_LOWERCASE + TONE_MARKS
 MINIMAL_DIGITS: list[str] = [str(i) for i in range(10)]
 MINIMAL_PUNCT: list[str] = [",", ".", "!", "?", ":", ";", "-", "(", ")", '"', "'"]
 
 
+def get_core_essentials_38() -> list[str]:
+    """Trả về danh sách 38 mục ký tự cốt lõi gồm 33 chữ cái thường và 5 dấu thanh rời.
+    38 mục này bảo đảm mở khóa 100% (700/700) từ trong tập SEED.
+    """
+    return list(CORE_ESSENTIALS_38)
+
+
 def get_minimal_essentials(n_words: int = 60) -> list[str]:
-    """Trả về bộ tối thiểu gồm chữ số 0-9, dấu câu thông dụng và top n từ phổ biến nhất."""
-    return list(MINIMAL_DIGITS) + list(MINIMAL_PUNCT) + list(SEED[:n_words])
+    """Trả về bộ tối thiểu gồm 38 mục cốt lõi, chữ số 0-9, dấu câu thông dụng và top n từ phổ biến nhất."""
+    items: list[str] = list(CORE_ESSENTIALS_38) + list(MINIMAL_DIGITS) + list(MINIMAL_PUNCT)
+    seen = set(items)
+    for w in SEED[:n_words]:
+        if w not in seen:
+            seen.add(w)
+            items.append(w)
+    return items
+

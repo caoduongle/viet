@@ -109,14 +109,14 @@
 
 ### Tests for User Story 4
 
-- [ ] T029 [P] [US4] Viết unit test kiểm chứng độ phủ 700 từ SEED của 38 mục cốt lõi và gỡ tắc nghẽn hàng đợi dạy chữ trong `tests/test_teaching_plan.py`
+- [x] T029 [P] [US4] Viết unit test kiểm chứng độ phủ 700 từ SEED của 38 mục cốt lõi và gỡ tắc nghẽn hàng đợi dạy chữ trong `tests/test_teaching_plan.py`
 
 ### Implementation for User Story 4
 
-- [ ] T030 [US4] Cập nhật `Bank.can(w)` trong `chuviettay/model/bank.py`: công nhận từ nguyên khối có mẫu trong `bank.words`
-- [ ] T031 [US4] Bổ sung hằng số `CORE_ESSENTIALS_38` và hàm `get_core_essentials_38()` trong `chuviettay/model/seed_words.py`
-- [ ] T032 [US4] Cập nhật `AppController.missing_minimal_essentials()` trong `chuviettay/controller/app_controller.py`: ưu tiên gợi ý các ký tự cốt lõi còn thiếu trước từ ghép đa ký tự
-- [ ] T033 [US4] Chạy `pytest tests/test_teaching_plan.py` và xác minh XANH
+- [x] T030 [US4] Cập nhật `Bank.can(w)` trong `chuviettay/model/bank.py`: công nhận từ nguyên khối có mẫu trong `bank.words`
+- [x] T031 [US4] Bổ sung hằng số `CORE_ESSENTIALS_38` và hàm `get_core_essentials_38()` trong `chuviettay/model/seed_words.py`
+- [x] T032 [US4] Cập nhật `AppController.missing_minimal_essentials()` trong `chuviettay/controller/app_controller.py`: ưu tiên gợi ý các ký tự cốt lõi còn thiếu trước từ ghép đa ký tự
+- [x] T033 [US4] Chạy `pytest tests/test_teaching_plan.py` và xác minh XANH
 
 **Checkpoint**: User Story 4 hoàn thành, tối ưu hóa lộ trình dạy chữ và giải phóng hoàn toàn hàng đợi.
 

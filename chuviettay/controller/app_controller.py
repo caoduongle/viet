@@ -328,7 +328,9 @@ class AppController:
         return [w for w in SEED if not bank.can(w) and w not in excl][:n]
 
     def missing_minimal_essentials(self, exclude: Iterable[str] = ()) -> list[str]:
-        """Danh sách các ký tự/từ trong bộ tối thiểu (chữ số, dấu câu, top 60 từ) còn thiếu."""
+        """Danh sách các ký tự/từ trong bộ tối thiểu (38 mục cốt lõi, chữ số, dấu câu, top 60 từ) còn thiếu,
+        ưu tiên gợi ý các ký tự cốt lõi còn thiếu trước từ ghép đa ký tự.
+        """
         from chuviettay.model.seed_words import get_minimal_essentials
 
         bank = self._require_bank()
