@@ -477,9 +477,20 @@ class Writer:
             effective_w = glyph_w
         return norm_strokes, effective_w
 
-    def number(self, s: str) -> tuple[list[Stroke], float, list[str]]:
+    def number(self, s: str, k: int | None = None) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một chuỗi số/dấu chấm-phẩy-gạch ngang (đã khớp NUMRE), từng ký tự một,
         theo mẫu chữ số/dấu phẩy-chấm đã học. -> (nét, độ rộng, ký tự còn thiếu mẫu)."""
+        if self.stable_variants:
+            if k is None:
+                k_idx = self._token_counts.get(s, 0)
+                self._token_counts[s] = k_idx + 1
+            else:
+                k_idx = k
+            self._current_tok = s
+            self._current_k = k_idx
+            self._char_idx = 0
+            self.last = {}
+
         b = self.b
         xh = getattr(b, "xh", 7.94) or 7.94
         out: list[Stroke] = []

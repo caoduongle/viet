@@ -10,6 +10,12 @@ def test_bao_cao_khong_thieu_gi():
     ]
 
 
+def test_bao_cao_co_seed_used():
+    r = WriteResult("ra.xopp", 3, 40, 10, 0, seed_used=12345)
+    lines = write_report_lines(r)
+    assert any("Seed đã dùng: 12345 (chạy lại với --seed 12345 để có đúng kết quả này)" in line for line in lines)
+
+
 def test_bao_cao_co_tu_thieu():
     r = WriteResult("ra.xopp", 1, 5, 4, 2, missing={"b": 1, "a": 3}, missing_grid_path="ra_thieu.xopp")
     lines = write_report_lines(r)
@@ -86,3 +92,16 @@ def test_format_stats_gui_char_first():
     leg_text = format_stats_gui(legacy_stats)
     leg_lines = leg_text.splitlines()
     assert "3 ký tự, 15 mẫu nét (kèm 3 từ cũ)" in leg_lines[0]
+
+
+def test_webapp_seed_error_element_present():
+    """T021: Kiểm tra webapp/index.html và webapp/js/write.js có phần tử và xử lý lỗi seed trực quan."""
+    from pathlib import Path
+    root = Path(__file__).resolve().parent.parent
+    index_html = (root / "webapp" / "index.html").read_text(encoding="utf-8")
+    assert 'id="opt-seed-error"' in index_html, "index.html phải chứa phần tử #opt-seed-error"
+
+    write_js = (root / "webapp" / "js" / "write.js").read_text(encoding="utf-8")
+    assert "optSeedError" in write_js, "write.js phải chứa xử lý optSeedError"
+    assert "is-invalid" in write_js, "write.js phải thêm/bỏ class is-invalid"
+

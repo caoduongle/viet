@@ -57,6 +57,8 @@ def write_report_lines(result: WriteResult) -> list[str]:
     if getattr(result, "warnings", None):
         for w in result.warnings:
             lines.append(f"Cảnh báo: {w}")
+    if getattr(result, "seed_used", None) is not None:
+        lines.append("Seed đã dùng: %d (chạy lại với --seed %d để có đúng kết quả này)" % (result.seed_used, result.seed_used))
     return lines
 
 

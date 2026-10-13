@@ -15,6 +15,7 @@ from __future__ import annotations
 import copy
 import gzip
 import json
+import xml.etree.ElementTree as ET
 import pytest
 
 from chuviettay.controller.app_controller import AppController
@@ -24,6 +25,22 @@ from chuviettay.model.text_utils import shift
 from chuviettay.model.writer import Writer
 
 KHO_TONG_HOP = "tests/data/kho_mau_tong_hop.json.gz"
+
+
+def extract_xopp_strokes(xopp_path: str) -> list[list[tuple[float, float]]]:
+    """Trích xuất danh sách các nét vẽ (danh sách tọa độ float x, y) từ tệp .xopp."""
+    with gzip.open(xopp_path, "rt", encoding="utf-8") as f:
+        tree = ET.parse(f)
+    root = tree.getroot()
+    strokes = []
+    for stroke_elem in root.iter("stroke"):
+        text = (stroke_elem.text or "").strip()
+        if not text:
+            continue
+        coords = [float(val) for val in text.split()]
+        pts = [(coords[i], coords[i + 1]) for i in range(0, len(coords), 2)]
+        strokes.append(pts)
+    return strokes
 
 
 def create_multivariant_bank(tmp_path) -> Bank:
@@ -147,3 +164,156 @@ def test_cli_stable_flag_integration(tmp_path):
     res1 = ctl.write_text("hôm nay trời đẹp", opts_stable, str(out1))
     assert res1.n_lines > 0
     assert res1.seed_used == 12345
+
+
+def test_render_pipeline_prepend_invariance_with_jitter(tmp_path):
+    """Kiểm chứng tính bất biến khi chèn từ phía trước qua toàn bộ pipeline DocumentLayoutEngine:
+    Chèn từ 'a' phía trước không làm đổi hình dạng nét vẽ (scale, rotation) của từ 'nay'
+    khi stable_variants=True và jitter=1.0.
+    """
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.document.ir import Document, Paragraph, Text
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    opts = WriteOptions(seed=42, stable_variants=True, jitter=1.0)
+
+    # Lượt 1: Chỉ viết từ "nay"
+    out1 = str(tmp_path / "run1.xopp")
+    engine1 = DocumentLayoutEngine(bank, opts)
+    engine1.render(Document(blocks=[Paragraph(inlines=[Text(text="nay")])]), out1)
+    strokes1 = extract_xopp_strokes(out1)
+
+    # Lượt 2: Viết "a nay" (chèn "a" phía trước)
+    out2 = str(tmp_path / "run2.xopp")
+    engine2 = DocumentLayoutEngine(bank, opts)
+    engine2.render(Document(blocks=[Paragraph(inlines=[Text(text="a nay")])]), out2)
+    strokes2 = extract_xopp_strokes(out2)
+
+    # Đo số nét của "a"
+    out_a = str(tmp_path / "run_a.xopp")
+    engine_a = DocumentLayoutEngine(bank, opts)
+    engine_a.render(Document(blocks=[Paragraph(inlines=[Text(text="a")])]), out_a)
+    n_strokes_a = len(extract_xopp_strokes(out_a))
+
+    strokes2_nay = strokes2[n_strokes_a:]
+    assert len(strokes1) == len(strokes2_nay), "Số nét của từ 'nay' phải bằng nhau giữa hai lượt"
+
+    # Chuẩn hóa tọa độ nét về điểm gốc (0, 0) của mỗi nét để so sánh hình dạng (độc lập vị trí tịnh tiến)
+    def normalize_stroke_shape(stk):
+        if not stk:
+            return []
+        p0 = stk[0]
+        return [(round(p[0] - p0[0], 2), round(p[1] - p0[1], 2)) for p in stk]
+
+    for idx, (stk1, stk2) in enumerate(zip(strokes1, strokes2_nay)):
+        shape1 = normalize_stroke_shape(stk1)
+        shape2 = normalize_stroke_shape(stk2)
+        assert shape1 == shape2, (
+            f"Nét {idx} của từ 'nay' bị biến dạng hình học khi chèn từ 'a' phía trước!\n"
+            f"Shape 1: {shape1[:3]}...\n"
+            f"Shape 2: {shape2[:3]}..."
+        )
+
+
+def test_math_digits_context_independence(tmp_path):
+    """Kiểm chứng tính độc lập của chữ số trong Writer.number() và công thức toán:
+    Các chữ số và khoảng cách giữa chúng không bị ảnh hưởng bởi token văn bản đứng trước,
+    khi stable_variants=True.
+    """
+    bank = create_multivariant_bank(tmp_path)
+    import random
+
+    # 1. Kiểm tra ở cấp độ Writer: number() phải độc lập với token trước đó
+    w1 = Writer(bank, rnd=random.Random(42), stable_variants=True, seed=42)
+    w1.token("tu_ngan")
+    st1, width1, _ = w1.number("12345")
+
+    w2 = Writer(bank, rnd=random.Random(42), stable_variants=True, seed=42)
+    w2.token("tu_hoan_toan_khac_va_rat_dai")
+    st2, width2, _ = w2.number("12345")
+
+    assert width1 == width2, f"Độ rộng chuỗi số khác nhau do rò rỉ ngữ cảnh: {width1} != {width2}"
+    assert st1 == st2, "Nét vẽ chữ số bị khác nhau do ảnh hưởng bởi token đứng trước!"
+
+    # 2. Kiểm tra ở cấp độ MathLayoutEngine / DocumentLayoutEngine
+    from chuviettay.document.ir import Document, Paragraph, Text, MathInline
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    opts = WriteOptions(seed=123, stable_variants=True, jitter=0.0)
+    out1 = str(tmp_path / "math1.xopp")
+    engine1 = DocumentLayoutEngine(bank, opts)
+    engine1.render(Document(blocks=[Paragraph(inlines=[Text(text="đoạn A"), MathInline(latex="123")])]), out1)
+
+    out2 = str(tmp_path / "math2.xopp")
+    engine2 = DocumentLayoutEngine(bank, opts)
+    engine2.render(Document(blocks=[Paragraph(inlines=[Text(text="từ khác dài hơn"), MathInline(latex="123")])]), out2)
+
+    out_m = str(tmp_path / "math_only.xopp")
+    engine_m = DocumentLayoutEngine(bank, opts)
+    engine_m.render(Document(blocks=[Paragraph(inlines=[MathInline(latex="123")])]), out_m)
+    m_strokes = extract_xopp_strokes(out_m)
+
+    strokes1 = extract_xopp_strokes(out1)
+    strokes2 = extract_xopp_strokes(out2)
+    # Lấy các nét cuối cùng tương ứng với biểu thức MathInline "123"
+    math_stk1 = strokes1[-len(m_strokes):]
+    math_stk2 = strokes2[-len(m_strokes):]
+
+    def normalize_stroke_shape(stk):
+        if not stk:
+            return []
+        p0 = stk[0]
+        return [(round(p[0] - p0[0], 2), round(p[1] - p0[1], 2)) for p in stk]
+
+    for idx, (s1, s2) in enumerate(zip(math_stk1, math_stk2)):
+        sh1 = normalize_stroke_shape(s1)
+        sh2 = normalize_stroke_shape(s2)
+        assert sh1 == sh2, f"Nét {idx} của công thức 123 bị lệch giữa 2 văn bản khác nhau!"
+
+
+def test_multi_page_mixed_content_stable_variants(tmp_path):
+    """Kiểm chứng tính tái lập và ổn định trên tài liệu đa trang hỗn hợp:
+    văn bản thường, bảng biểu và công thức toán học với stable_variants=True.
+    """
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.document.ir import Document, Paragraph, Text, MathInline, MathBlock, Table, TableRow, TableCell, PageBreak
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    doc = Document(
+        blocks=[
+            Paragraph(inlines=[Text(text="Tiêu đề chương 1"), MathInline(latex="f(x)=2x+1")]),
+            Table(
+                rows=[
+                    TableRow(cells=[TableCell.from_text("Cột 1"), TableCell.from_text("Cột 2")]),
+                    TableRow(cells=[TableCell.from_text("Dữ liệu A"), TableCell.from_text("Dữ liệu B")]),
+                ],
+                col_alignments=["left", "left"],
+            ),
+            MathBlock(latex="E = mc^2"),
+            PageBreak(),
+            Paragraph(inlines=[Text(text="Trang thứ hai với nội dung tiếp theo")]),
+        ]
+    )
+
+    opts = WriteOptions(seed=999, stable_variants=True, jitter=1.0)
+    out1 = str(tmp_path / "mixed_run1.xopp")
+    engine1 = DocumentLayoutEngine(bank, opts)
+    res1 = engine1.render(doc, out1)
+
+    out2 = str(tmp_path / "mixed_run2.xopp")
+    engine2 = DocumentLayoutEngine(bank, opts)
+    res2 = engine2.render(doc, out2)
+
+    assert res1.seed_used == 999
+    assert res2.seed_used == 999
+    assert res1.n_pages == res2.n_pages == 2
+
+    # Tái lập byte-exact giữa hai lần render cùng hạt giống và cấu hình
+    import gzip
+    import hashlib
+    with gzip.open(out1, "rb") as gz1, gzip.open(out2, "rb") as gz2:
+        h1 = hashlib.sha256(gz1.read()).hexdigest()
+        h2 = hashlib.sha256(gz2.read()).hexdigest()
+    assert h1 == h2, "Hai lần render tài liệu đa trang hỗn hợp phải ra kết quả byte-exact 100%"
+
+

@@ -200,4 +200,5 @@ def test_whole_word_model_preserved_intact_when_fitting_column(tiny_bank):
     # Khi max_item_width vừa vặn chứa 'xin' (15.0 pt > 9.0 pt):
     items, n_tok, n_miss = engine._layout_inlines([Text("xin")], max_item_width=15.0)
     assert len(items) == 1
-    assert items[0][3] == "xin", "Từ nguyên khối phải được giữ nguyên vẹn, không bị tách thành x, i, n"
+    tok = getattr(items[0], "token", items[0][3])
+    assert tok == "xin", "Từ nguyên khối phải được giữ nguyên vẹn, không bị tách thành x, i, n"

@@ -219,6 +219,7 @@ class WriteTab(ttk.Frame):
         self.v_seed = tk.StringVar(value="")
         self.v_color = tk.StringVar(value="")
         self.v_strict = tk.BooleanVar(value=False)
+        self.v_stable_variants = tk.BooleanVar(value=False)
 
         def row(lbl: str, var: tk.StringVar, hint: str = "") -> None:
             f = ttk.Frame(opt)
@@ -244,6 +245,8 @@ class WriteTab(ttk.Frame):
         ttk.Button(colf, text="Mặc định", command=lambda: self.v_color.set("")).pack(side="left")
         ttk.Checkbutton(opt, text="Không tự hạ chữ hoa đầu câu (strict-case)",
                         variable=self.v_strict).pack(anchor="w", pady=(6, 0))
+        ttk.Checkbutton(opt, text="Kiểu chữ ổn định khi chỉnh sửa (stable_variants)",
+                        variable=self.v_stable_variants).pack(anchor="w", pady=(2, 0))
         ttk.Checkbutton(opt, text="Ghép từ chữ cái khi thiếu từ nguyên khối",
                         variable=self.v_assemble).pack(anchor="w", pady=(2, 0))
         ttk.Checkbutton(opt, text="Tự động tạo file lưới ô khi thiếu mẫu (_thieu.xopp)",
@@ -393,6 +396,7 @@ class WriteTab(ttk.Frame):
             mode=("fidelity" if ("khóa" in self.v_mode.get().lower() or "fidelity" in self.v_mode.get().lower()) else "semantic"),
             missing_grid=self.v_missing_grid.get(),
             assemble_letters=self.v_assemble.get(),
+            stable_variants=self.v_stable_variants.get(),
         )
         opts.validate()
         return opts

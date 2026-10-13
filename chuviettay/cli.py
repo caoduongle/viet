@@ -125,8 +125,6 @@ def _cmd_write(ctl: AppController, a: argparse.Namespace) -> None:
 
     for line in write_report_lines(result):
         print(line)
-    if getattr(a, "seed", None) is None and result.seed_used is not None:
-        print(f"Seed đã dùng: {result.seed_used} (chạy lại với --seed {result.seed_used} để có đúng kết quả này)")
 
 
 

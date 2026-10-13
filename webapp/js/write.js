@@ -686,13 +686,35 @@ function setupOptionsModal() {
 
   // Seed
   const optSeed = document.getElementById("opt-seed");
+  let optSeedError = document.getElementById("opt-seed-error");
   if (optSeed) {
+    // Tạo fallback nếu phần tử chưa có trong DOM
+    if (!optSeedError && optSeed.parentElement) {
+      optSeedError = document.createElement("div");
+      optSeedError.id = "opt-seed-error";
+      optSeedError.className = "error-msg";
+      optSeedError.style.cssText = "display:none; color: #dc3545; font-size: 0.8rem; margin-top: 4px;";
+      optSeed.parentElement.appendChild(optSeedError);
+    }
+
+    optSeed.addEventListener("input", () => {
+      if (optSeedError) optSeedError.style.display = "none";
+      optSeed.classList.remove("is-invalid");
+    });
+
     optSeed.addEventListener("change", (e) => {
       const parsed = parseSeed(e.target.value, writeOptions.seed);
       writeOptions.seed = parsed.seed;
-      optSeed.value = parsed.seed;
+      optSeed.value = parsed.seed !== null && parsed.seed !== undefined ? parsed.seed : "";
       if (!parsed.valid && parsed.message) {
-        console.warn(parsed.message);
+        if (optSeedError) {
+          optSeedError.textContent = parsed.message;
+          optSeedError.style.display = "block";
+        }
+        optSeed.classList.add("is-invalid");
+      } else {
+        if (optSeedError) optSeedError.style.display = "none";
+        optSeed.classList.remove("is-invalid");
       }
     });
   }
@@ -700,7 +722,11 @@ function setupOptionsModal() {
   if (btnRandomSeed) {
     btnRandomSeed.addEventListener("click", () => {
       const nextSeed = Math.floor(Math.random() * 100000);
-      if (optSeed) optSeed.value = nextSeed;
+      if (optSeed) {
+        optSeed.value = nextSeed;
+        optSeed.classList.remove("is-invalid");
+      }
+      if (optSeedError) optSeedError.style.display = "none";
       writeOptions.seed = nextSeed;
       triggerPreviewImmediate();
     });

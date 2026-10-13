@@ -50,6 +50,49 @@ class TokenBox:
     missing: list[str] = field(default_factory=list)
 
 
+@dataclass(slots=True)
+class RenderItem:
+    """Mục hiển thị trong dòng chữ với đầy đủ định danh token và nét vẽ."""
+    start: float                          # Vị trí X tương đối trong dòng
+    strokes: list[Stroke]                 # Danh sách các nét chữ
+    width: float                          # Chiều rộng mục
+    missing: list[str] = field(default_factory=list)  # Ký tự thiếu mẫu
+    token: str = ""                       # Chuỗi token gốc
+    token_id: str = ""                    # Định danh token trong phiên
+    occurrence: int = 0                   # Thứ tự xuất hiện trong phạm vi khối/tài liệu
+
+    def __iter__(self) -> Any:
+        """Hỗ trợ giải nén tuple (unpacking: start, st, w = item[:3] hoặc a, b, c, d, e = item)."""
+        yield self.start
+        yield self.strokes
+        yield self.width
+        yield self.missing
+        yield self.token
+        yield self.token_id
+        yield self.occurrence
+
+    def __getitem__(self, idx: int) -> Any:
+        """Hỗ trợ truy cập chỉ số kiểu tuple để tương thích ngược 100% với mã nguồn cũ."""
+        if idx == 0:
+            return self.start
+        if idx == 1:
+            return self.strokes
+        if idx == 2:
+            return self.width
+        if idx == 3:
+            return self.missing
+        if idx == 4:
+            return self.token
+        if idx == 5:
+            return self.token_id
+        if idx == 6:
+            return self.occurrence
+        raise IndexError(f"Chỉ số RenderItem không hợp lệ: {idx}")
+
+    def __len__(self) -> int:
+        return 7
+
+
 def resolve_effective_line_height(
     requested_line: float | None,
     bank: Any,
@@ -185,11 +228,9 @@ class DocumentLayoutEngine:
 
         if self.opts.stable_variants:
             from chuviettay.model.rng import ScopedRNG
-            first_tok = line_items[0][4] if len(line_items[0]) > 4 else ""
-            line_rng = ScopedRNG(self.effective_seed, "line", first_tok, round(base_y, 1))
-            slope, amp = line_rng.gauss(0, 0.0015 * self.J), 0.45 * self.J
-            wl, ph = line_rng.uniform(140, 260), line_rng.uniform(0, 6.283)
-            xo = start_x + line_rng.gauss(0, 1.2 * self.J)
+            slope, amp = 0.0, 0.0
+            wl, ph = 200.0, 0.0
+            xo = start_x
         else:
             slope, amp = self.rnd.gauss(0, 0.0015 * self.J), 0.45 * self.J
             wl, ph = self.rnd.uniform(140, 260), self.rnd.uniform(0, 6.283)
@@ -201,7 +242,8 @@ class DocumentLayoutEngine:
                 continue
             if self.opts.stable_variants:
                 tok_str = item[4] if len(item) > 4 else ""
-                geom_rng = ScopedRNG(self.effective_seed, "tok", tok_str, "geom", it_idx)
+                occ = item[6] if len(item) > 6 else 0
+                geom_rng = ScopedRNG(self.effective_seed, "tok", tok_str, occ, "geom")
                 s = self.S * scale_mult * (1 + geom_rng.gauss(0, 0.02 * self.J))
                 rot = geom_rng.gauss(0, 0.010 * self.J)
                 dy = geom_rng.gauss(0, 0.35 * self.J)
@@ -246,9 +288,10 @@ class DocumentLayoutEngine:
     ) -> tuple[list[tuple[list[Stroke], float, list[str]]], int, int]:
         """Chuyển đổi danh sách Inline (Text, MathInline, Symbol, LineBreak) thành các mục (strokes, width, miss).
         Trả về: (items, n_tokens, n_missing_tokens)."""
-        items: list[tuple[list[Stroke], float, list[str]]] = []
+        items: list[RenderItem] = []
         ntok = 0
         nmiss = 0
+        block_token_counts: dict[str, int] = {}
 
         # Gộp các Text inline liền kề để tránh chèn khoảng trắng giả tạo trước dấu câu (L6)
         merged_inlines: list[Inline] = []
@@ -285,7 +328,19 @@ class DocumentLayoutEngine:
                             nmiss += 1
                             for m in miss:
                                 self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                        items.append((st, w * self.S * scale_mult, miss, chunk))
+                        occ = block_token_counts.get(chunk, 0)
+                        block_token_counts[chunk] = occ + 1
+                        items.append(
+                            RenderItem(
+                                start=0.0,
+                                strokes=st,
+                                width=w * self.S * scale_mult,
+                                missing=miss,
+                                token=chunk,
+                                token_id=f"{chunk}#{occ}",
+                                occurrence=occ,
+                            )
+                        )
 
             elif isinstance(inline, Symbol):
                 sym = inline.symbol
@@ -298,7 +353,19 @@ class DocumentLayoutEngine:
                             missing_symbols[m] = missing_symbols.get(m, 0) + 1
                         else:
                             self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                items.append((st, w * self.S * scale_mult, miss, sym))
+                occ = block_token_counts.get(sym, 0)
+                block_token_counts[sym] = occ + 1
+                items.append(
+                    RenderItem(
+                        start=0.0,
+                        strokes=st,
+                        width=w * self.S * scale_mult,
+                        missing=miss,
+                        token=sym,
+                        token_id=f"{sym}#{occ}",
+                        occurrence=occ,
+                    )
+                )
 
             elif isinstance(inline, MathInline):
                 math_ast = inline.ast or parse_latex_math(inline.latex)
@@ -306,9 +373,22 @@ class DocumentLayoutEngine:
                     from chuviettay.model.rng import ScopedRNG
                     math_seed = ScopedRNG(self.effective_seed, "math", inline.latex).seed
                     math_rnd = random.Random(math_seed)
+                    math_wr = Writer(
+                        self.bank,
+                        math_rnd,
+                        self.wr.J,
+                        self.wr.loose,
+                        self.wr.space,
+                        stable_variants=True,
+                        seed=math_seed,
+                        assemble_letters=self.wr.assemble_letters,
+                        letter_gap=self.wr.letter_gap,
+                        pen_clearance_factor=self.wr.pen_clearance_factor,
+                    )
                 else:
                     math_rnd = self.rnd
-                math_engine = MathLayoutEngine(self.bank, S=1.0, writer=self.wr, rnd=math_rnd)
+                    math_wr = self.wr
+                math_engine = MathLayoutEngine(self.bank, S=1.0, writer=math_wr, rnd=math_rnd)
                 # Công thức rộng hơn dòng/ô: thu nhỏ vừa khít (tối thiểu 50%); nếu vẫn quá rộng thì ngắt dòng
                 # sau quan hệ/toán tử (như công thức display) thay vì tràn lề
                 avail = (max_item_width if max_item_width is not None else self.width) / max(self.S * scale_mult, 1e-6)
@@ -346,13 +426,24 @@ class DocumentLayoutEngine:
                         math_strokes.append(flat_pts)
 
                     self._math_extent[id(math_strokes)] = (m_item.size.ascent, m_item.size.descent)
-                    items.append((math_strokes, m_item.size.width * self.S * scale_mult,
-                                  list(math_engine.missing_symbols.keys()), inline.latex))
+                    occ = block_token_counts.get(inline.latex, 0)
+                    block_token_counts[inline.latex] = occ + 1
+                    items.append(
+                        RenderItem(
+                            start=0.0,
+                            strokes=math_strokes,
+                            width=m_item.size.width * self.S * scale_mult,
+                            missing=list(math_engine.missing_symbols.keys()),
+                            token=inline.latex,
+                            token_id=f"math#{occ}",
+                            occurrence=occ,
+                        )
+                    )
                     if k < len(pieces) - 1:
-                        items.append(([], 0.0, ["__LINE_BREAK__"], ""))
+                        items.append(RenderItem(0.0, [], 0.0, ["__LINE_BREAK__"], "", "", 0))
 
             elif isinstance(inline, LineBreak):
-                items.append(([], 0.0, ["__LINE_BREAK__"], ""))
+                items.append(RenderItem(0.0, [], 0.0, ["__LINE_BREAK__"], "", "", 0))
 
         return items, ntok, nmiss
 
@@ -397,7 +488,7 @@ class DocumentLayoutEngine:
             nmiss += n_m
 
             eff_line_h = self.line_h * scale_mult
-            cur_line: list[tuple[float, list[Stroke], float, list[str], str]] = []
+            cur_line: list[RenderItem] = []
             curw = 0.0
             line_asc = line_desc = 0.0     # chiều cao lớn nhất của công thức inline trên dòng hiện tại
 
@@ -432,25 +523,24 @@ class DocumentLayoutEngine:
                 line_start_x = self.x0 + indent
                 if self.token_layout_callback is not None:
                     page_idx = pb.n_pages
-                    for start, _, w, miss, tok_str in cur_line:
-                        if tok_str:
-                            box_x = line_start_x + start
+                    for itm in cur_line:
+                        if itm[4]:
+                            box_x = line_start_x + itm[0]
                             box_y = token_box_y
                             self.token_layout_callback(
                                 TokenBox(
                                     page=page_idx,
-                                    token=tok_str,
+                                    token=itm[4],
                                     x=round(box_x, 2),
                                     y=round(box_y, 2),
-                                    width=round(w, 2),
+                                    width=round(itm[2], 2),
                                     height=round(eff_line_h, 2),
-                                    missing=miss,
+                                    missing=itm[3],
                                 )
                             )
 
-                render_items = [(start, st, w) for start, st, w, _, _ in cur_line]
                 line_strokes = self._render_text_line(
-                    render_items, line_base_y, line_start_x,
+                    cur_line, line_base_y, line_start_x,
                     scale_mult=scale_mult,
                 )
                 cur_page.extend(line_strokes)
@@ -468,8 +558,18 @@ class DocumentLayoutEngine:
                 line_asc = line_desc = 0.0
 
             for item in items:
-                st, w, miss = item[0], item[1], item[2]
-                tok_str = item[3] if len(item) > 3 else ""
+                if isinstance(item, RenderItem):
+                    st = item.strokes
+                    w = item.width
+                    miss = item.missing
+                    tok_str = item.token
+                    tok_id = item.token_id
+                    occ = item.occurrence
+                else:
+                    st, w, miss = item[0], item[1], item[2]
+                    tok_str = item[3] if len(item) > 3 else ""
+                    tok_id = f"{tok_str}#0"
+                    occ = 0
                 if miss == ["__LINE_BREAK__"]:
                     flush_line()
                     continue
@@ -485,7 +585,8 @@ class DocumentLayoutEngine:
                     flush_line()
 
                 start = curw + (sp if cur_line else 0.0)
-                cur_line.append((start, st, w, miss, tok_str))
+                r_item = RenderItem(start, st, w, miss, tok_str, tok_id, occ)
+                cur_line.append(r_item)
                 curw = start + w
                 ext = self._math_extent.get(id(st))
                 if ext is not None:
@@ -502,9 +603,22 @@ class DocumentLayoutEngine:
                 from chuviettay.model.rng import ScopedRNG
                 math_seed = ScopedRNG(self.effective_seed, "math", block.latex).seed
                 math_rnd = random.Random(math_seed)
+                math_wr = Writer(
+                    self.bank,
+                    math_rnd,
+                    self.wr.J,
+                    self.wr.loose,
+                    self.wr.space,
+                    stable_variants=True,
+                    seed=math_seed,
+                    assemble_letters=self.wr.assemble_letters,
+                    letter_gap=self.wr.letter_gap,
+                    pen_clearance_factor=self.wr.pen_clearance_factor,
+                )
             else:
                 math_rnd = self.rnd
-            math_engine = MathLayoutEngine(self.bank, S=self.S, writer=self.wr, rnd=math_rnd, display=True)
+                math_wr = self.wr
+            math_engine = MathLayoutEngine(self.bank, S=self.S, writer=math_wr, rnd=math_rnd, display=True)
             avail_w = max(self.width - indent, 1.0)
             lines = math_engine.layout_lines(math_ast, avail_w)
             math_miss_count = sum(math_engine.missing_symbols.values())
@@ -627,9 +741,9 @@ class DocumentLayoutEngine:
                         else:
                             items = []
 
-                        cell_lines: list[list[tuple[float, list[Stroke], float]]] = []
+                        cell_lines: list[list[RenderItem]] = []
                         cell_metrics: list[LineVerticalMetrics] = []
-                        cur_l: list[tuple[float, list[Stroke], float]] = []
+                        cur_l: list[RenderItem] = []
                         cur_lw = 0.0
                         cur_asc = 0.0
                         cur_desc = 0.0
@@ -651,7 +765,18 @@ class DocumentLayoutEngine:
 
                         last_was_break = False
                         for item in items:
-                            st, w, miss = item[0], item[1], item[2]
+                            if isinstance(item, RenderItem):
+                                st = item.strokes
+                                w = item.width
+                                miss = item.missing
+                                tok_str = item.token
+                                tok_id = item.token_id
+                                occ = item.occurrence
+                            else:
+                                st, w, miss = item[0], item[1], item[2]
+                                tok_str = item[3] if len(item) > 3 else ""
+                                tok_id = f"{tok_str}#0"
+                                occ = 0
                             if miss == ["__LINE_BREAK__"]:
                                 if cur_l:
                                     flush_cur_line()
@@ -673,13 +798,13 @@ class DocumentLayoutEngine:
 
                             if cur_l and cur_lw + sp + w > usable_w:
                                 flush_cur_line()
-                                cur_l = [(0.0, st, w, miss, item[3] if len(item) > 3 else "")]
+                                cur_l = [RenderItem(0.0, st, w, miss, tok_str, tok_id, occ)]
                                 cur_lw = w
                                 cur_asc = item_asc
                                 cur_desc = item_desc
                             else:
                                 start_rel = cur_lw + (sp if cur_l else 0.0)
-                                cur_l.append((start_rel, st, w, miss, item[3] if len(item) > 3 else ""))
+                                cur_l.append(RenderItem(start_rel, st, w, miss, tok_str, tok_id, occ))
                                 cur_lw = start_rel + w
                                 cur_asc = max(cur_asc, item_asc)
                                 cur_desc = max(cur_desc, item_desc)

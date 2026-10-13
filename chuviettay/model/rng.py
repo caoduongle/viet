@@ -6,7 +6,12 @@ Phục vụ chế độ stable_variants=True:
 - Lớp ScopedRNG bọc random.Random(sub_seed) của thư viện chuẩn nhưng CHỈ phụ thuộc vào
   phương thức random.Random.random().
 - Tự cài đặt uniform, randrange, choice, randint và gauss (Box-Muller biến đổi trực tiếp, phi trạng thái).
-- Bảo đảm tính tất định 100% bit-exact giữa các phiên bản Python (3.10+, 3.12, 3.14) và Pyodide WASM.
+- Phạm vi cam kết tính tái lập:
+  * Cam kết 100% bit-exact trong cùng runtime CPython: hai lần chạy với cùng seed và khóa ngữ cảnh
+    cho dãy số và kết quả hình học nét chữ hoàn toàn trùng khớp từng byte.
+  * Cam kết tương đương phân phối thống kê giữa các nền tảng/runtime khác biệt (ví dụ CPython và Pyodide WASM),
+    do hàm gauss() sử dụng Box-Muller (math.log, math.sqrt, math.cos) có thể có sai số dấu phẩy động cực nhỏ
+    ở cấp độ FPU/libc giữa các hệ điều hành và kiến trúc phần cứng.
 """
 from __future__ import annotations
 
