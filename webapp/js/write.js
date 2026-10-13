@@ -520,7 +520,9 @@ async function handleFileImport(file, textarea) {
         }
         const allNotes = [...(res.warnings || []), ...(res.unsupported || [])];
         if (allNotes.length > 0) {
-          showWarning(`Nhập file .docx hoàn tất có lưu ý:\n• ${allNotes.join("\n• ")}`);
+          showWarning(`Đã chuyển nội dung file .docx sang Markdown (lưu ý: không giữ nguyên toạ độ in Word):\n• ${allNotes.join("\n• ")}`);
+        } else {
+          showWarning("Đã chuyển nội dung file .docx sang Markdown thành công (chế độ Content-First, không giữ nguyên toạ độ in Word).");
         }
         triggerPreviewImmediate();
       } else {

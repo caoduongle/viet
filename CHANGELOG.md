@@ -17,6 +17,13 @@ Tái cấu trúc toàn diện kiến trúc repository, loại bỏ hoàn toàn c
 - **Tường lửa kiến trúc chống tái nghiện Tkinter**: `tests/test_architecture.py` kiểm tra tự động cấm 100% import `tkinter` trên toàn bộ repository (`chuviettay/`, `tests/`, `scripts/`) và khẳng định sự vắng mặt của các module Desktop/CLI cũ.
 - **Bảo toàn Golden Master & Lõi Fidelity**: Giữ vững tính bất biến từng byte của đầu ra thuật toán Golden Master trên cả Python và Pyodide; bảo lưu nguyên vẹn mã nguồn lõi `chuviettay/fidelity/` để sẵn sàng đưa lên Web ở tính năng kế tiếp.
 
+### Củng cố & Chuẩn hóa sau Rà soát (Post-Review Hardening — Spec 039)
+- **Minh bạch hóa ranh giới DOCX Web Client (P1)**: Xác định rõ ranh giới Web Client sử dụng phương thức nhập nội dung thuần (Content-First Import) chuyển đổi sang Markdown, không cam kết giữ nguyên bố cục trang in Word phức tạp. Đánh dấu module `chuviettay/fidelity/` là legacy / archive, bổ sung docstring cảnh báo và cập nhật thông báo trên giao diện Web UI.
+- **Chuẩn hóa khóa ScopedRNG & Chống va chạm Jitter (P2)**: Sử dụng trực tiếp `item.token_id` làm khóa chính cho bộ sinh ngẫu nhiên hình học `ScopedRNG` trong `_render_text_line`. Bổ sung tiền tố không gian tên (`text:`, `sym:`, `cell:`) và quản lý bộ đếm `doc_token_counts` toàn tài liệu, loại bỏ hiện tượng trùng lặp jitter giữa các đoạn văn và các đối tượng khác loại.
+- **Độc lập biến thể công thức toán lặp lại (P2)**: Cấp phát hạt giống độc lập cho các công thức toán trùng nội dung qua bộ đếm `_math_inline_counts` và `_math_block_counts`, bảo đảm các biểu thức lặp lại có biến thể nét vẽ tự nhiên, đa dạng mà vẫn bảo toàn tính tái lập byte-exact 100%.
+- **Đồng bộ hóa Metadata Phiên bản Phát hành (P2)**: Thống nhất một nguồn phiên bản duy nhất `2.1.0` trên toàn bộ sản phẩm: `pyproject.toml`, `package.json`, `chuviettay/__version__`, `scripts/build_web.py` sinh `version.json` v2.1.0 và kiểm thử tự động `tests/test_version_metadata.py`.
+- **Hoàn thiện hợp đồng RenderItem (P3)**: Hỗ trợ toàn diện đối tượng `slice` (`item[:3]`) và chỉ số âm trong `RenderItem.__getitem__`, duy trì tính tương thích ngược hoàn hảo với cú pháp giải nén tuple.
+
 ## Chưa phát hành — Hạt giống ngẫu nhiên minh bạch, biến thể chữ ổn định và tối ưu kế hoạch dạy chữ (Spec 036)
 
 Cải tiến toàn diện cơ chế hạt giống ngẫu nhiên (seed), bộ sinh ngẫu nhiên cục bộ bảo đảm tính bất biến khi chèn sửa văn bản, và tối ưu hóa lộ trình dạy chữ:

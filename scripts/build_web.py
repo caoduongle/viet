@@ -265,14 +265,23 @@ def generate_version_json(dist_dir: Path) -> None:
         except Exception:
             pass
 
+    app_version = "2.1.0"
+    try:
+        if str(ROOT_DIR) not in sys.path:
+            sys.path.insert(0, str(ROOT_DIR))
+        import chuviettay
+        app_version = getattr(chuviettay, "__version__", app_version)
+    except Exception:
+        pass
+
     version_info = {
-        "version": "1.0.0",
+        "version": app_version,
         "git_commit": git_commit,
         "pyodide_version": pyodide_ver,
     }
     with open(dist_dir / "version.json", "w", encoding="utf-8") as f:
         json.dump(version_info, f, indent=2)
-    print(f"[build_web] Đã sinh version.json (Pyodide v{pyodide_ver}).")
+    print(f"[build_web] Đã sinh version.json v{app_version} (Pyodide v{pyodide_ver}).")
 
 
 def generate_sw_js(dist_dir: Path) -> None:

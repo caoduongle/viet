@@ -102,7 +102,7 @@ Mã nguồn được phân tầng nghiêm ngặt với luồng phụ thuộc m�
 - **chuviettay/browser/**: Cầu nối JSON-RPC trung gian giữa JavaScript và Python trong môi trường Pyodide.
 - **chuviettay/controller/**: Bộ điều phối nghiệp vụ tập trung (`AppController`).
 - **chuviettay/model/**: Quản lý kho mẫu (`Bank`), sinh nét viết (`Writer`), bộ dàn trang (`DocumentLayoutEngine`), đọc/ghi XOPP (`xopp.py`).
-- **chuviettay/fidelity/**: Mô hình xử lý tài liệu Word cố định toạ độ không gian (Fidelity Engine) được bảo lưu sẵn sàng để tích hợp lên Web.
+- **chuviettay/fidelity/**: Mã nguồn lưu trữ (legacy/archive) cho mô hình xử lý Word cố định toạ độ không gian (chỉ chạy ngoại tuyến với Word COM/LibreOffice; Web Client sử dụng cơ chế nạp nội dung Content-First sang Markdown).
 
 ### Tường lửa kiến trúc
 Kiến trúc này được bảo vệ tự động bằng `tests/test_architecture.py`:

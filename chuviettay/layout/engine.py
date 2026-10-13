@@ -71,8 +71,10 @@ class RenderItem:
         yield self.token_id
         yield self.occurrence
 
-    def __getitem__(self, idx: int) -> Any:
-        """Hỗ trợ truy cập chỉ số kiểu tuple để tương thích ngược 100% với mã nguồn cũ."""
+    def __getitem__(self, idx: int | slice) -> Any:
+        """Hỗ trợ truy cập chỉ số kiểu tuple và cắt lát (slice) để tương thích ngược 100% với mã nguồn cũ."""
+        if isinstance(idx, slice) or idx < 0:
+            return tuple(self)[idx]
         if idx == 0:
             return self.start
         if idx == 1:
@@ -211,6 +213,10 @@ class DocumentLayoutEngine:
         )
         # id(danh sách nét của mục công thức inline) -> (ascent, descent) theo toạ độ kho (S=1): để nới chiều cao dòng
         self._math_extent: dict[int, tuple[float, float]] = {}
+        # Quản lý bộ đếm lần xuất hiện cho ScopedRNG để chống va chạm và tạo nét tự nhiên
+        self._doc_token_counts: dict[tuple[str, str], int] = {}
+        self._math_inline_counts: dict[str, int] = {}
+        self._math_block_counts: dict[str, int] = {}
 
 
     def _render_text_line(
@@ -241,9 +247,16 @@ class DocumentLayoutEngine:
             if not st:
                 continue
             if self.opts.stable_variants:
-                tok_str = item[4] if len(item) > 4 else ""
-                occ = item[6] if len(item) > 6 else 0
-                geom_rng = ScopedRNG(self.effective_seed, "tok", tok_str, occ, "geom")
+                tok_id = ""
+                if hasattr(item, "token_id") and item.token_id:
+                    tok_id = item.token_id
+                elif len(item) > 5 and item[5]:
+                    tok_id = item[5]
+                else:
+                    tok_str = item[4] if len(item) > 4 else ""
+                    occ = item[6] if len(item) > 6 else 0
+                    tok_id = f"tok:{tok_str}#{occ}"
+                geom_rng = ScopedRNG(self.effective_seed, "geom", tok_id)
                 s = self.S * scale_mult * (1 + geom_rng.gauss(0, 0.02 * self.J))
                 rot = geom_rng.gauss(0, 0.010 * self.J)
                 dy = geom_rng.gauss(0, 0.35 * self.J)
@@ -285,13 +298,13 @@ class DocumentLayoutEngine:
         scale_mult: float = 1.0,
         missing_symbols: dict[str, int] | None = None,
         max_item_width: float | None = None,
-    ) -> tuple[list[tuple[list[Stroke], float, list[str]]], int, int]:
+        context_prefix: str = "text",
+    ) -> tuple[list[RenderItem], int, int]:
         """Chuyển đổi danh sách Inline (Text, MathInline, Symbol, LineBreak) thành các mục (strokes, width, miss).
         Trả về: (items, n_tokens, n_missing_tokens)."""
         items: list[RenderItem] = []
         ntok = 0
         nmiss = 0
-        block_token_counts: dict[str, int] = {}
 
         # Gộp các Text inline liền kề để tránh chèn khoảng trắng giả tạo trước dấu câu (L6)
         merged_inlines: list[Inline] = []
@@ -328,8 +341,8 @@ class DocumentLayoutEngine:
                             nmiss += 1
                             for m in miss:
                                 self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                        occ = block_token_counts.get(chunk, 0)
-                        block_token_counts[chunk] = occ + 1
+                        occ = self._doc_token_counts.get((context_prefix, chunk), 0)
+                        self._doc_token_counts[(context_prefix, chunk)] = occ + 1
                         items.append(
                             RenderItem(
                                 start=0.0,
@@ -337,7 +350,7 @@ class DocumentLayoutEngine:
                                 width=w * self.S * scale_mult,
                                 missing=miss,
                                 token=chunk,
-                                token_id=f"{chunk}#{occ}",
+                                token_id=f"{context_prefix}:{chunk}#{occ}",
                                 occurrence=occ,
                             )
                         )
@@ -353,8 +366,9 @@ class DocumentLayoutEngine:
                             missing_symbols[m] = missing_symbols.get(m, 0) + 1
                         else:
                             self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                occ = block_token_counts.get(sym, 0)
-                block_token_counts[sym] = occ + 1
+                sym_prefix = "sym"
+                occ = self._doc_token_counts.get((sym_prefix, sym), 0)
+                self._doc_token_counts[(sym_prefix, sym)] = occ + 1
                 items.append(
                     RenderItem(
                         start=0.0,
@@ -362,16 +376,18 @@ class DocumentLayoutEngine:
                         width=w * self.S * scale_mult,
                         missing=miss,
                         token=sym,
-                        token_id=f"{sym}#{occ}",
+                        token_id=f"{sym_prefix}:{sym}#{occ}",
                         occurrence=occ,
                     )
                 )
 
             elif isinstance(inline, MathInline):
                 math_ast = inline.ast or parse_latex_math(inline.latex)
+                math_occ = self._math_inline_counts.get(inline.latex, 0)
                 if self.opts.stable_variants:
                     from chuviettay.model.rng import ScopedRNG
-                    math_seed = ScopedRNG(self.effective_seed, "math", inline.latex).seed
+                    self._math_inline_counts[inline.latex] = math_occ + 1
+                    math_seed = ScopedRNG(self.effective_seed, "math", inline.latex, math_occ).seed
                     math_rnd = random.Random(math_seed)
                     math_wr = Writer(
                         self.bank,
@@ -426,8 +442,6 @@ class DocumentLayoutEngine:
                         math_strokes.append(flat_pts)
 
                     self._math_extent[id(math_strokes)] = (m_item.size.ascent, m_item.size.descent)
-                    occ = block_token_counts.get(inline.latex, 0)
-                    block_token_counts[inline.latex] = occ + 1
                     items.append(
                         RenderItem(
                             start=0.0,
@@ -435,8 +449,8 @@ class DocumentLayoutEngine:
                             width=m_item.size.width * self.S * scale_mult,
                             missing=list(math_engine.missing_symbols.keys()),
                             token=inline.latex,
-                            token_id=f"math#{occ}",
-                            occurrence=occ,
+                            token_id=f"math:{inline.latex}#{math_occ}",
+                            occurrence=math_occ,
                         )
                     )
                     if k < len(pieces) - 1:
@@ -449,6 +463,11 @@ class DocumentLayoutEngine:
 
     def render(self, document: Document, out_path: str) -> WriteResult:
         """Thực hiện bố cục toàn bộ Document IR và ghi file .xopp."""
+        self._doc_token_counts.clear()
+        self._math_inline_counts.clear()
+        self._math_block_counts.clear()
+        self._math_extent.clear()
+
         pf = self.page_format
         page_w = pf.width
         page_h = pf.height
@@ -483,7 +502,7 @@ class DocumentLayoutEngine:
 
             avail_w = max(self.width - indent, 1.0)
             items, n_t, n_m = self._layout_inlines(inlines, scale_mult=scale_mult, missing_symbols=missing_symbols,
-                                                   max_item_width=avail_w)
+                                                   max_item_width=avail_w, context_prefix="text")
             ntok += n_t
             nmiss += n_m
 
@@ -601,7 +620,9 @@ class DocumentLayoutEngine:
             math_ast = block.ast or parse_latex_math(block.latex)
             if self.opts.stable_variants:
                 from chuviettay.model.rng import ScopedRNG
-                math_seed = ScopedRNG(self.effective_seed, "math", block.latex).seed
+                block_occ = self._math_block_counts.get(block.latex, 0)
+                self._math_block_counts[block.latex] = block_occ + 1
+                math_seed = ScopedRNG(self.effective_seed, "math_block", block.latex, block_occ).seed
                 math_rnd = random.Random(math_seed)
                 math_wr = Writer(
                     self.bank,
@@ -735,6 +756,7 @@ class DocumentLayoutEngine:
                             items, n_t, n_m = self._layout_inlines(
                                 cell_inlines, scale_mult=scale_mult, missing_symbols=missing_symbols,
                                 max_item_width=max(usable_w, 1.0),
+                                context_prefix="cell",
                             )
                             ntok += n_t
                             nmiss += n_m

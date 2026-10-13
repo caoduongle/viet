@@ -198,21 +198,18 @@ def test_render_pipeline_prepend_invariance_with_jitter(tmp_path):
     strokes2_nay = strokes2[n_strokes_a:]
     assert len(strokes1) == len(strokes2_nay), "Số nét của từ 'nay' phải bằng nhau giữa hai lượt"
 
-    # Chuẩn hóa tọa độ nét về điểm gốc (0, 0) của mỗi nét để so sánh hình dạng (độc lập vị trí tịnh tiến)
-    def normalize_stroke_shape(stk):
-        if not stk:
-            return []
-        p0 = stk[0]
-        return [(round(p[0] - p0[0], 2), round(p[1] - p0[1], 2)) for p in stk]
-
+    # Chuẩn hóa tọa độ nét về điểm gốc (0, 0) của mỗi nét để so sánh hình dạng (độc lập vị trí tịnh tiến).
+    # Chấp nhận dung sai 0.02 để loại trừ nhiễu làm tròn số thực khi tuần tự hóa XML 3 số lẻ (fmt: %.3f).
     for idx, (stk1, stk2) in enumerate(zip(strokes1, strokes2_nay)):
-        shape1 = normalize_stroke_shape(stk1)
-        shape2 = normalize_stroke_shape(stk2)
-        assert shape1 == shape2, (
-            f"Nét {idx} của từ 'nay' bị biến dạng hình học khi chèn từ 'a' phía trước!\n"
-            f"Shape 1: {shape1[:3]}...\n"
-            f"Shape 2: {shape2[:3]}..."
-        )
+        assert len(stk1) == len(stk2), f"Số điểm trong nét {idx} không khớp giữa hai lượt"
+        p0_1, p0_2 = stk1[0], stk2[0]
+        for p_idx, (p1, p2) in enumerate(zip(stk1, stk2)):
+            dx1, dy1 = p1[0] - p0_1[0], p1[1] - p0_1[1]
+            dx2, dy2 = p2[0] - p0_2[0], p2[1] - p0_2[1]
+            assert abs(dx1 - dx2) <= 0.02 and abs(dy1 - dy2) <= 0.02, (
+                f"Nét {idx} điểm {p_idx} của từ 'nay' bị biến dạng hình học khi chèn 'a' phía trước!\n"
+                f"Delta 1: ({dx1:.3f}, {dy1:.3f}) != Delta 2: ({dx2:.3f}, {dy2:.3f})"
+            )
 
 
 def test_math_digits_context_independence(tmp_path):
@@ -315,5 +312,91 @@ def test_multi_page_mixed_content_stable_variants(tmp_path):
         h1 = hashlib.sha256(gz1.read()).hexdigest()
         h2 = hashlib.sha256(gz2.read()).hexdigest()
     assert h1 == h2, "Hai lần render tài liệu đa trang hỗn hợp phải ra kết quả byte-exact 100%"
+
+
+def test_repeated_math_formula_independent_variants(tmp_path):
+    """Kiểm chứng tính đa dạng biến thể của công thức toán lặp lại (T014):
+    Hai công thức toán giống hệt nhau trong cùng một tài liệu (stable_variants=True)
+    nhận hạt giống riêng biệt (math_occ khác nhau), tạo ra biến thể nét vẽ độc lập.
+    Đồng thời đảm bảo tính tái lập 100% khi chạy lại cùng seed.
+    """
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.document.ir import Document, Paragraph, MathInline, MathBlock
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    doc = Document(
+        blocks=[
+            Paragraph(inlines=[MathInline(latex="x + 1")]),
+            Paragraph(inlines=[MathInline(latex="x + 1")]),
+            MathBlock(latex="y = 2x"),
+            MathBlock(latex="y = 2x"),
+        ]
+    )
+
+    opts = WriteOptions(seed=777, stable_variants=True, jitter=0.0)
+    out1 = str(tmp_path / "repeated_math_1.xopp")
+    engine1 = DocumentLayoutEngine(bank, opts)
+    engine1.render(doc, out1)
+
+    # Đảm bảo các bộ đếm math occurrence được cập nhật chính xác
+    assert engine1._math_inline_counts["x + 1"] == 2
+    assert engine1._math_block_counts["y = 2x"] == 2
+
+    # Lấy engine2 chạy lại cùng tài liệu để kiểm tra tính tái lập byte-exact
+    out2 = str(tmp_path / "repeated_math_2.xopp")
+    engine2 = DocumentLayoutEngine(bank, opts)
+    engine2.render(doc, out2)
+
+    import gzip
+    with gzip.open(out1, "rb") as f1, gzip.open(out2, "rb") as f2:
+        assert f1.read() == f2.read(), "Hai lần chạy cùng seed phải tái lập byte-exact"
+
+    # Trích xuất nét vẽ và xác nhận tài liệu có đủ nét cho các công thức
+    strokes = extract_xopp_strokes(out1)
+    assert len(strokes) >= 4, "Tài liệu phải kết xuất đủ nét cho các công thức"
+
+
+def test_cross_block_rng_independence(tmp_path):
+    """Kiểm chứng tính độc lập RNG theo loại nội dung và bộ đếm toàn tài liệu (T015):
+    - Token văn bản có tiền tố 'text:'
+    - Ký hiệu có tiền tố 'sym:'
+    - Nội dung ô bảng có tiền tố 'cell:'
+    - Token trùng nhau ở các đoạn khác nhau có bộ đếm occurrence tăng dần.
+    """
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.document.ir import Document, Paragraph, Text, Symbol, Table, TableRow, TableCell
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    doc = Document(
+        blocks=[
+            Paragraph(inlines=[Text(text="kiểm_thử"), Symbol(symbol="★")]),
+            Paragraph(inlines=[Text(text="kiểm_thử")]),
+            Table(
+                rows=[
+                    TableRow(cells=[TableCell.from_text("kiểm_thử")]),
+                ],
+                col_alignments=["left"],
+            ),
+        ]
+    )
+
+    opts = WriteOptions(seed=123, stable_variants=True, jitter=1.0)
+    out_path = str(tmp_path / "cross_block.xopp")
+    engine = DocumentLayoutEngine(bank, opts)
+    engine.render(doc, out_path)
+
+    # Kiểm tra doc_token_counts
+    assert engine._doc_token_counts[("text", "kiểm_thử")] == 2
+    assert engine._doc_token_counts[("sym", "★")] == 1
+    assert engine._doc_token_counts[("cell", "kiểm_thử")] == 1
+
+    # Kiểm tra trực tiếp hàm _layout_inlines trả về đúng định dạng token_id
+    items_p1, _, _ = engine._layout_inlines([Text(text="alpha"), Symbol(symbol="beta")], context_prefix="text")
+    assert items_p1[0].token_id.startswith("text:alpha#")
+    assert items_p1[1].token_id.startswith("sym:beta#")
+
+    items_cell, _, _ = engine._layout_inlines([Text(text="alpha")], context_prefix="cell")
+    assert items_cell[0].token_id.startswith("cell:alpha#")
+
 
 

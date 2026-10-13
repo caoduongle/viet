@@ -181,7 +181,11 @@ class AppController:
         return result
 
     def write_docx_fidelity(self, docx_path: str, opts: WriteOptions, out_path: str) -> WriteResult:
-        """Đổi tệp DOCX thành .xopp theo chế độ Fidelity (giữ nguyên số trang, ảnh, bảng và vị trí)."""
+        """Đổi tệp DOCX thành .xopp theo chế độ Fidelity (giữ nguyên số trang, ảnh, bảng và vị trí).
+
+        Lưu ý: Phương thức này chỉ khả dụng trong môi trường máy chủ/máy cục bộ có Word COM hoặc LibreOffice
+        (phục vụ kiểm thử hoặc công cụ ngoại tuyến). Web Client không hỗ trợ chế độ này và sử dụng Content-First Import.
+        """
         from chuviettay.fidelity.background import WhiteoutBackgroundGenerator
         from chuviettay.fidelity.converter import FidelityConverter
         from chuviettay.fidelity.engine import FidelityLayoutEngine
