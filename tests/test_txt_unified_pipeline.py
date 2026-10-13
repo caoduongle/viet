@@ -3,7 +3,6 @@ import gzip
 import xml.etree.ElementTree as ET
 import pytest
 
-from chuviettay.cli import main
 from chuviettay.controller.app_controller import AppController
 from chuviettay.controller.results import WriteOptions
 from chuviettay.document.ir import Paragraph, Text
@@ -68,19 +67,16 @@ def test_document_layout_engine_empty_paragraph_spacing(tiny_bank, tmp_path):
     assert dist_spaced > dist_tight + engine.line_h * 0.7
 
 
-def test_cli_write_txt_file_uses_document_ir(tmp_path, tiny_bank_path, capsys):
+def test_controller_write_txt_file_uses_document_ir(tmp_path, tiny_bank_path):
     txt_file = tmp_path / "spacing.txt"
     txt_file.write_text("xin\n\nchào", encoding="utf-8")
     out_xopp = tmp_path / "out_spacing.xopp"
 
-    ret = main([
-        "--bank", str(tiny_bank_path),
-        "write",
-        "-f", str(txt_file),
-        "-o", str(out_xopp),
-        "--seed", "42",
-    ])
-    assert ret == 0
+    ctl = AppController(str(tiny_bank_path))
+    ctl.load_bank()
+    doc = TxtImporter().import_file(str(txt_file)).document
+    res = ctl.write_document(doc, WriteOptions(seed=42), str(out_xopp))
+    assert res.n_tokens > 0
     assert out_xopp.exists()
 
     with gzip.open(str(out_xopp), "rb") as f:

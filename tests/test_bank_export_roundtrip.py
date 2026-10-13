@@ -11,14 +11,14 @@ import io
 import json
 from pathlib import Path
 
-from chuviettay import cli
 from chuviettay.browser.bridge import BrowserBridge
+from chuviettay.controller.app_controller import AppController
 from chuviettay.model.bank import Bank
 from tests.conftest import tiny_bank_dict
 
 
-def test_bank_export_roundtrip_cli_stats(tmp_path, capsys):
-    """Xuất kho mẫu qua BrowserBridge.export_bank() rồi kiểm tra bằng lệnh CLI `hw-note stats`."""
+def test_bank_export_roundtrip_controller_stats(tmp_path):
+    """Xuất kho mẫu qua BrowserBridge.export_bank() rồi kiểm tra nạp lại bằng AppController/BrowserBridge."""
     base_dict = tiny_bank_dict()
     init_path = str(tmp_path / "init_bank.json.gz")
     with gzip.open(init_path, "wt", encoding="utf-8") as f:
@@ -41,13 +41,12 @@ def test_bank_export_roundtrip_cli_stats(tmp_path, capsys):
     with open(exported_path, "wb") as f:
         f.write(exported_bytes)
 
-    # Chạy lệnh CLI hw-note stats --bank <exported_path>
-    rc = cli.main(["--bank", exported_path, "stats"])
-    assert rc == 0
-
-    captured = capsys.readouterr()
-    assert "chữ cái" in captured.out or "từ" in captured.out
-    assert "mẫu" in captured.out
+    # Nạp lại và kiểm tra thống kê qua AppController
+    ctl = AppController(exported_path)
+    ctl.load_bank()
+    stats = ctl.get_stats()
+    assert stats.n_samples > 0
+    assert "hoa" in ctl.bank.words
 
 
 def test_old_schema_v2_v3_imported_and_upgraded(tmp_path):

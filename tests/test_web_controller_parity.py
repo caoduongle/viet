@@ -1,8 +1,8 @@
-"""Kiểm thử tính tương đương (Parity) giữa đầu ra của Web Bridge và CLI / Controller lõi.
+"""Kiểm thử tính tương đương (Parity) giữa đầu ra của Web Bridge và Controller lõi.
 
 Đảm bảo:
   1. Với cùng một văn bản và WriteOptions (seed, scale, line, v.v.), file .xopp tạo ra
-     từ BrowserBridge hoàn toàn trùng khớp từng byte nội dung XML với CLI/AppController.
+     từ BrowserBridge hoàn toàn trùng khớp từng byte nội dung XML với AppController.
   2. Định dạng Markdown có công thức toán $...$ hoặc bảng biểu sinh ra kết quả tương đương 100%.
   3. Cú pháp ngắt trang <!-- pagebreak --> và \\pagebreak sinh ra đúng số trang.
 """
@@ -36,19 +36,19 @@ def bank_bytes() -> bytes:
 
 def test_plain_text_parity(bank_bytes: bytes, tmp_path: Path):
     """Kiểm tra văn bản thuần qua Bridge vs AppController trực tiếp."""
-    # 1. Setup AppController trực tiếp (như CLI làm)
+    # 1. Setup AppController trực tiếp
     bank_path = tmp_path / "bank.json.gz"
     bank_path.write_bytes(bank_bytes)
     ctl = AppController(bank_path=str(bank_path), timer_factory=lambda *a, **k: None)
     ctl.load_bank()
 
     opts = WriteOptions(seed=42, scale=1.0, width=0.8, color="#000000ff")
-    cli_out = tmp_path / "cli_out.xopp"
-    text = "Xin chào các bạn, đây là bài kiểm tra độ đồng nhất giữa Web và CLI."
-    cli_result = ctl.write_text(text, opts, str(cli_out))
+    ctl_out = tmp_path / "ctl_out.xopp"
+    text = "Xin chào các bạn, đây là bài kiểm tra độ đồng nhất giữa Web và Controller lõi."
+    ctl_result = ctl.write_text(text, opts, str(ctl_out))
 
-    with open(cli_out, "rb") as f:
-        cli_xml = _read_xopp_xml(f.read())
+    with open(ctl_out, "rb") as f:
+        ctl_xml = _read_xopp_xml(f.read())
 
     # 2. Setup BrowserBridge
     bridge = BrowserBridge(bank_path=str(tmp_path / "bridge_bank.json.gz"))
@@ -64,14 +64,14 @@ def test_plain_text_parity(bank_bytes: bytes, tmp_path: Path):
     bridge_xml = _read_xopp_xml(base64.b64decode(bridge_res["xopp_base64"]))
 
     # 3. So khớp từng byte nội dung XML
-    assert bridge_xml == cli_xml
-    assert bridge_res["n_pages"] == cli_result.n_pages
-    assert bridge_res["n_strokes"] == cli_result.n_strokes
-    assert bridge_res["n_lines"] == cli_result.n_lines
+    assert bridge_xml == ctl_xml
+    assert bridge_res["n_pages"] == ctl_result.n_pages
+    assert bridge_res["n_strokes"] == ctl_result.n_strokes
+    assert bridge_res["n_lines"] == ctl_result.n_lines
 
 
 def test_markdown_parity(bank_bytes: bytes, tmp_path: Path):
-    """Kiểm tra văn bản Markdown có công thức toán qua Bridge vs CLI/MarkdownImporter."""
+    """Kiểm tra văn bản Markdown có công thức toán qua Bridge vs Controller/MarkdownImporter."""
     bank_path = tmp_path / "bank.json.gz"
     bank_path.write_bytes(bank_bytes)
     ctl = AppController(bank_path=str(bank_path), timer_factory=lambda *a, **k: None)

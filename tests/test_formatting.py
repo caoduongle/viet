@@ -13,7 +13,8 @@ def test_bao_cao_khong_thieu_gi():
 def test_bao_cao_co_seed_used():
     r = WriteResult("ra.xopp", 3, 40, 10, 0, seed_used=12345)
     lines = write_report_lines(r)
-    assert any("Seed đã dùng: 12345 (chạy lại với --seed 12345 để có đúng kết quả này)" in line for line in lines)
+    assert any("Seed đã dùng: 12345" in line for line in lines)
+    assert not any("--seed" in line for line in lines)
 
 
 def test_bao_cao_co_tu_thieu():
@@ -21,8 +22,7 @@ def test_bao_cao_co_tu_thieu():
     lines = write_report_lines(r)
     assert lines[0].endswith("đủ mẫu cho 2/4 từ)")
     assert lines[2] == "Chưa có mẫu cho 2 mục (chỗ đó đang để trống): a b"
-    assert lines[3] == ("Đã tạo ra_thieu.xopp: viết các từ đó một lần, lưu, rồi chạy: "
-                        "python hw_note.py learn ra_thieu.xopp")
+    assert lines[3] == ("Đã tạo ra_thieu.xopp: viết các từ đó một lần, lưu, rồi nạp tệp này vào Web Client để học mẫu")
 
 
 def test_bao_cao_cat_bot_khi_qua_nhieu_tu_thieu():
@@ -104,4 +104,47 @@ def test_webapp_seed_error_element_present():
     write_js = (root / "webapp" / "js" / "write.js").read_text(encoding="utf-8")
     assert "optSeedError" in write_js, "write.js phải chứa xử lý optSeedError"
     assert "is-invalid" in write_js, "write.js phải thêm/bỏ class is-invalid"
+
+
+def test_bank_stats_contains_letters(tmp_path):
+    from chuviettay.controller.app_controller import AppController
+    from chuviettay.formatting import format_stats_gui
+    from chuviettay.model.bank import Bank
+
+    bank_path = str(tmp_path / "bank.json.gz")
+    bank = Bank.create_empty(bank_path)
+    bank.add_letter_sample("a", [[0.0, 0.0, 5.0, 5.0]], 5.0)
+    bank.add_letter_sample("b", [[0.0, 0.0, 4.0, 8.0]], 4.0)
+    bank.save()
+
+    ctl = AppController(bank_path)
+    ctl.load_bank()
+    stats = ctl.get_stats()
+
+    assert stats.n_letters == 2
+    assert stats.letter_counts == {"a": 1, "b": 1}
+
+    gui_text = format_stats_gui(stats)
+    assert "Chữ cái đơn lẻ (2 chữ)" in gui_text
+    assert "a:1 b:1" in gui_text
+
+
+def test_write_report_lines_with_assembled_and_missing():
+    res = WriteResult(
+        out_path="ra.xopp",
+        n_lines=1,
+        n_strokes=10,
+        n_tokens=3,
+        n_missing_tokens=1,
+        missing={"hôm": 1},
+        missing_letters=[("h", 1, ["hôm"]), ("m", 1, ["hôm"])],
+        assembled_words=["chào", "bạn"],
+    )
+
+    lines = write_report_lines(res)
+    full_report = "\n".join(lines)
+
+    assert "Đã ghép từ chữ cái cho 2 từ: chào bạn" in full_report
+    assert "Chưa có mẫu cho 1 mục (chỗ đó đang để trống): hôm" in full_report
+    assert "Chữ cái/dấu còn thiếu để ghép (2):" in full_report
 

@@ -47,8 +47,8 @@ def write_report_lines(result: WriteResult) -> list[str]:
                 " ".join(let_items),
                 " ..." if len(result.missing_letters) > MAX_MISSING_SHOWN else ""))
         if result.missing_grid_path:
-            lines.append("Đã tạo %s: viết các từ đó một lần, lưu, rồi chạy: python hw_note.py learn %s"
-                         % (result.missing_grid_path, result.missing_grid_path))
+            lines.append("Đã tạo %s: viết các từ đó một lần, lưu, rồi nạp tệp này vào Web Client để học mẫu"
+                         % result.missing_grid_path)
     if getattr(result, "missing_symbols", None):
         sym_items = result.missing_symbols_sorted()
         lines.append("Ký hiệu thiếu mẫu (%d): %s" % (
@@ -58,7 +58,7 @@ def write_report_lines(result: WriteResult) -> list[str]:
         for w in result.warnings:
             lines.append(f"Cảnh báo: {w}")
     if getattr(result, "seed_used", None) is not None:
-        lines.append("Seed đã dùng: %d (chạy lại với --seed %d để có đúng kết quả này)" % (result.seed_used, result.seed_used))
+        lines.append("Seed đã dùng: %d" % result.seed_used)
     return lines
 
 

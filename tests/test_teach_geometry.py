@@ -72,18 +72,3 @@ def test_filter_stroke_points():
     ]
     filtered = filter_stroke_points(raw_points, min_dist=MIN_POINT_DIST)
     assert filtered == [(10.0, 10.0), (13.0, 10.0), (13.0, 13.0)]
-
-
-def test_view_reexport_matches():
-    """view.word_canvas phải re-export các hằng số và hàm giống hệt teach_geometry."""
-    from tests import conftest
-    if not conftest.is_tk_usable():
-        pytest.skip(f"Môi trường Tk/Tcl không khả dụng ({conftest._tk_unusable_reason})")
-    from chuviettay.view import word_canvas as wc
-
-    assert wc.ZOOM == ZOOM
-    assert wc.BASE_PX == BASE_PX
-    assert wc.CANVAS_W == CANVAS_W
-    assert wc.CANVAS_H == CANVAS_H
-    assert wc.MIN_POINT_DIST == MIN_POINT_DIST
-    assert wc.strokes_to_bank_units is strokes_to_bank_units

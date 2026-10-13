@@ -1,22 +1,15 @@
 """
-AppController -- lớp điều phối DUY NHẤT giữa Model và giao diện (CLI/GUI).
+AppController -- lớp điều phối DUY NHẤT giữa Model và tầng ứng dụng (Web Client qua BrowserBridge).
 
-VÌ SAO CÓ LỚP NÀY (so với bản gốc):
-Bản gốc có 2 "đường" riêng biệt cùng làm những việc gần giống nhau:
-  - hw_note.py: các hàm cmd_write/cmd_learn/cmd_check/cmd_drop/cmd_stats/cmd_seed nhận
-    argparse.Namespace, tự thao tác Bank, tự print() kết quả.
-  - hw_gui.py: các tab tự thao tác thẳng vào bank.words / bank.rebuild() / bank.save(),
-    và riêng tab Viết chữ còn giả lập một argparse.Namespace rồi gọi cmd_write() +
-    redirect_stdout để "bắt" chuỗi in ra -- rất dễ vỡ nếu ai đó đổi câu chữ in ra.
-Hệ quả: cùng một việc (thống kê, xuất file kiểm tra, hiệu chỉnh cỡ tay, tìm từ thiếu...)
-được viết 2 lần, hai bản dần lệch nhau (ví dụ: danh sách "từ còn thiếu" của GUI bỏ qua
-tuỳ chọn strict-case của chính lần viết đó).
+Đảm nhiệm toàn bộ nghiệp vụ của ứng dụng HandWrite:
+- Soạn thảo và kết xuất tài liệu (.xopp, hình ảnh, văn bản).
+- Nạp, lưu, hợp nhất và quản lý kho mẫu chữ (Bank).
+- Học chữ từ tệp lưới ô và hiệu chỉnh cỡ tay.
+- Tra cứu, xuất lưới kiểm tra và thống kê kho mẫu.
 
-Giờ cả cli.py lẫn view/ đều chỉ gọi các phương thức ở đây. Quy ước:
-  - Nhận/trả dữ liệu thuần (str, số, list, dataclass) -- KHÔNG argparse.Namespace, KHÔNG
-    tkinter, KHÔNG print().
-  - Không tự nuốt lỗi: lỗi cứ ném lên, nơi gọi (CLI/GUI) quyết định trình bày cho người
-    dùng thế nào. Controller chỉ ghi log các thao tác thành công/quan trọng.
+Quy ước:
+- Nhận/trả dữ liệu thuần (str, số, list, dataclass) -- KHÔNG phụ thuộc giao diện, KHÔNG print().
+- Lỗi được ném ra rõ ràng, Controller chỉ ghi log các thao tác thành công hoặc cảnh báo quan trọng.
 """
 from __future__ import annotations
 
@@ -364,8 +357,7 @@ class AppController:
         todo = self.missing_seed_words(n)
         xopp.make_grid(
             out_path, todo, bank,
-            "Từ tiếng Việt thông dụng còn thiếu: viết mỗi từ vào ô theo 4 vạch kẻ mốc (chuẩn hw3), rồi Ctrl+S và chạy: "
-            "python hw_note.py learn %s" % out_path,
+            "Từ tiếng Việt thông dụng còn thiếu: viết mỗi từ vào ô theo 4 vạch kẻ mốc (chuẩn hw3), rồi Ctrl+S và nạp file này vào Web Client để học mẫu",
             grid_version="hw3",
         )
         _log.info("Xuất %s với %d từ thông dụng còn thiếu", out_path, len(todo))
@@ -659,7 +651,7 @@ class AppController:
         xopp.make_grid(
             out_path, keys, bank,
             "Kiểm tra kho mẫu ký tự: chữ gõ ở góc ô phải khớp chữ viết tay. "
-            "Sai thì: python hw_note.py drop <ký_tự>",
+            "Sai thì xoá mục đó trong tab Kho mẫu trên Web",
             samples, calib=False, grid_version="hw3")
         _log.info("Xuất file kiểm tra %s (%d ký tự)", out_path, len(keys))
         return CheckResult(out_path=out_path, n_words=len(keys))

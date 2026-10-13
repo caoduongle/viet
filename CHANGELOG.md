@@ -1,5 +1,22 @@
 # Nhật ký thay đổi
 
+## [2.1.0] — Web-Only Refactor: Tinh giản toàn diện, chuyển đổi 100% sang Web Client (Spec 038)
+
+Tái cấu trúc toàn diện kiến trúc repository, loại bỏ hoàn toàn các phụ thuộc desktop cũ để đưa HandWrite trở thành ứng dụng Web thuần (Static SPA / PWA) chạy trên nền WebAssembly (Pyodide):
+
+### Thay đổi lớn phá vỡ tính tương thích ngược (Breaking Changes)
+- **Gỡ bỏ hoàn toàn Desktop GUI (Tkinter)**: Xóa bỏ toàn bộ package `chuviettay/view/`, `chuviettay/gui.py` và tệp thực thi `hw_gui.py`. Ứng dụng không còn yêu cầu cài đặt `tkinter` hay các thư viện cửa sổ đồ họa.
+- **Gỡ bỏ hoàn toàn giao diện dòng lệnh (CLI)**: Xóa bỏ `chuviettay/cli.py`, `chuviettay/__main__.py`, `hw_note.py` và các console scripts `hw-note`, `hw-gui` trong `pyproject.toml`.
+- **Gỡ bỏ bộ kịch bản đóng gói PyInstaller**: Xóa bỏ `hw_gui.spec`, `build_windows.bat`, `build_linux_mac.sh` và `requirements-build.txt`.
+- **Thanh lọc môi trường CI/CD**: Gỡ bỏ `python3-tk`, `xvfb` và wrapper `xvfb-run -a` khỏi GitHub Actions workflow (`.github/workflows/ci.yml`), chuyển sang môi trường headless thuần túy.
+
+### Kiến trúc Web duy nhất & Cầu nối Browser
+- **Web Client là giao diện duy nhất**: Ứng dụng Web tĩnh tại `webapp/` (SPA / PWA) đảm nhiệm toàn bộ trải nghiệm người dùng: Viết chữ, Dạy chữ / Dạy từ mới, và Quản lý Kho mẫu.
+- **Khởi chạy Python qua Pyodide 314.0.7**: Chạy 100% trong Web Worker phía trình duyệt, không cần máy chủ backend, dữ liệu lưu trữ bền vững trong `IndexedDB`.
+- **Tương thích kho mẫu cũ (v1, v2, v3, v4)**: Hỗ trợ người dùng chuyển đổi từ bản Desktop cũ sang Web bằng cách nhập trực tiếp tệp `chu_cua_ban.json.gz` qua giao diện Web mà không mất dữ liệu.
+- **Tường lửa kiến trúc chống tái nghiện Tkinter**: `tests/test_architecture.py` kiểm tra tự động cấm 100% import `tkinter` trên toàn bộ repository (`chuviettay/`, `tests/`, `scripts/`) và khẳng định sự vắng mặt của các module Desktop/CLI cũ.
+- **Bảo toàn Golden Master & Lõi Fidelity**: Giữ vững tính bất biến từng byte của đầu ra thuật toán Golden Master trên cả Python và Pyodide; bảo lưu nguyên vẹn mã nguồn lõi `chuviettay/fidelity/` để sẵn sàng đưa lên Web ở tính năng kế tiếp.
+
 ## Chưa phát hành — Hạt giống ngẫu nhiên minh bạch, biến thể chữ ổn định và tối ưu kế hoạch dạy chữ (Spec 036)
 
 Cải tiến toàn diện cơ chế hạt giống ngẫu nhiên (seed), bộ sinh ngẫu nhiên cục bộ bảo đảm tính bất biến khi chèn sửa văn bản, và tối ưu hóa lộ trình dạy chữ:

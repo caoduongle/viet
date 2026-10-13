@@ -25,14 +25,6 @@ def test_duong_dan_mac_dinh_khi_chay_tu_ma_nguon(monkeypatch, tmp_path):
     assert paths.default_bank_path() == expected_user_path
 
 
-def test_duong_dan_mac_dinh_khi_da_dong_goi_dung_thu_muc_cua_file_exe(monkeypatch, tmp_path):
-    exe = tmp_path / "app" / "hw_gui.exe"
-    monkeypatch.setattr(sys, "frozen", True, raising=False)
-    monkeypatch.setattr(sys, "executable", str(exe))
-    assert paths.app_base_dir() == str(exe.parent)
-    assert paths.default_bank_path() == str(exe.parent / "chu_cua_ban.json.gz")
-
-
 @pytest.fixture
 def clean_logging(monkeypatch, tmp_path):
     root = logging.getLogger()

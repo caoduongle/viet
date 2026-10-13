@@ -1,377 +1,135 @@
-# Chữ viết tay của bạn
+# Chữ viết tay của bạn (HandWrite Web)
 
-Gõ chữ → ra **nét viết tay của chính bạn** cho Xournal++. Có ba cách dùng, cùng chạy trên
-một lõi chung:
+Gõ chữ → ra **nét viết tay của chính bạn** cho Xournal++.
 
-- **Web Client (Static Web App / PWA)**: Chạy 100% trong trình duyệt qua WebAssembly (Pyodide 314.0.7) tại `webapp/` (triển khai trên Render hoặc chạy cục bộ).
-- **Giao diện đồ hoạ desktop**: `python3 hw_gui.py`
-- **Dòng lệnh**: `python3 hw_note.py write -f van_ban.txt -o ra.xopp`
+Ứng dụng hiện hoạt động dưới dạng **Web Client thuần túy (Static SPA / PWA)**: chạy 100% trong trình duyệt qua **WebAssembly (Pyodide 314.0.7)** mà không cần máy chủ backend, không yêu cầu cài đặt Python hay thư viện đồ họa cửa sổ (Tkinter) trên thiết bị của người dùng cuối.
 
-Giao diện có ba tab chính:
+Giao diện Web gồm ba tab chức năng chính:
 
-| Tab | Làm gì | Có cần Xournal++ không |
+| Tab | Mô tả | Có cần Xournal++ không |
 |---|---|---|
-| **Viết chữ** | Gõ/dán văn bản (Markdown, Math LaTeX, Bảng) → tạo file `.xopp`, ảnh PNG/SVG, in PDF | Có (khi muốn sửa tiếp trong Xournal++) hoặc tải trực tiếp ảnh/PDF |
-| **Dạy chữ / Dạy từ mới** | Vẽ trực tiếp từng từ/chữ cái bằng chuột/bút cảm ứng, bấm Lưu là xong | **Không** — không cần xuất/nạp file `.xopp` nữa |
-| **Kho mẫu** | Xem thống kê, tìm/xoá từ an toàn, xem thumbnail, sao lưu/nhập `.json.gz` | Xuất file xem lại vẫn qua Xournal++ (chỉ để xem, không bắt buộc) |
+| **Viết chữ** | Soạn thảo văn bản (Markdown, Math LaTeX, Bảng biểu) → xuất file `.xopp`, ảnh PNG/SVG, in PDF | Có (nếu muốn tiếp tục ghi chú trong Xournal++) hoặc tải trực tiếp ảnh/PDF |
+| **Dạy chữ / Dạy từ mới** | Vẽ trực tiếp từng ký tự/chữ cái bằng chuột hoặc bút cảm ứng trên màn hình cảm ứng, bấm Lưu là xong | **Không** — không cần xuất/nạp file trung gian |
+| **Kho mẫu** | Xem thống kê, tìm/xóa mẫu chữ an toàn, xem thumbnail nét vẽ, sao lưu và nhập tệp `.json.gz` | Xuất file lưới xem lại qua Xournal++ nếu cần kiểm tra tổng thể |
 
-## Cài đặt
+---
 
-Cần **Python 3.10+** (đã kiểm thử liên tục trên CI với Python 3.10, 3.11, 3.12, 3.13). Lõi cơ bản không cần bất kỳ thư viện ngoài nào (Zero Core Dependencies), hoàn toàn dùng thư viện chuẩn Python. Riêng giao diện đồ hoạ cần **tkinter**:
+## Chuyển đổi từ bản Desktop cũ sang Web Client
 
-- **Ubuntu/Debian**: `sudo apt install python3-tk`
-- **Windows / macOS**: bản Python tải từ [python.org](https://www.python.org/) đã có sẵn tkinter.
+Nếu bạn đã có tệp kho mẫu cá nhân từ phiên bản Desktop trước đây (`chu_cua_ban.json.gz` hoặc bất kỳ tệp kho mẫu nào):
 
-### Mở rộng hỗ trợ Markdown (.md) và Word (.docx)
-Để mở và chuyển đổi trực tiếp các file tài liệu định dạng Markdown hoặc Word kèm bảng biểu và công thức toán học:
+1. Mở Web Client trong trình duyệt.
+2. Chuyển sang tab **Kho mẫu**.
+3. Bấm nút **"Nhập kho mẫu..."** (hoặc kéo thả tệp `.json.gz` vào vùng nhập).
+4. Web Client tự động nạp và lưu trữ an toàn toàn bộ dữ liệu mẫu chữ (chữ cái, chữ số, dấu câu, ký hiệu, và hồ sơ cỡ tay) vào `IndexedDB` của trình duyệt. Mọi dữ liệu từ các phiên bản schema v1, v2, v3, v4 đều được bảo toàn nguyên vẹn 100%.
+5. Muốn sao lưu kho mẫu từ Web Client về máy tính bất cứ lúc nào: bấm **"Sao lưu kho mẫu (.json.gz)"** trong tab Kho mẫu để tải tệp về.
 
-```bash
-pip install "chuviettay[docs]"
-# hoặc trong thư mục mã nguồn:
-pip install ".[docs]"
-```
+---
 
-Gói `docs` bao gồm `markdown-it-py`, `mdit-py-plugins` và `python-docx`. Nếu không cài gói này, ứng dụng vẫn hoạt động 100% với văn bản thuần `.txt` mà không phát sinh lỗi. Bố cục bảng biểu (Table) được tối ưu hoá toàn diện: tự động phân trang an toàn chống tràn lề giấy khi có ô gộp nhiều hàng/cột (`rowspan`/`colspan`), bẻ dòng theo ký tự cho các URL/mã băm dài, đồng bộ kích thước công thức toán học theo tỷ lệ viết tay, và chuyển đổi chuẩn xác từ tệp Word `.docx`.
+## Hướng dẫn cài đặt & Khởi chạy (Dành cho Lập trình viên)
 
-## Chạy
+### Yêu cầu môi trường
+- **Python 3.10+** (đã kiểm thử tự động trên CI với Python 3.10, 3.11, 3.12, 3.13).
+- **Node.js 18+** (cho các công cụ đóng gói Web, kiểm thử Playwright và Pyodide).
+- **Zero GUI Dependencies**: Toàn bộ kho mã nguồn lõi chạy headless 100%, tuyệt đối không cần cài đặt `python3-tk` hay máy chủ hiển thị `xvfb`.
 
-Giữ nguyên cấu trúc thư mục này (thư mục `chuviettay/` phải nằm **cạnh** hai file `hw_*.py`):
-
-```
-hw_note.py
-hw_gui.py
-chuviettay/            ← toàn bộ mã nguồn
-chu_cua_ban.json.gz    ← kho mẫu chữ viết tay của bạn
-```
+### Khởi chạy Web Client cục bộ
 
 ```bash
-python3 hw_gui.py                 # mở giao diện
-python3 hw_gui.py --bank D:\kho_khac.json.gz   # mở thẳng một kho mẫu khác
-python3 hw_note.py stats          # dòng lệnh: thống kê kho mẫu
-```
+# 1. Cài đặt các gói phụ thuộc phát triển (tuỳ chọn)
+pip install -r requirements-dev.txt
 
-Cửa sổ tự tìm `chu_cua_ban.json.gz` cùng thư mục. Muốn dùng kho mẫu khác thì bấm **"Chọn kho
-mẫu khác..."** ở góc trên; muốn bắt đầu một kho **trống** để dạy từ đầu thì bấm **"Tạo kho
-mẫu mới..."** (chọn file đã có thì app chỉ mở nó ra, **không bao giờ ghi đè**).
+# 2. Đóng gói mã nguồn và dependencies vào webapp/dist/
+python scripts/build_web.py
 
-## Web Client (Ứng dụng web chạy trong trình duyệt)
-
-Web Client là phiên bản tĩnh 100% client-side (SPA / PWA) chạy Python qua **Pyodide 314.0.7** (WASM) trong Web Worker, dữ liệu kho mẫu lưu trữ an toàn trong IndexedDB của trình duyệt mà không cần máy chủ backend.
-
-### Chạy thử cục bộ (Local Development)
-
-```bash
-# 1. Đóng gói mã nguồn và dependencies vào webapp/dist/
-python3 scripts/build_web.py
-
-# 2. Khởi chạy HTTP Server hỗ trợ Web Worker & Cache headers
+# 3. Khởi chạy HTTP Server hỗ trợ Web Worker & Cache headers
 node scripts/serve.mjs
 # Mở trình duyệt tại http://localhost:8000
 ```
 
-### Triển khai lên Render (Static Site)
+### Triển khai lên máy chủ tĩnh (Render / GitHub Pages)
 
 Dự án đã cấu hình sẵn Blueprint [`render.yaml`](render.yaml):
-1. Đẩy mã nguồn lên repository GitHub/GitLab.
-2. Trên [Render Dashboard](https://dashboard.render.com/), chọn **New +** → **Blueprint** và chọn repo này.
+1. Đẩy mã nguồn lên kho lưu trữ GitHub/GitLab.
+2. Trên [Render Dashboard](https://dashboard.render.com/), chọn **New +** → **Blueprint** và kết nối tới repository này.
 3. Render tự động chạy `python scripts/build_web.py` và triển khai thư mục `webapp/dist/` dưới dạng Static Site.
-4. Tệp Blueprint đã tích hợp sẵn:
-   - Header bảo mật CSP (`Content-Security-Policy`), chống sniff MIME (`X-Content-Type-Options: nosniff`), Web Locks & Service Worker hỗ trợ.
+4. Tệp Blueprint tích hợp sẵn:
+   - Header bảo mật CSP (`Content-Security-Policy`), chống sniff MIME (`X-Content-Type-Options: nosniff`), Web Locks & Service Worker.
    - Header bộ đệm dài hạn `Cache-Control: public, max-age=31536000, immutable` cho các file tĩnh và tài nguyên WASM / wheels.
 
 ---
 
-## Dạy ký tự & Dấu thanh — lưu ý khi vẽ
+## Đặc tả tính năng & Mô hình thuật toán
 
-- **Mô hình char-first**: Khi gõ một từ hoặc câu vào ô nhập liệu (ví dụ "cà phê"), hệ thống tự động bóc tách thành các ký tự rời rạc (`c`, `à`, `p`, `h`, `ê`) để bạn dạy từng chữ cái một, từ đó tự động ghép thành mọi từ ngữ tiếng Việt.
-- **Dạy dấu thanh rời**: Bấm nút **"Bộ ký tự…"** và chọn nhóm **"Dấu thanh rời"** để nạp 5 dấu thanh chuẩn (`dấu huyền`, `dấu sắc`, `dấu hỏi`, `dấu ngã`, `dấu nặng`) vào hàng đợi. Hệ thống bảo toàn trọn vẹn các mẫu dấu thanh đa nét (nhiều nét bút rời nhau như dấu hỏi, dấu ngã). Khi dạy dấu thanh, bảng vẽ hiển thị nét elip tham chiếu mờ của nguyên âm mốc `o` để bạn căn đúng độ cao và vị trí dấu.
-- **Có 4 đường kẻ mốc (`hw3`)**: Đường kẻ đậm là chân chữ (baseline), vạch nét vừa là x-height (chiều cao chữ thường như "a", "o", "c"), vạch nét mảnh phía trên là Ascender (cho chữ vươn cao "b", "d", "h", chữ hoa), và vạch dưới cùng là Descender (cho đuôi chữ "g", "p", "y").
-- **Hiệu chỉnh cỡ tay**: Nếu bạn vẽ bằng chuột hoặc bút cảm ứng to/nhỏ khác với chữ đã học trước đó, bấm **"Hiệu chỉnh cỡ tay"** một lần đầu buổi — ứng dụng sẽ chọn một ký tự mốc có sẵn mẫu ổn định trong kho để bạn viết lại tự nhiên, hệ thống tự động tính hệ số tỷ lệ và áp dụng cho toàn bộ các ký tự vẽ sau trong phiên. Bấm "Bỏ qua" hoặc "Xoá hàng đợi" khi đang ở ký tự mốc sẽ huỷ hiệu chỉnh.
-- **Lưu kho an toàn**: Mỗi ký tự được lưu xuống kho mẫu ngay lập tức khi bấm "Lưu". Kho mẫu hỗ trợ khoá tệp liên tiến trình (cross-process file lock), tự động hợp nhất mẫu và bảo vệ deletion tombstones với nhãn thời gian, giúp GUI, Web và CLI đồng bộ an toàn.
-- **Kiểm tra kho mẫu**: Bấm **"Xuất file kiểm tra lại (.xopp)..."** trong tab Kho mẫu để xuất lưới kiểm tra bao phủ 100% các nhóm mẫu đã học (chữ cái, chữ số, dấu câu, ký hiệu và 5 dấu thanh rời đặt trên/dưới nguyên âm tham chiếu).
+### 1. Mô hình thuần ký tự & Tự động ghép chữ (Char-First Assembly)
+- Mọi văn bản soạn thảo đều được tự động ghép từ các ký tự đơn (`letters`), chữ số (`digits`), dấu câu (`punct`), ký hiệu (`symbols`) và dấu thanh rời (`marks`).
+- **Khoảng cách tự nhiên & chống dính chữ**: Sử dụng đường bao biên hình học (contour pair gap), khoảng đệm biên `lsb`/`rsb` và thuật toán kiểm chứng khoảng cách đoạn nét 2D kèm sàn khe hở vật lý (`pen_clearance = 0.8` lần nét bút), ngăn chặn triệt để hiện tượng bết dính mực giữa các chữ cái.
+- **Ghép dấu thanh (Dual-Path Assembly)**: Ưu tiên dùng mẫu nguyên âm có sẵn dấu tiếng Việt trong kho; tự động fallback ghép nguyên âm cơ sở với dấu thanh rời theo trọng tâm và né tránh nét vươn cao (ascender).
+- **Chuẩn hóa cỡ chữ (`auto_xh`)**: Tự động chuẩn hóa các ký tự về cùng cỡ x-height chuẩn (7,94 pt), bảo đảm tỉ lệ nét chữ đồng đều và thanh thoát.
 
-## Tương đương lệnh dòng lệnh
+### 2. Hạt giống ngẫu nhiên minh bạch & Kiểu chữ ổn định
+- **Minh bạch hóa hạt giống (`seed`)**: Chấp nhận giá trị nguyên không âm trong khoảng $[0, 2^{32} - 1]$. Kết quả kết xuất trả về chính xác `seed_used` để người dùng có thể nhập lại và tái hiện kết quả bất kỳ lúc nào.
+- **Kiểu chữ ổn định (`stable_variants`)**: Sử dụng bộ sinh ngẫu nhiên cục bộ `ScopedRNG` neo theo từng token và dòng. Việc chỉnh sửa hoặc thêm bớt câu chữ ở phần đầu tài liệu không làm thay đổi biến thể chữ và khoảng cách của các đoạn văn phía sau.
 
-| Lệnh CLI | Chỗ tương ứng trong app |
-|---|---|
-| `write -f/-t ... -o ra.xopp` | Tab **Viết chữ** (luôn tự động ghép từ các ký tự đơn) |
-| `learn --grid luoi.xopp` | Tab **Dạy chữ** (nút **"Nạp file lưới…"**) hoặc Tab **Kho mẫu** (**"Nạp lưới (.xopp)"**) |
-| `grid --set <nhom> -o luoi.xopp` | Nút **"Bộ ký tự…"** / **"Xuất lưới (.xopp)"** trong tab Dạy chữ |
-| `check` | Nút **"Xuất file kiểm tra lại (.xopp)..."** trong tab Kho mẫu |
-| `drop ký_tự/từ` | Chọn mục trong tab Kho mẫu → **"Xoá mục đã chọn"** |
-| `stats` | Ô thống kê ở đầu tab Kho mẫu |
+### 3. Khổ giấy, Mẫu nền & Căn dòng kẻ Xournal++ (Baseline Snapping)
+- **Tương thích mẫu giấy Xournal++**: `plain` (trắng), `ruled`/`lined` (kẻ ngang), `graph` (ô vuông), `dotted` (chấm bi), `iso_graph`/`iso_dotted` (tam giác đều Isometric), `staves` (khuông nhạc).
+- **Căn dòng tự động (`snap_to_ruling`)**: Tự động đặt chân chữ chính xác lên các đường kẻ ngang $y = 80.0 + k \cdot r_1$, tự động nhảy dòng chống đè chữ khi đổi cỡ bút và kẹp chặt trong biên độ lề in được.
 
-Xem `python3 hw_note.py --help` (và `python3 hw_note.py write --help`) để biết đủ tuỳ chọn:
-`--format {auto,txt,md,docx}`, `--scale`, `--line`, `--width`, `--space`, `--jitter`, `--wscale`, `--color`, `--seed`, `--strict-case`, `--assemble`, `--auto-xh`, `--target-xh`, `--letter-gap`, `--pen-clearance`,
-`--paper`, `--orientation`, `--paper-width`, `--paper-height`,
-`--background`, `--bg-preset`, `--bg-r1`, `--bg-m1`, `--bg-color`, `--snap-to-ruling`, `--no-snap-ruling`.
-
-### Khổ giấy, Mẫu nền chuẩn Xournal++ & Căn dòng kẻ (Baseline Snapping)
-
-Ứng dụng tương thích 1:1 với cấu hình tệp `.xopp` và các loại giấy của **Xournal++**:
-- **Tương thích nền PDF**: Ghi chỉ số trang 1-based (`pageno = page_index + 1`) và `domain="absolute"` với tên file trần theo chuẩn Xournal++, loại bỏ lỗi lệch trang và parse domain thất bại.
-- **Mẫu giấy chuẩn Xournal++ (`--bg-preset`)**:
-  - `plain`: Giấy trắng trơn.
-  - `ruled`, `lined`, `lined_narrow` (18pt), `lined_college` (20pt), `lined_wide` (24pt), `lined_right` (lề đứng bên phải $m_1 = -72\,\text{pt}$).
-  - `graph`, `graph_5mm`, `graph_grid` (nét đậm chu kỳ 5), `graph_border` ($m_1=40\,\text{pt}$, bo viền), `graph_border_bold_5`.
-  - `dotted` (chấm bi 1.5pt), `iso_graph` & `iso_dotted` (lưới và chấm tam giác đều Isometric căn giữa trang).
-  - `staves`: Khuông nhạc 5 dòng với bước cách khuông chuẩn Xournal++ 62.5pt.
-- **Tự động căn baseline theo dòng kẻ (`snap_to_ruling = True`)**:
-  - Chữ viết tay trên nền `ruled` và `lined` tự động đặt đường chân chữ chính xác lên các dòng kẻ $y = 80.0 + k \cdot r_1$.
-  - Tự động nhảy dòng `pitch = r1 * max(1, round(line_h / r1))` chống đè chữ khi tăng giảm cỡ bút.
-  - Tự động ngắt trang khi dòng tiếp theo chạm đáy $y > \text{height} - 60.0$.
-  - Kẹp lề chữ bên phải đường lề đứng ($x \ge m_1 + 8$ khi $m_1 > 0$) hoặc bên trái lề âm ($x \le \text{width} + m_1 - 8$ khi $m_1 < 0$).
-  - Nền `plain` bảo toàn 100% thuật toán bố cục nguyên bản, bảo đảm tính bất biến mã băm Golden Master.
-
-### Mô hình thuần ký tự & Cơ chế ghép chữ tự động
-
-Ứng dụng chuyển đổi sang mô hình **thuần ký tự (Char-first)**: mọi văn bản soạn thảo đều được tự động ghép từ các ký tự đơn (`letters`), chữ số (`digits`), dấu câu (`punct`), ký hiệu (`symbols`) và dấu thanh rời (`marks`):
-- **Luôn bật tự động ghép chữ**: Không cần phải cấu hình hay bật cờ thủ công, hệ thống luôn tự động ghép từ các ký tự đã học.
-- **Khoảng cách tự nhiên & chống dính chữ**: Sử dụng đường bao biên hình học (contour pair gap), khoảng đệm biên `lsb`/`rsb` và thuật toán kiểm chứng khoảng cách đoạn nét 2D (segment-to-segment distance kèm bounding box prune). Sàn khe hở vật lý `--pen-clearance 0.8` (mặc định 0,8 lần nét bút) tự động dịch chuyển vi mô để các nét liền kề luôn duy trì khoảng cách an toàn, ngăn chặn triệt để hiện tượng bết dính nét mực.
-- **Ghép chữ có dấu thanh (Dual-Path Assembly)**: Ưu tiên sử dụng trực tiếp mẫu nguyên âm có sẵn dấu tiếng Việt trong kho; tự động fallback ghép nguyên âm cơ sở với dấu thanh trong `bank.marks` kèm thuật toán đặt dấu theo trọng tâm và né tránh nét vươn cao (ascender).
-- **Chuẩn hoá cỡ chữ (`--auto-xh`)**: Tự động chuẩn hoá các ký tự trong kho về cùng cỡ x-height chuẩn (mặc định 7,94 pt, có thể tinh chỉnh bằng `--target-xh`) giúp nét bút thanh mảnh tự nhiên và đúng tỉ lệ ghi chú thực tế.
-- **Bảo toàn dữ liệu kho cũ**: Nếu bạn đang có kho mẫu cũ chứa các từ nguyên khối (`words`), toàn bộ dữ liệu này vẫn được lưu giữ trọn vẹn và không bao giờ bị xóa bỏ khi cập nhật kho.
-
-### Xuất và nạp tờ lưới tập viết ký tự 4 dòng kẻ (`hw3`)
-
-```bash
-# Xuất lưới ô theo nhóm ký tự: co_ban, chu_hoa, chu_thuong, chu_so, dau_cau, toan_hy_lap, day_du...
-python3 hw_note.py grid --set co_ban -o luoi_ky_tu.xopp
-
-# Sau khi viết tay trên tablet/Xournal++, nạp lại vào kho:
-python3 hw_note.py learn --grid luoi_ky_tu.xopp
-```
-Tờ lưới `hw3` gồm 4 dòng kẻ mốc (chân chữ baseline, x-height, ascender, descender) kèm vạch lề trái/phải và hướng dẫn viết tay chi tiết bằng tiếng Việt. Thuật toán nạp lưới tự động tính toán chính xác khoảng đệm `lsb` và `rsb` từ nét mực thực tế của người dùng, phân loại tự động vào các ngăn ký tự tương ứng và sinh báo cáo kết quả chi tiết. Bạn cũng có thể nạp file lưới trực tiếp trên Web Client và Desktop GUI chỉ bằng một nút bấm.
-
-### Di trú kho mẫu ký tự (`scripts/migrate_letter_bank.py`)
-
-Nếu bạn có kho mẫu ký tự đơn cũ (chỉ chứa các ký tự trong `words` dạng v3):
-```bash
-python3 scripts/migrate_letter_bank.py --in kho_mau_cu.json.gz --out kho_mau_moi.json.gz
-```
-Công cụ sẽ tự động chuẩn hoá toạ độ chân chữ baseline, bóc tách dấu thanh rời chính xác, tính toán khoảng đệm `lsb`/`rsb` và đưa về chuẩn `letters` (schema v4) với đầy đủ siêu dữ liệu x-height thực nghiệm.
-
-Định dạng đầu vào tự động nhận diện theo đuôi mở rộng (`.txt`, `.md`, `.markdown`, `.docx`), hỗ trợ bảng dữ liệu (GFM / Word) và công thức toán học (LaTeX / OMML) căn chỉnh theo baseline nét viết tay.
-
-#### Công thức toán học
-
-| Nguồn | Hỗ trợ |
-|---|---|
-| Markdown | `$…$`, `$$…$$`, `\(…\)`, `\[…\]`, môi trường `\begin{align}…\end{align}` (kể cả trong mục danh sách và ô bảng). Tiền (`5$ rồi 10$`) không bị nhận nhầm là công thức. |
-| LaTeX | Phân số (`\frac \dfrac \binom`), căn, chỉ số/số mũ (kể cả `x^2`, `f'`), ngoặc co giãn `\left…\right`, `\sum \int \lim` có cận, tên hàm (`\sin \log …`), vectơ/góc/gạch ngang (`\overrightarrow \widehat \overline …`), `\mathbb \mathcal \text \mathrm`, ma trận / `cases` / `aligned` / `array`, khoảng trắng và hơn 200 ký hiệu. |
-| Word (.docx) | Công thức Office Math (OMML): phân số, chỉ số, căn, ngoặc nhiều phần tử, toán tử lớn, giới hạn, hàm, dấu trang trí, hệ phương trình, ma trận, khung. Công thức nhập trong cùng một run (`2x+3=0`) được tách đúng thành số/biến/toán tử. |
-| MathType | **Chưa đọc được** nội dung đối tượng OLE của MathType / Equation Editor. Ứng dụng phát hiện và thay bằng ô vuông trống `□`, kèm cảnh báo có số lượng (không bao giờ im lặng bỏ mất). Cách xử lý: trong Word dùng *Convert Equations* của MathType để đổi sang công thức gốc của Word rồi lưu lại, hoặc chép công thức sang Markdown/LaTeX. |
-
-Quy ước: dấu phẩy trần trong `$0,1$` là dấu ngăn cách (như TeX); dấu phẩy thập phân kiểu Việt Nam viết là `$0{,}1$`.
-Ký hiệu chưa có mẫu viết tay trong kho được vẽ tạm bằng nét vector và vẫn nằm trong danh sách "Ký hiệu thiếu mẫu" để bạn dạy thêm.
-Công thức quá rộng được thu nhỏ vừa dòng/ô bảng, hoặc ngắt dòng sau dấu quan hệ/toán tử; công thức cao làm tăng chiều cao dòng.
-
-> **Fidelity và công thức:** bản làm trắng có đặt màu trắng cho công thức OMML (theo lược đồ OOXML). LibreOffice bỏ qua màu chữ trong công thức, nên khi chuyển đổi Fidelity qua LibreOffice, công thức in có thể vẫn hiện màu đen dưới chữ viết tay; chế độ Semantic không bị ảnh hưởng.
-
-### Chế độ xử lý tài liệu Word (.docx)
-
-Ứng dụng hỗ trợ 2 chế độ chuyển đổi tài liệu `.docx` sang chữ viết tay:
-
-| Chế độ | Mô tả | Hỗ trợ nền tảng | Công cụ yêu cầu |
-|---|---|---|---|
-| **Semantic Mode** (`--mode semantic`) | Trích xuất nội dung ngữ nghĩa (đoạn văn, bảng biểu, công thức toán) và tự động căn chỉnh, xuống dòng, ngắt trang linh hoạt theo các tùy chọn khổ giấy (A3, A4, A5, Letter) và nền giấy (ô li, dòng kẻ, chấm). | **Đa nền tảng 100%** (Windows, Linux, macOS) | Python thuần (`python-docx`, `markdown-it-py`) |
-| **Fidelity Mode** (`--mode fidelity`) | Khóa cố định 100% bố cục, vị trí dòng kẻ, hình ảnh và bảng biểu gốc của tài liệu. Chỉ thay thế chữ in bằng chữ viết tay đúng tại tọa độ gốc. | **Windows** (toàn diện)<br>**Linux/macOS** (hỗ trợ PDF nền) | Trích xuất tọa độ không gian yêu cầu **Microsoft Word COM** trên Windows.<br>Tạo PDF nền hỗ trợ Microsoft Word COM hoặc **LibreOffice**. |
-
-> **Ghi chú**: Trên Linux/macOS hoặc máy chủ CI không cài đặt Microsoft Word, vui lòng chọn chế độ **Semantic Mode** (`--mode semantic` trên CLI hoặc chọn *Tự do (Semantic)* trên GUI) để ứng dụng tự động dàn trang tối ưu.
+### 4. Hỗ trợ Toán học & Bảng biểu
+- **Toán học LaTeX & OMML**: Hỗ trợ phân số, căn thức, tích phân, tổng sigma, ma trận, hệ phương trình, ngoặc co giãn `\left...\right` và hơn 200 ký hiệu toán học. Ký hiệu chưa có mẫu được vẽ dự phòng bằng nét vector.
+- **Bố cục bảng dữ liệu**: Tự động phân trang an toàn khi có ô gộp hàng/cột (`rowspan`/`colspan`), bẻ dòng theo ký tự cho các chuỗi URL hoặc mã băm dài, đồng bộ kích thước công thức toán học trong từng ô.
 
 ---
 
-# Dành cho người phát triển
+## Kiến trúc hệ thống (Web-Only Architecture)
 
-## Kiến trúc (MVC)
-
-Mọi mã nằm trong package `chuviettay/`, chia ba lớp với **luật phụ thuộc một chiều**:
+Mã nguồn được phân tầng nghiêm ngặt với luồng phụ thuộc một chiều:
 
 ```
-   cli.py           gui.py + view/
-  (dòng lệnh)      (giao diện Tkinter)
-       │                  │
-       └────────┬─────────┘        mũi tên = "được phép gọi xuống"
-                ▼
-      controller/app_controller.py     ← điểm vào DUY NHẤT cho mọi thao tác nghiệp vụ
-                │
-                ▼
-      model/   (Bank, Writer, composer, learning, xopp, ...)   ← dữ liệu + thuật toán thuần
+    Web Client (webapp/ - HTML / JS / CSS / Web Worker)
+                          │  (Pyodide RPC qua Web Worker Bridge)
+                          ▼
+             chuviettay/browser/bridge.py
+                          │
+                          ▼
+             chuviettay/controller/app_controller.py   ← Điểm điều phối nghiệp vụ duy nhất
+                          │
+                          ▼
+             chuviettay/model/ & layout/ & document/   ← Thuật toán thuần Python
 ```
 
-| Lớp | Được làm | Không được làm |
-|---|---|---|
-| **model/** | Dữ liệu + thuật toán thuần Python | import tkinter/argparse/controller/view · `print` · `sys.exit` |
-| **controller/** | Điều phối, giữ trạng thái (kho đang mở, hệ số cỡ tay), ghi log, trả `dataclass` | import tkinter/argparse/view/cli · `print` |
-| **view/** (+ `gui.py`) | Dựng widget, bắt sự kiện, gọi Controller, hiển thị kết quả | đụng thẳng vào `Bank`/`Writer`/`model/*` |
-| **cli.py** | Đọc tham số, gọi Controller, `print` kết quả | đụng thẳng vào `model/*` |
+- **webapp/**: Giao diện người dùng tĩnh (Vanilla JS, Canvas API, IndexedDB).
+- **chuviettay/browser/**: Cầu nối JSON-RPC trung gian giữa JavaScript và Python trong môi trường Pyodide.
+- **chuviettay/controller/**: Bộ điều phối nghiệp vụ tập trung (`AppController`).
+- **chuviettay/model/**: Quản lý kho mẫu (`Bank`), sinh nét viết (`Writer`), bộ dàn trang (`DocumentLayoutEngine`), đọc/ghi XOPP (`xopp.py`).
+- **chuviettay/fidelity/**: Mô hình xử lý tài liệu Word cố định toạ độ không gian (Fidelity Engine) được bảo lưu sẵn sàng để tích hợp lên Web.
 
-Các luật này **được kiểm tra tự động** (`tests/test_architecture.py`): vi phạm là test đỏ, chỉ rõ file và dòng.
+### Tường lửa kiến trúc
+Kiến trúc này được bảo vệ tự động bằng `tests/test_architecture.py`:
+- Cấm 100% `tkinter` trên toàn bộ repository.
+- Cấm tồn tại bất kỳ tệp Desktop GUI hoặc CLI nào trong kho mã nguồn.
+- Mô hình lõi `model/` và `controller/` hoàn toàn độc lập, không phụ thuộc vào `js` hay `pyodide`.
 
-```
-hw_note.py, hw_gui.py     lối vào mỏng (giữ nguyên tên + cách gọi như trước)
-chu_cua_ban.json.gz       kho mẫu của bạn — DỮ LIỆU, không phải mã nguồn
-chuviettay/
-├── config.py             hằng số dùng chung (lưới ô, ngưỡng...) — xem cảnh báo bên dưới
-├── paths.py              tìm kho mẫu mặc định (kể cả khi đã đóng gói thành .exe)
-├── logging_setup.py      ghi log ra chuviettay.log
-├── formatting.py         câu chữ báo cáo dùng chung cho CLI và GUI
-├── cli.py                dòng lệnh (argparse) → gọi Controller
-├── gui.py                dựng Controller + MainWindow, chạy mainloop
-├── model/
-│   ├── text_utils.py     hàm thuần: dấu thanh, độ rộng chữ, hình học nét, chuẩn hoá văn bản
-│   ├── xopp.py           đọc/ghi .xopp, sinh/đọc file lưới ô
-│   ├── calibration.py    công thức hiệu chỉnh cỡ tay (MỘT chỗ duy nhất)
-│   ├── bank.py           Bank: nạp/lưu/tạo mới/thêm mẫu/xoá từ/chỉ mục tra cứu
-│   ├── writer.py         Writer: ghép một token (từ/số/dấu câu) thành nét
-│   ├── composer.py       dàn dòng + chia trang + "run tay" + xuất .xopp (WriteOptions, WriteResult)
-│   ├── learning.py       học mẫu từ file .xopp đã viết tay
-│   └── seed_words.py     700 từ thông dụng (dữ liệu tĩnh)
-├── document/
-│   ├── ir.py             Document Intermediate Representation (Paragraph, Heading, Table, MathBlock...)
-│   └── page_format.py    Quy chuẩn khổ giấy, hướng giấy, lề trang và nền giấy (.xopp)
-├── importer/
-│   ├── base.py           BaseImporter trừu tượng và factory
-│   ├── txt_importer.py   Nạp tệp văn bản thuần (.txt)
-│   ├── markdown_importer.py Nạp tệp Markdown (.md) kèm bảng và công thức
-│   ├── docx_importer.py  Nạp tệp Word (.docx) kèm bảng phức tạp và định dạng
-│   └── omml.py           Chuyển công thức Office Math (OMML) của Word sang cây cú pháp toán học
-├── layout/
-│   ├── engine.py         DocumentLayoutEngine: dàn trang tự do theo cấu trúc ngữ nghĩa
-│   ├── math_layout.py    Dàn công thức toán học theo baseline nét viết tay (khoảng cách kiểu TeX, ngoặc co giãn, ma trận...)
-│   ├── vector_glyphs.py  Nét vector dự phòng cho ký hiệu chưa có mẫu viết tay
-│   └── table_layout.py   Dàn bảng biểu, đo độ rộng ô theo nét thật và viền bảng
-├── math/
-│   ├── ast.py            Cấu trúc cây cú pháp toán học (MathRow, Fraction, Delimited, NAry, Matrix, Accent...)
-│   ├── symbols.py        Bảng ký hiệu, phân lớp kiểu TeX, chuẩn hoá Unicode
-│   ├── parser.py         Bộ phân tích biểu thức LaTeX sang cây cú pháp
-│   ├── latex_writer.py   Chuyển cây cú pháp ngược lại thành LaTeX
-│   └── build.py          Hàm dựng nút dùng chung giữa bộ phân tích LaTeX và OMML
-├── fidelity/
-│   ├── converter.py      FidelityConverter: chuyển đổi PDF nền và trích xuất tọa độ cố định
-│   ├── extractor.py      SpatialTextExtractor: trích xuất dòng văn bản và hình học không gian
-│   ├── background.py     WhiteoutBackgroundGenerator: làm trắng chữ in giữ nguyên ảnh/bảng
-│   ├── engine.py         FidelityLayoutEngine: đặt nét viết tay vào đúng bounding box gốc
-│   └── fixed_model.py    Mô hình dữ liệu không gian FixedDocument, TextBox, ImageBox
-├── controller/
-│   ├── app_controller.py AppController — write_text, teach_word, learn_from_files, drop_words, ...
-│   └── results.py        các dataclass kết quả
-└── view/                 ← chỗ DUY NHẤT được import tkinter
-    ├── app_window.py     MainWindow: trung gian giữa các tab, chọn/tạo kho, bắt lỗi bất ngờ
-    ├── write_tab.py · teach_tab.py · bank_tab.py
-    ├── word_canvas.py    ô vẽ + quy đổi pixel → đơn vị kho mẫu (hàm thuần, test được)
-    └── dialogs.py        báo lỗi: ghi traceback vào log rồi mới hiện hộp thoại
-```
+---
 
-> ⚠️ **Đừng đổi `config.py` và các ngưỡng trong `text_utils.find_tone` nếu không cố ý.** Kho mẫu
-> hiện có được sinh ra dựa trên đúng các con số đó (kích thước ô lưới, cách nhận nét dấu thanh...).
-> Đổi chúng là làm lệch cách đọc mọi mẫu chữ đã học.
+## Kiểm thử & Đảm bảo chất lượng
 
-## Cơ chế đồng thời và an toàn dữ liệu (Concurrency & Data Integrity)
-
-Kho mẫu (`Bank`) sử dụng kiến trúc lai kết hợp các cơ chế sau để bảo đảm tính toàn vẹn dữ liệu:
-1. **Khóa file nguyên tử cấp hệ điều hành (`FileLock`)**: Sử dụng file khóa `.lock` để tuần tự hoá các thao tác ghi và nạp lại kho mẫu giữa các tiến trình GUI và CLI chạy song song, ngăn chặn tuyệt đối tình trạng race condition và can thiệp đồng thời vào tệp đĩa.
-2. **Dọn dẹp và chống hồi sinh từ bằng Deletion Tombstones có nhãn thời gian**: Khi xoá từ bằng `Bank.drop()`, hệ thống ghi nhận tombstone mang nhãn thời gian `deleted_at`. Thuật toán `merge_bank_dicts()` đối chiếu timestamp này với `readded_at` và thời điểm nạp snapshot của tiến trình khác để loại bỏ các mẫu cũ từ snapshot trước thời điểm xoá, ngăn ngừa tình trạng snapshot cũ hồi sinh từ đã xoá mà vẫn bảo đảm người dùng có thể chủ động dạy lại từ sau khi xoá. Thao tác gọi `drop()` trên từ không tồn tại sẽ an toàn trả về 0 mà không tạo tombstone dư thừa.
-3. **Bộ đếm thế hệ tăng đơn điệu (`_generation`)**: Đóng vai trò chuỗi định danh đột biến nội bộ phiên làm việc phục vụ ghi log kiểm toán (audit log) và xác thực tính tuần tự của các lần ghi nhớ.
-4. **Ghi đĩa nguyên tử và bảo vệ file hỏng**: Ghi dữ liệu ra tệp tạm `.tmp` rồi đổi tên đè (`os.replace`) dưới khóa file. Nếu tệp trên đĩa bị hỏng hoặc không giải mã được trong quá trình hợp nhất, thao tác `save()` sẽ lập tức huỷ bỏ và ném lỗi thay vì vô tình ghi đè phá huỷ dữ liệu đĩa.
-
-## Tìm lỗi (debug)
-
-- **Log**: mọi lỗi đều được ghi kèm traceback đầy đủ vào **`chuviettay.log`** (cạnh chương trình,
-  tự xoay vòng ~1MB × 3 file). Hộp thoại báo lỗi có in sẵn đường dẫn file này. Khi nhờ ai đó xem lỗi,
-  chỉ cần gửi file này — kể cả với bản `.exe` không có cửa sổ console.
-- **Chế độ chi tiết**: `python3 hw_note.py -v write ...` hoặc `python3 hw_gui.py -v` ghi thêm log mức
-  DEBUG và in ra màn hình. (`-v` đặt **trước** tên lệnh.)
-- **Tái tạo đúng một kết quả (Seed & Ổn định kiểu chữ)**:
-  - `write ... --seed 7` cho ra đúng cùng một file mỗi lần (mặc định mỗi lần một khác vì có run tay ngẫu nhiên). Giá trị seed là số nguyên không âm trong khoảng `[0, 2^32 - 1]`.
-  - Khi không truyền `--seed`: hệ thống tự sinh ngẫu nhiên an toàn và thông báo rõ trên màn hình: `Seed đã dùng: N (chạy lại với --seed N để có đúng kết quả này)`. Trên giao diện Web và GUI, giá trị hạt giống hiệu dụng được hiển thị trực tiếp bên cạnh ô Seed.
-  - **Kiểu chữ ổn định (`--stable-variants`)**: Khi bật tính năng này (hoặc tích chọn trên Web/GUI), hệ thống sử dụng bộ ngẫu nhiên cục bộ (`ScopedRNG`) neo theo từng token và dòng. Khi bạn chèn thêm từ hoặc chỉnh sửa các đoạn văn phía trước, toàn bộ các từ phía sau vẫn giữ nguyên 100% biến thể nét chữ và khoảng cách, ngăn chặn triệt để hiện tượng nhấp nháy chữ viết tay khi soạn thảo.
-  - **Cơ chế ghép chữ (`--assemble` / `assemble_letters`)**: Trong kiến trúc Char-First hiện tại, việc ghép từ từ các chữ cái mẫu (`Writer.assemble_word`) luôn được ưu tiên tự động; cờ `--assemble` và checkbox tương ứng được duy trì để bảo đảm tính tương thích ngược hoàn toàn.
-- **Thử lõi mà không cần giao diện**:
-
-  ```python
-  from chuviettay.controller.app_controller import AppController
-  from chuviettay.controller.results import WriteOptions
-  ctl = AppController(); ctl.load_bank()
-  r = ctl.write_text("Xin chào", WriteOptions(seed=1), "thu.xopp")
-  print(r)                 # WriteResult(n_lines=..., missing={...}, ...)
-  ```
-
-Gặp triệu chứng nào thì mở file nào trước:
-
-| Triệu chứng | Xem |
-|---|---|
-| Chữ ghép sai, dấu thanh lệch/thiếu | `model/writer.py` (`substitute`), `model/bank.py` (`rebuild`, `_harvest`) |
-| Xuống dòng/sang trang sai, khoảng cách lạ | `model/composer.py` |
-| Học từ file `.xopp` nhầm ô / sai cỡ | `model/xopp.py` (`parse_learn_file`), `model/calibration.py` |
-| Hiệu chỉnh cỡ tay trong app ra cỡ lạ | `controller/app_controller.py` (`teach_word`), `view/word_canvas.py` |
-| Nút bấm không phản hồi / hiển thị sai | `view/*_tab.py` |
-| Lệnh CLI in sai câu chữ | `cli.py`, `formatting.py` |
-
-## Kiểm thử
+Dự án duy trì bộ kiểm thử tự động toàn diện:
 
 ```bash
-pip install -r requirements-dev.txt
-python3 -m pytest -vv -s --timeout=30             # chạy tất cả kèm watchdog timeout
-xvfb-run -a python3 -m pytest -vv -s --timeout=30 # Linux không màn hình: chạy cả test giao diện thật
+# 1. Chạy toàn bộ test suite lõi headless (hơn 1.200 bài kiểm thử)
+pytest tests/ -k "not web and not browser and not benchmark" -q
+
+# 2. Chạy kiểm thử kiến trúc cấm Tkinter
+pytest tests/test_architecture.py -v
+
+# 3. Kiểm thử Golden Master đối chiếu từng byte (Python & Pyodide)
+pytest tests/test_golden_master_real_path.py -v
+node scripts/test_golden_pyodide.mjs
+
+# 4. Kiểm thử End-to-End giao diện Web (Playwright)
+npx playwright test tests/e2e/write.spec.ts tests/e2e/teach.spec.ts tests/e2e/bank.spec.ts
+
+# 5. Kiểm tra chất lượng mã nguồn (Lint)
+ruff check .
 ```
-
-Hơn 1.020 ca kiểm thử tự động, chia nhóm:
-
-- **Đơn vị** cho từng hàm/lớp Model (`test_text_utils`, `test_bank`, `test_writer`, `test_xopp`, ...) và
-  cho `AppController`; kho mẫu thử là một kho **nhỏ tự dựng** (`tests/conftest.py`) nên tự tính tay được đáp án.
-- **Giao diện thật** (`test_gui.py`): dựng `MainWindow`, điều khiển như người dùng (gõ, vẽ, bấm nút), hộp
-  thoại được giả lập.
-- **Golden-master** (`test_golden_master_real_path.py`): mã băm SHA-256 của file `.xopp` sinh ra **bởi bản gốc trước
-  khi tái cấu trúc** — đầu ra thuật toán phải khớp từng byte (bao gồm cả 8 ca kiểm thử tương thích trong Pyodide 314.0.7 qua `node scripts/test_golden_pyodide.mjs`). Sửa thuật toán làm đổi nét vẽ thì test này
-  đỏ; nếu là cố ý, kiểm tra bằng mắt trong Xournal++ rồi cập nhật hằng số.
-- **Kiến trúc** (`test_architecture.py`): giữ các luật MVC ở trên.
-
-Test **không bao giờ** đọc hay ghi `chu_cua_ban.json.gz` của bạn: chúng dùng một **bản chụp cố định** trong
-`tests/data/` (và luôn làm việc trên bản sao trong thư mục tạm), nên kết quả không đổi khi bạn dạy thêm từ mới.
-
-### Về dữ liệu cá nhân và lịch sử Git
-
-Repository đã được rà soát và làm sạch hoàn toàn các blob dữ liệu cá nhân (`chu_cua_ban.json.gz` và `kho_mau_chup_lai.json.gz`) khỏi toàn bộ lịch sử commit của các nhánh và thẻ bằng `git-filter-repo` (xem `scripts/purge_git_history.ps1` hoặc `scripts/purge_git_history.sh`).
-
-> [!NOTE]
-> **Lưu ý về lưu trữ đối tượng phía máy chủ (GitHub):** Việc viết lại lịch sử nhánh (`git push --force --mirror`) đảm bảo 100% các nhánh và thẻ công khai không còn tham chiếu tới dữ liệu cũ. Tuy nhiên, các nền tảng máy chủ từ xa như GitHub có thể lưu trữ tạm thời các commit object mồ côi (unreachable objects) trong bộ nhớ đệm máy chủ nếu truy cập trực tiếp bằng mã SHA commit cũ, cho đến khi chu kỳ dọn rác (Garbage Collection) của máy chủ chạy hoặc theo yêu cầu thu hồi bộ nhớ gửi tới GitHub Support.
-
-## Mở rộng — làm theo công thức
-
-**Thêm một tuỳ chọn cho `write`** (ví dụ `--indent`):
-1. Thêm trường vào `WriteOptions` (`model/composer.py`) và dùng nó trong `DocumentLayoutEngine` (`layout/engine.py`).
-2. CLI: thêm cờ trong `cli.build_parser` và truyền vào `WriteOptions(...)` ở `_cmd_write`.
-3. GUI: thêm ô nhập ở `WriteTab._build_options` và đọc nó ở `WriteTab.read_options`.
-4. Thêm test ở `tests/test_composer.py`.
-
-**Thêm một lệnh mới** (ví dụ `export`):
-1. Viết phần nghiệp vụ thuần ở `model/`, kèm test.
-2. Thêm phương thức vào `AppController` (+ dataclass kết quả ở `controller/results.py` nếu cần).
-3. CLI: hàm `_cmd_export` + subparser. GUI: nút trong tab phù hợp. **Cả hai chỉ gọi Controller.**
-
-**Thêm một tab mới**: tạo `view/xxx_tab.py` nhận `ctl: AppController`, đăng ký trong
-`MainWindow._build_tabs`. Cần nói chuyện với tab khác thì truyền callback từ `MainWindow`
-(các tab không gọi nhau trực tiếp).
-
-## Đóng gói ứng dụng (hoặc tải từ GitHub Releases)
-
-Người dùng cuối có thể tải các bản đóng gói chạy ngay (standalone binaries) từ mục **GitHub Releases** của repository (bao gồm `hw_gui-windows.zip` cho Windows và `hw_gui-linux.tar.gz` cho Linux x86_64).
-
-Nếu tự đóng gói từ mã nguồn:
-
-**Windows** — build trên máy Windows:
-
-1. Cài Python từ [python.org](https://www.python.org/) (tick **"Add python.exe to PATH"**).
-2. Chạy `pip install -r requirements-build.txt`.
-3. Bấm đúp `build_windows.bat` (hoặc chạy trong PowerShell/cmd) → tạo `hw_gui.exe` trong thư mục `dist/`.
-4. Copy `hw_gui.exe` ra một thư mục riêng, để **cạnh nó** file `chu_cua_ban.json.gz` rồi bấm đúp là chạy.
-   Kho mẫu và file log luôn nằm **cạnh file `.exe`** (không nằm trong thư mục tạm của PyInstaller).
-
-**Linux / macOS**:
-1. Cài `requirements-build.txt`.
-2. Chạy `./build_linux_mac.sh` (macOS phải build trên máy Mac) → tạo binary trong `dist/`.
-
-Lưu ý: file binary độc lập nặng (~15–25MB) vì gói kèm môi trường Python; Windows có thể cảnh báo "Windows protected your PC" vì chưa có chữ ký số — chọn **More info → Run anyway**.
-
-Xem `CHANGELOG.md` để biết chi tiết những gì đã thay đổi so với bản một-file trước đây.

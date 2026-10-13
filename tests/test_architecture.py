@@ -1,17 +1,14 @@
-"""Quy tắc kiến trúc MVC, được kiểm tra TỰ ĐỘNG bằng cách đọc import trong mã nguồn.
+"""Quy tắc kiến trúc cho Web-only HandWrite (chuviettay).
 
-Vì sao có test này: MVC chỉ có giá trị khi các ranh giới được GIỮ THEO THỜI GIAN. Sau vài lần
-sửa vội, rất dễ có người `import tkinter` vào Model hay `print()` vào Controller và cấu trúc
-mục ruỗng dần. Test này biến các quy tắc trong README thành thứ máy kiểm tra được -- vi phạm
-là test đỏ ngay, kèm chỉ đúng file/dòng.
-
-Sơ đồ phụ thuộc (mũi tên = "được phép import"):
-    cli.py, gui.py, view/  ->  controller/  ->  model/
+Được kiểm tra TỰ ĐỘNG bằng AST phân tích import và lời gọi hàm.
+Bảo đảm ranh giới kiến trúc:
+- Tuyệt đối cấm tkinter trên toàn bộ repository (chuviettay, tests, scripts).
+- Không tồn tại mã nguồn Desktop GUI hay CLI (chuviettay.view, gui.py, cli.py, hw_*.py, v.v.).
+- Browser bridge chỉ giao tiếp qua Controller, không chạm Model hay Fidelity.
+- Model, Controller, Layout, Document, Math hoàn toàn độc lập, không phụ thuộc Browser/Pyodide.
 """
 import ast
 import pathlib
-
-import pytest
 
 PKG = pathlib.Path(__file__).resolve().parent.parent / "chuviettay"
 
@@ -56,39 +53,54 @@ def print_calls(files):
 UI_AND_ENTRY = ["chuviettay.view", "chuviettay.cli", "chuviettay.gui"]
 
 
-def test_model_khong_biet_gi_ve_giao_dien_hay_controller():
-    bad = violations(py_files("model"),
-                     ["tkinter", "argparse", "chuviettay.controller", "chuviettay.formatting"] + UI_AND_ENTRY)
+def test_tuyet_doi_khong_import_tkinter_toan_repo():
+    """Tất cả các tệp Python trong chuviettay/, tests/, scripts/ tuyệt đối KHÔNG được import tkinter."""
+    repo_root = PKG.parent
+    all_files = (
+        sorted((repo_root / "chuviettay").glob("**/*.py"))
+        + sorted((repo_root / "tests").glob("**/*.py"))
+        + sorted((repo_root / "scripts").glob("**/*.py"))
+    )
+    bad = violations(all_files, ["tkinter"])
+    assert not bad, "Tkinter đã bị loại bỏ hoàn toàn khỏi dự án:\n  " + "\n  ".join(bad)
+
+
+def test_cac_module_va_tap_tin_desktop_cli_khong_con_ton_tai():
+    """Xác nhận các thành phần Desktop Tkinter và CLI đã được dọn sạch hoàn toàn."""
+    repo_root = PKG.parent
+    deleted_paths = [
+        repo_root / "chuviettay" / "view",
+        repo_root / "chuviettay" / "gui.py",
+        repo_root / "chuviettay" / "cli.py",
+        repo_root / "chuviettay" / "__main__.py",
+        repo_root / "hw_gui.py",
+        repo_root / "hw_note.py",
+        repo_root / "hw_gui.spec",
+        repo_root / "build_windows.bat",
+        repo_root / "build_linux_mac.sh",
+        repo_root / "requirements-build.txt",
+    ]
+    for p in deleted_paths:
+        assert not p.exists(), f"Đường dẫn đã loại bỏ nhưng vẫn tồn tại: {p}"
+
+
+def test_model_khong_biet_gi_ve_controller_hay_ui():
+    bad = violations(
+        py_files("model"),
+        ["tkinter", "argparse", "chuviettay.controller", "chuviettay.formatting"] + UI_AND_ENTRY,
+    )
     assert not bad, "Model phải độc lập:\n  " + "\n  ".join(bad)
 
 
 def test_controller_khong_biet_gi_ve_tkinter_argparse_view_cli():
     bad = violations(py_files("controller"), ["tkinter", "argparse"] + UI_AND_ENTRY)
-    assert not bad, "Controller không được phụ thuộc giao diện:\n  " + "\n  ".join(bad)
-
-
-def test_chi_view_va_gui_duoc_import_tkinter():
-    others = [f for f in py_files() + py_files("model") + py_files("controller")
-              if f.name != "gui.py"]
-    bad = violations(others, ["tkinter"])
-    assert not bad, "Chỉ view/ (và gui.py) được import tkinter:\n  " + "\n  ".join(bad)
-
-
-def test_view_chi_noi_chuyen_voi_controller_khong_cham_vao_model():
-    bad = violations(py_files("view"), ["chuviettay.model", "argparse"])
-    assert not bad, "View chỉ được gọi Controller, không đụng Model:\n  " + "\n  ".join(bad)
-
-
-def test_cli_chi_noi_chuyen_voi_controller_khong_cham_vao_model_hay_view():
-    bad = violations([PKG / "cli.py"], ["chuviettay.model", "tkinter"] + ["chuviettay.view", "chuviettay.gui"])
-    assert not bad, "cli.py chỉ được gọi Controller:\n  " + "\n  ".join(bad)
+    assert not bad, "Controller không được phụ thuộc giao diện Desktop/CLI:\n  " + "\n  ".join(bad)
 
 
 def test_khong_print_hay_input_trong_cac_lop_loi():
     core_files = (
         py_files("model")
         + py_files("controller")
-        + py_files("view")
         + py_files("document", recursive=True)
         + py_files("importer", recursive=True)
         + py_files("layout", recursive=True)
@@ -97,7 +109,7 @@ def test_khong_print_hay_input_trong_cac_lop_loi():
         + py_files("browser", recursive=True)
     )
     bad = print_calls(core_files)
-    assert not bad, ("Chỉ cli.py được in ra màn hình; các lớp còn lại trả dữ liệu / ghi log:\n  "
+    assert not bad, ("Các lớp lõi không được in ra màn hình; phải trả dữ liệu hoặc ghi log:\n  "
                      + "\n  ".join(bad))
 
 
@@ -106,7 +118,6 @@ def test_khong_dung_sys_exit_trong_cac_lop_loi():
     core_files = (
         py_files("model")
         + py_files("controller")
-        + py_files("view")
         + py_files("document", recursive=True)
         + py_files("importer", recursive=True)
         + py_files("layout", recursive=True)
@@ -119,22 +130,19 @@ def test_khong_dung_sys_exit_trong_cac_lop_loi():
             if (isinstance(node, ast.Attribute) and node.attr == "exit"
                     and isinstance(node.value, ast.Name) and node.value.id == "sys"):
                 bad.append("%s:%d sys.exit" % (f.relative_to(PKG.parent), node.lineno))
-    assert not bad, "Thoát chương trình là việc của cli.py/hw_*.py, không phải của lõi:\n  " + "\n  ".join(bad)
+    assert not bad, "Lõi không được gọi sys.exit:\n  " + "\n  ".join(bad)
 
 
-def test_browser_khong_phu_thuoc_model_view_cli_gui_fidelity_tkinter_argparse():
-    """Tầng browser/ chỉ giao tiếp qua Controller, cấm chạm trực tiếp Model, View, CLI, Tkinter."""
+def test_browser_khong_phu_thuoc_model_fidelity_tkinter_argparse():
+    """Tầng browser/ chỉ giao tiếp qua Controller, cấm chạm trực tiếp Model, Fidelity, Tkinter."""
     forbidden = [
         "chuviettay.model",
-        "chuviettay.view",
-        "chuviettay.cli",
-        "chuviettay.gui",
         "chuviettay.fidelity",
         "tkinter",
         "argparse",
-    ]
+    ] + UI_AND_ENTRY
     bad = violations(py_files("browser", recursive=True), forbidden)
-    assert not bad, "Browser bridge phải độc lập với Model, View, CLI, GUI, Tkinter:\n  " + "\n  ".join(bad)
+    assert not bad, "Browser bridge phải độc lập với Model, Fidelity, Tkinter:\n  " + "\n  ".join(bad)
 
 
 def test_model_va_controller_khong_phu_thuoc_browser_pyodide_js():
@@ -144,32 +152,14 @@ def test_model_va_controller_khong_phu_thuoc_browser_pyodide_js():
     assert not bad, "Model và Controller không được phụ thuộc vào môi trường Browser/Pyodide:\n  " + "\n  ".join(bad)
 
 
-
 def test_fidelity_khong_phu_thuoc_view_hay_cli():
     """Tầng fidelity/ không được phụ thuộc vào giao diện (view), CLI hay tkinter."""
     bad = violations(py_files("fidelity"), ["tkinter"] + UI_AND_ENTRY)
     assert not bad, "Fidelity không được phụ thuộc View/CLI/Tkinter:\n  " + "\n  ".join(bad)
 
 
-@pytest.mark.parametrize("name", ["hw_note.py", "hw_gui.py"])
-def test_file_khoi_chay_o_thu_muc_goc_chi_la_lop_mong(name):
-    src = (PKG.parent / name).read_text(encoding="utf-8")
-    assert len(src.splitlines()) < 40, "%s phải chỉ là lối vào mỏng, logic để trong chuviettay/" % name
-
-
-def test_view_khong_truy_cap_truc_tiep_ctl_bank():
-    """Tầng view/ không được truy cập trực tiếp ctl.bank (phải qua các method/property được expose)."""
-    bad = []
-    for f in py_files("view"):
-        tree = ast.parse(f.read_text(encoding="utf-8"), filename=str(f))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and node.attr == "bank":
-                bad.append("%s:%d truy cập .bank" % (f.relative_to(PKG.parent), node.lineno))
-    assert not bad, "View không được truy cập trực tiếp ctl.bank:\n  " + "\n  ".join(bad)
-
-
 def test_document_ir_hoan_toan_doc_lap():
-    """Tầng document/ (IR) là cấu trúc dữ liệu thuần, không phụ thuộc controller, view, model hay layout."""
+    """Tầng document/ (IR) là cấu trúc dữ liệu thuần, không phụ thuộc controller, model hay layout."""
     bad = violations(
         py_files("document"),
         ["chuviettay.controller", "chuviettay.model", "chuviettay.layout", "chuviettay.importer"] + UI_AND_ENTRY,
@@ -178,7 +168,7 @@ def test_document_ir_hoan_toan_doc_lap():
 
 
 def test_math_package_doc_lap_voi_giao_dien_va_model():
-    """Tầng math/ (AST, parser) không phụ thuộc model, controller hay view."""
+    """Tầng math/ (AST, parser) không phụ thuộc model, controller hay layout."""
     bad = violations(
         py_files("math"),
         ["chuviettay.controller", "chuviettay.model", "chuviettay.layout", "chuviettay.importer"] + UI_AND_ENTRY,
