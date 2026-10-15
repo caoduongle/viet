@@ -13,12 +13,9 @@ __pycache__/
 venv/
 *.egg-info/
 
-# Đóng gói (PyInstaller) & artifacts
+# Build & packaging artifacts
 build/
 dist/
-*.spec
-hw_gui-linux
-hw_gui.exe
 
 # Dữ liệu kho mẫu cá nhân (không commit vào repo):
 chu_cua_ban.json.gz

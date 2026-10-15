@@ -63,6 +63,8 @@ class AppController:
         self.debounce_delay: float = 2.0
         self._save_timer: threading.Timer | None = None
         self._save_lock = threading.Lock()
+        self._save_event = threading.Event()
+        self._save_event.set()
         _log.debug("Khởi tạo AppController (bank_path=%s)", self.bank_path)
 
     # ------------------------------------------------------------------ debounce save (US7)
@@ -71,6 +73,7 @@ class AppController:
         with self._save_lock:
             if self._save_timer is not None:
                 self._save_timer.cancel()
+            self._save_event.clear()
             timer = self.timer_factory(self.debounce_delay, self._on_debounce_save)
             if timer is not None:
                 self._save_timer = timer
@@ -78,6 +81,7 @@ class AppController:
                 self._save_timer.start()
             else:
                 self._save_timer = None
+                self._save_event.set()
 
     def _on_debounce_save(self) -> None:
         try:
@@ -86,6 +90,7 @@ class AppController:
             _log.exception("Lỗi khi thực hiện lưu hoãn kho mẫu (debounce save)")
             if self.bank:
                 self.bank.mark_dirty()
+            self._save_event.set()
 
     def flush_save(self) -> None:
         """Ép ghi các thay đổi dơ (dirty) ngay lập tức xuống đĩa và huỷ timer."""
@@ -95,6 +100,11 @@ class AppController:
                 self._save_timer = None
             if self.bank and self.bank.is_dirty:
                 self.bank.save()
+            self._save_event.set()
+
+    def wait_for_save(self, timeout: float | None = None) -> bool:
+        """Chờ cho đến khi tác vụ lưu hoãn (nếu có) hoàn tất ghi xuống đĩa."""
+        return self._save_event.wait(timeout=timeout)
 
     # ------------------------------------------------------------------ kho mẫu
     def load_bank(self, path: str | None = None, create_if_missing: bool = False) -> Bank:

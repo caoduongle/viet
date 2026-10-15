@@ -29,28 +29,87 @@ def test_teach_word_deferred_save_latency(tiny_bank_path):
     assert not ctl.bank.is_dirty
 
 
+class FakeTimer:
+    """Mock timer không tạo luồng OS, cho phép kích hoạt tất định."""
+
+    def __init__(self, interval: float, function, args=None, kwargs=None):
+        self.interval = interval
+        self.function = function
+        self.args = args or []
+        self.kwargs = kwargs or {}
+        self.daemon = False
+        self.started = False
+        self.cancelled = False
+
+    def start(self):
+        self.started = True
+
+    def cancel(self):
+        self.cancelled = True
+
+    def trigger(self):
+        if not self.cancelled:
+            self.function(*self.args, **self.kwargs)
+
+
 def test_debounce_timer_flushes_after_inactivity(tmp_path):
-    """Sau thời gian nghỉ (inactivity debounce), thay đổi phải được tự động ghi xuống đĩa."""
+    """Sau thời gian nghỉ (inactivity debounce), thay đổi phải được tự động ghi xuống đĩa một cách tất định."""
     bank_path = str(tmp_path / "debounce_test.json.gz")
     Bank.create_empty(bank_path)
 
-    ctl = AppController(bank_path)
+    active_timers = []
+
+    def fake_timer_factory(interval, function, args=None, kwargs=None):
+        timer = FakeTimer(interval, function, args, kwargs)
+        active_timers.append(timer)
+        return timer
+
+    ctl = AppController(bank_path, timer_factory=fake_timer_factory)
     ctl.load_bank()
     ctl.debounce_delay = 0.2  # Đặt thời gian debounce ngắn (0.2s) cho kiểm thử
 
     dummy_stroke = [[0, 0, 5, -10, 10, 0]]
     ctl.teach_word("xác_nhận", dummy_stroke, 10.0, deferred_save=True)
 
-    # Trước khi hết thời gian debounce: file trên đĩa chưa có từ mới
+    # Timer đã được lên lịch với khoảng thời gian đúng
+    assert len(active_timers) == 1
+    timer = active_timers[0]
+    assert timer.started is True
+    assert timer.cancelled is False
+    assert timer.interval == 0.2
+
+    # Trước khi hết thời gian debounce (chưa kích hoạt trigger): file trên đĩa chưa có từ mới
     disk_before = Bank(bank_path)
     assert "xác_nhận" not in disk_before.words
+    assert ctl.bank.is_dirty
 
-    # Chờ quá thời gian debounce (0.3s)
-    time.sleep(0.35)
+    # Kích hoạt debounce một cách tất định (không phụ thuộc sleep võ đoán)
+    timer.trigger()
 
     # Sau khi debounce kích hoạt: file trên đĩa đã được cập nhật
     disk_after = Bank(bank_path)
     assert "xác_nhận" in disk_after.words
+    assert not ctl.bank.is_dirty
+
+
+def test_debounce_timer_threading_real_flush_deterministic(tmp_path):
+    """Hồi quy: khi dùng threading.Timer thật, wait_for_save đảm bảo đồng bộ tất định mà không phụ thuộc sleep võ đoán."""
+    bank_path = str(tmp_path / "debounce_real_test.json.gz")
+    Bank.create_empty(bank_path)
+
+    ctl = AppController(bank_path)
+    ctl.load_bank()
+    ctl.debounce_delay = 0.05
+
+    dummy_stroke = [[0, 0, 5, -10, 10, 0]]
+    ctl.teach_word("xác_nhận_luồng", dummy_stroke, 10.0, deferred_save=True)
+
+    # Đợi sự kiện lưu nền hoàn tất đồng bộ một cách tất định
+    saved = ctl.wait_for_save(timeout=5.0)
+    assert saved is True, "Tác vụ lưu hoãn nền không hoàn tất trong thời gian chờ"
+
+    disk_after = Bank(bank_path)
+    assert "xác_nhận_luồng" in disk_after.words
     assert not ctl.bank.is_dirty
 
 

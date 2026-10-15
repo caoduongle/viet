@@ -1,6 +1,4 @@
 # Dependencies for development and testing
-# Note: pyinstaller is removed because 6.12.0 restricts Requires-Python <3.14 (breaks CI on Python 3.14).
-# PyInstaller is only needed for building desktop binaries, defined in requirements-build.txt.
 pytest>=8.0.0
 pytest-timeout>=2.3.1
 ruff>=0.4.0
