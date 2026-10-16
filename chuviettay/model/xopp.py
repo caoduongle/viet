@@ -205,36 +205,6 @@ def make_grid(
         else:
             cw = pick_calib_word(bank)
 
-    if grid_version == "hw2":
-        if cw:
-            labels = [cw] + list(labels)
-        per = COLS * ROWS
-        npages = max(1, -(-len(labels) // per))
-        o = [HEAD]
-        xh = bank.xh
-        for p in range(npages):
-            o.append(PAGE_OPEN % (PAGE_W, PAGE_H))
-            if p == 0:
-                o.append(text_xml(MXT, 6, header, 8))
-                o.append(text_xml(MXT, 20, "Viết nhỏ như chữ hằng ngày, ĐỪNG lấp đầy ô: chữ cao khoảng bằng đoạn kẻ ngắn phía trên, đặt trên đường kẻ dài.", 8))
-                if cw:
-                    o.append(text_xml(MXT, 34, "Ô đầu tiên ('%s') dùng để đo cỡ tay bạn: viết lại đúng từ đó, thế thôi — cỡ nào cũng được, tool tự chỉnh các từ khác cho khớp." % cw, 8))
-                o.append(text_xml(MXT, 46 if cw else 34, TAG_CALIB if cw else TAG_PLAIN, 6))
-            for k in range(p * per, min(len(labels), (p + 1) * per)):
-                _, x0, y0 = cell_xy(k)
-                o.append(guide([(x0, y0), (x0 + CW, y0), (x0 + CW, y0 + CH), (x0, y0 + CH), (x0, y0)], 0.4))
-                o.append(guide([(x0 + 3, y0 + BASE), (x0 + CW - 3, y0 + BASE)], 0.8))
-                o.append(guide([(x0 + 3, y0 + BASE - xh), (x0 + 22, y0 + BASE - xh)], 0.5))
-                o.append(text_xml(x0 + 2, y0 + 1, labels[k]))
-                if samples and labels[k] in samples:
-                    for st in samples[labels[k]]:
-                        pts = [(x0 + 8 + st[i], y0 + BASE + st[i + 1]) for i in range(0, len(st), 2)]
-                        o.append(stroke_xml(pts, bank.pen))
-            o.append(PAGE_CLOSE)
-        o.append("</xournal>")
-        save_xopp(path, o)
-        return
-
     # Chuẩn hw3 (4 đường kẻ mốc + 2 vạch giới hạn lề)
     if cw:
         labels = [cw] + list(labels)

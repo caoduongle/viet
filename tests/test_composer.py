@@ -111,7 +111,7 @@ def test_write_document_ghi_file_va_file_luoi_o_khi_thieu(tiny_bank, tmp_path):
     ctl = AppController(tiny_bank.path)
     ctl.load_bank()
     out = str(tmp_path / "ra.xopp")
-    r = ctl.write_text("xin zzz", WriteOptions(seed=1), out)
+    r = ctl.write_text("xin zzz", WriteOptions(seed=1, missing_grid=True), out)
     assert os.path.exists(out) and r.out_path == out
     assert r.missing_grid_path == str(tmp_path / "ra_thieu.xopp")
     labels = [(t.text or "").strip() for t in xopp.read_xopp(r.missing_grid_path).iter("text")]

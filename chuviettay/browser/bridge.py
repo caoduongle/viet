@@ -25,7 +25,7 @@ from chuviettay.controller.teach_geometry import (
     ZOOM,
     strokes_to_bank_units,
 )
-from chuviettay.document.ir import Document, PageBreak, Table, TableCell
+from chuviettay.document.ir import Document, Heading, LineBreak, ListBlock, MathBlock, PageBreak, Table, TableCell
 from chuviettay.importer.markdown_importer import MarkdownImporter
 
 # Regex nhận diện thẻ ngắt trang
@@ -565,32 +565,87 @@ class BrowserBridge:
         warnings_out = list(warnings or [])
         unsupported_out = list(unsupported or [])
 
+        def _escape_md(text: str) -> str:
+            """Escape các ký tự điều khiển Markdown để bảo toàn nguyên vẹn khi re-import."""
+            if not text:
+                return ""
+            # Escape gạch chéo ngược đầu tiên, sau đó các ký tự đặc biệt
+            s = text.replace("\\", "\\\\")
+            for ch in ("*", "_", "~", "#", "$", "|"):
+                s = s.replace(ch, "\\" + ch)
+            return s
+
+        def _serialize_inlines(inlines: list[Any], line_break_sep: str = "\n", escape_pipe_in_math: bool = False) -> str:
+            parts: list[str] = []
+            for inl in inlines:
+                if hasattr(inl, "text") and inl.text:
+                    t = inl.text
+                    if line_break_sep != "\n":
+                        t = t.replace("\r\n", line_break_sep).replace("\n", line_break_sep)
+                    parts.append(_escape_md(t))
+                elif hasattr(inl, "latex") and inl.latex:
+                    ltx = inl.latex.replace("|", r"\|") if escape_pipe_in_math else inl.latex
+                    parts.append(f"${ltx}$")
+                elif hasattr(inl, "symbol") and inl.symbol:
+                    parts.append(_escape_md(inl.symbol))
+                elif isinstance(inl, LineBreak):
+                    parts.append(line_break_sep)
+            return "".join(parts)
+
         def _extract_cell_markdown(cell: TableCell) -> str:
-            parts = []
+            block_strs: list[str] = []
             for blk in cell.blocks:
-                if hasattr(blk, "inlines"):
-                    for inl in blk.inlines:
-                        if hasattr(inl, "text") and inl.text:
-                            t = inl.text.replace("\r\n", " ").replace("\n", " ").replace("|", r"\|")
-                            parts.append(t)
-                        elif hasattr(inl, "latex") and inl.latex:
-                            parts.append(f"${inl.latex}$")
-                        elif hasattr(inl, "symbol") and inl.symbol:
-                            parts.append(inl.symbol)
-            txt = " ".join(parts).strip()
+                if isinstance(blk, MathBlock) and blk.latex:
+                    escaped_latex = blk.latex.replace("|", r"\|")
+                    block_strs.append(f"${escaped_latex}$")
+                elif hasattr(blk, "inlines"):
+                    s = _serialize_inlines(blk.inlines, line_break_sep=" ", escape_pipe_in_math=True).strip()
+                    if s:
+                        block_strs.append(s)
+            txt = " ".join(block_strs).strip()
             return txt if txt else " "
 
+        def _serialize_list_block(lb: ListBlock, depth: int = 0) -> str:
+            list_lines: list[str] = []
+            pad = "  " * depth
+            for idx, item_blocks in enumerate(lb.items):
+                marker = f"{lb.start + idx}. " if lb.ordered else "- "
+                first_sub = True
+                for sub in item_blocks:
+                    if isinstance(sub, ListBlock):
+                        sub_str = _serialize_list_block(sub, depth + 1)
+                        if sub_str:
+                            list_lines.append(sub_str)
+                    elif isinstance(sub, MathBlock) and sub.latex:
+                        prefix = (pad + marker) if first_sub else (pad + "  ")
+                        first_sub = False
+                        list_lines.append(f"{prefix}$${sub.latex.strip()}$$")
+                    elif hasattr(sub, "inlines"):
+                        prefix = (pad + marker) if first_sub else (pad + "  ")
+                        first_sub = False
+                        s = _serialize_inlines(sub.inlines, line_break_sep=" ")
+                        list_lines.append(f"{prefix}{s}")
+            return "\n".join(list_lines)
+
         for b in doc.blocks:
-            if hasattr(b, "inlines"):
-                line_parts = []
-                for inl in b.inlines:
-                    if hasattr(inl, "text") and inl.text:
-                        line_parts.append(inl.text)
-                    elif hasattr(inl, "latex") and inl.latex:
-                        line_parts.append(f"${inl.latex}$")
-                    elif hasattr(inl, "symbol") and inl.symbol:
-                        line_parts.append(inl.symbol)
-                lines.append(" ".join(line_parts))
+            if isinstance(b, MathBlock):
+                if b.latex:
+                    lines.append(f"$${b.latex.strip()}$$")
+            elif isinstance(b, PageBreak):
+                lines.append(r"\pagebreak")
+            elif isinstance(b, ListBlock):
+                lb_str = _serialize_list_block(b)
+                if lb_str:
+                    lines.append(lb_str)
+            elif hasattr(b, "inlines"):
+                if isinstance(b, Heading):
+                    lvl = max(1, min(6, getattr(b, "level", 1)))
+                    prefix = "#" * lvl + " "
+                    content_str = _serialize_inlines(b.inlines, line_break_sep=" ")
+                    lines.append(prefix + content_str)
+                else:
+                    content_str = _serialize_inlines(b.inlines, line_break_sep="\n")
+                    lines.append(content_str)
             elif isinstance(b, Table) and b.rows:
                 has_merges = any(
                     c.rowspan > 1 or c.colspan > 1

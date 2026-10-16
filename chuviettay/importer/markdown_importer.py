@@ -131,7 +131,7 @@ class MarkdownImporter(BaseImporter):
             out.append("".join(parts))
         return "".join(out)
 
-    def _parse_inlines(self, inline_token: Any) -> list[Inline]:
+    def _parse_inlines(self, inline_token: Any, warnings: list[str] | None = None) -> list[Inline]:
         """Chuyển đổi token inline của markdown-it thành danh sách Inline IR."""
         inlines: list[Inline] = []
         if not inline_token or not getattr(inline_token, "children", None):
@@ -152,10 +152,18 @@ class MarkdownImporter(BaseImporter):
                 content = child.content
                 if content:
                     inlines.append(Text(text=content))
+                if ctype == "code_inline" and warnings is not None:
+                    msg = "Định dạng kiểu chữ (in đậm, in nghiêng, gạch ngang, mã nội tuyến...) đã được chuyển về nét viết tay chuẩn."
+                    if msg not in warnings:
+                        warnings.append(msg)
             else:
-                # Các thẻ định dạng như strong, em... ta lấy nội dung text bên trong
+                # Các thẻ định dạng như strong, em, s, link... ta lấy nội dung text bên trong
                 if child.content:
                     inlines.append(Text(text=child.content))
+                if ctype in ("strong_open", "em_open", "s_open", "link_open") and warnings is not None:
+                    msg = "Định dạng kiểu chữ (in đậm, in nghiêng, gạch ngang, mã nội tuyến...) đã được chuyển về nét viết tay chuẩn."
+                    if msg not in warnings:
+                        warnings.append(msg)
 
         # Gộp các Text inline liền kề để tránh chèn khoảng trắng giả tạo trước dấu câu (L6)
         merged: list[Inline] = []
@@ -184,7 +192,9 @@ class MarkdownImporter(BaseImporter):
                 return 1
         return 1
 
-    def _parse_list(self, tokens: list[Any], start_idx: int, unsupported: list[str]) -> tuple[ListBlock, int]:
+    def _parse_list(
+        self, tokens: list[Any], start_idx: int, unsupported: list[str], warnings: list[str] | None = None
+    ) -> tuple[ListBlock, int]:
         """Phân tích danh sách Markdown theo kiểu đệ quy để bảo toàn phân cấp danh sách lồng nhau."""
         tok = tokens[start_idx]
         is_ordered = (tok.type == "ordered_list_open")
@@ -196,7 +206,7 @@ class MarkdownImporter(BaseImporter):
 
         while i < n and tokens[i].type != close_type:
             if tokens[i].type == "list_item_open":
-                item_blocks, i = self._parse_blocks(tokens, i + 1, "list_item_close", unsupported)
+                item_blocks, i = self._parse_blocks(tokens, i + 1, "list_item_close", unsupported, warnings)
                 items.append(self._normalize_item_blocks(item_blocks, unsupported))
             i += 1
 
@@ -215,7 +225,7 @@ class MarkdownImporter(BaseImporter):
                 out.append(b)
         return out
 
-    def _parse_table(self, tokens: list[Any], i: int) -> tuple[Table, int]:
+    def _parse_table(self, tokens: list[Any], i: int, warnings: list[str] | None = None) -> tuple[Table, int]:
         n = len(tokens)
         rows: list[TableRow] = []
         col_alignments: list[str] = []
@@ -241,7 +251,7 @@ class MarkdownImporter(BaseImporter):
 
                         cell_inlines = []
                         if i + 1 < n and tokens[i + 1].type == "inline":
-                            cell_inlines = self._parse_inlines(tokens[i + 1])
+                            cell_inlines = self._parse_inlines(tokens[i + 1], warnings)
                             i += 1
                         cells.append(TableCell(blocks=[Paragraph(inlines=cell_inlines)]))
                     i += 1
@@ -250,7 +260,7 @@ class MarkdownImporter(BaseImporter):
         return Table(rows=rows, border_style=TableBorder.ALL, col_alignments=col_alignments), i
 
     def _parse_blocks(
-        self, tokens: list[Any], i: int, close_type: str | None, unsupported: list[str]
+        self, tokens: list[Any], i: int, close_type: str | None, unsupported: list[str], warnings: list[str] | None = None
     ) -> tuple[list[Block], int]:
         """Đọc các khối từ vị trí ``i`` tới token ``close_type`` (không tiêu thụ) hoặc hết token."""
         blocks: list[Block] = []
@@ -263,7 +273,7 @@ class MarkdownImporter(BaseImporter):
                 level = int(tok.tag[1]) if len(tok.tag) > 1 and tok.tag[1].isdigit() else 1
                 inlines = []
                 if i + 1 < n and tokens[i + 1].type == "inline":
-                    inlines = self._parse_inlines(tokens[i + 1])
+                    inlines = self._parse_inlines(tokens[i + 1], warnings)
                     i += 1
                 blocks.append(Heading(level=level, inlines=inlines))
 
@@ -271,7 +281,7 @@ class MarkdownImporter(BaseImporter):
             elif tok.type == "paragraph_open":
                 inlines = []
                 if i + 1 < n and tokens[i + 1].type == "inline":
-                    inlines = self._parse_inlines(tokens[i + 1])
+                    inlines = self._parse_inlines(tokens[i + 1], warnings)
                     i += 1
                 if inlines:
                     blocks.append(Paragraph(inlines=inlines))
@@ -283,12 +293,12 @@ class MarkdownImporter(BaseImporter):
 
             # 4. List Block (đệ quy lồng nhau)
             elif tok.type in ("bullet_list_open", "ordered_list_open"):
-                list_block, i = self._parse_list(tokens, i, unsupported)
+                list_block, i = self._parse_list(tokens, i, unsupported, warnings)
                 blocks.append(list_block)
 
             # 5. Table Block
             elif tok.type == "table_open":
-                table, i = self._parse_table(tokens, i)
+                table, i = self._parse_table(tokens, i, warnings)
                 blocks.append(table)
 
             # 6. Code Block / Fenced Code
@@ -314,6 +324,7 @@ class MarkdownImporter(BaseImporter):
         md = (
             MarkdownIt("commonmark", {"html": False})
             .enable("table")
+            .enable("strikethrough")
             .use(dollarmath_plugin, allow_space=False, double_inline=True)
             .use(amsmath_plugin)
         )
@@ -321,7 +332,7 @@ class MarkdownImporter(BaseImporter):
 
         warnings: list[str] = []
         unsupported: list[str] = []
-        blocks, _ = self._parse_blocks(tokens, 0, None, unsupported)
+        blocks, _ = self._parse_blocks(tokens, 0, None, unsupported, warnings)
         return ImportResult(document=Document(blocks=blocks), warnings=warnings, unsupported=unsupported)
 
     def import_file(self, path: str) -> ImportResult:

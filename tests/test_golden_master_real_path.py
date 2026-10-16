@@ -20,7 +20,7 @@ from tests.test_letter_assembly_quality import _create_quality_test_bank
 GOLDEN_REAL = {
     "co_ban": {
         "xopp": "2361f6e1a2798242545a8fdf22a92e1f8d62f251a2f14c783cab9916dcd21321",
-        "thieu": "6b336106a6ca50e7ca62fe93179cc3a2530c29c5669cd15be7b73102d9fbfde3",
+        "thieu": "acb71b94f99fcf51b639b91a2abcc906267a7a5e1be4a5c3b4c333115cc6338c",
     },
     "tuy_chon": {
         "xopp": "51a2e21adbf797d752f1b74e8ae46bd856b17472add095f5dbfaaec6fc2a6ab9",
@@ -30,7 +30,7 @@ GOLDEN_REAL = {
     },
     "strict_case": {
         "xopp": "04beeac960da1920fc69912d9fc4872a62b56a84d3d3b37d02e68431beea7e7e",
-        "thieu": "acb51aba82031bdbdb376ab26d802b51292874722e59185c924aaf40774afa36",
+        "thieu": "d68b8bb1b8dfef125d7495598715c0204c681f3d842f8ac17586064a46cae029",
     },
     "assemble_letters": {
         "xopp": "70e9ecaa3a8aa81dd0781ce719826c98aead718c60635ef9e14bd103e9b8aeed",
@@ -43,18 +43,18 @@ GOLDEN_REAL = {
     },
     "markdown_list": {
         "xopp": "448890bdc4d3772b3423c09407024df7f3d90015686bc76c748c04736b5e7672",
-        "thieu": "6364a7000d6c3dbbaf466d433c947a685e1ffad0c359367248df76659b1724ae",
+        "thieu": "239e7b0d55a5abf5fa13898179fb273b900ec3935b11a2576e32103d18b9ca0a",
     },
 }
 
 CASES = {
-    "co_ban": ("xin ba bà chào Xin 12 1,2 xin. (xin) zzz bá", WriteOptions(seed=7)),
+    "co_ban": ("xin ba bà chào Xin 12 1,2 xin. (xin) zzz bá", WriteOptions(seed=7, missing_grid=True)),
     "tuy_chon": (
         "xin ba bà chào\n\nxin xin xin ba ba 12 1,2 xin",
         WriteOptions(width=60, scale=1.3, space=1.2, jitter=0.5, seed=21, color="#1a237e", wscale=1.4),
     ),
     "nhieu_trang": ("\n".join(["xin ba bà"] * 7), WriteOptions(line=1000, seed=3)),
-    "strict_case": ("Xin Ba xin", WriteOptions(strict_case=True, seed=1)),
+    "strict_case": ("Xin Ba xin", WriteOptions(strict_case=True, seed=1, missing_grid=True)),
 }
 
 
@@ -133,7 +133,7 @@ def test_real_path_markdown_list(tiny_bank_path, tmp_path):
     ctl.load_bank()
     doc = MarkdownImporter().import_text("# xin\n\n- ba\n- chào\n\n1. xin\n2. ba").document
     out = str(tmp_path / "markdown_list.xopp")
-    result = ctl.write_document(doc, WriteOptions(seed=19), out)
+    result = ctl.write_document(doc, WriteOptions(seed=19, missing_grid=True), out)
 
     actual_xopp_sha = sha(out)
     assert actual_xopp_sha == GOLDEN_REAL["markdown_list"]["xopp"], (
@@ -150,7 +150,7 @@ def test_real_path_stable_variants(tiny_bank_path, tmp_path):
     ctl = AppController(tiny_bank_path)
     ctl.load_bank()
     out = str(tmp_path / "stable.xopp")
-    result = ctl.write_text("xin ba bà chào Xin 12 1,2 xin. (xin) zzz bá", WriteOptions(seed=7, stable_variants=True), out)
+    result = ctl.write_text("xin ba bà chào Xin 12 1,2 xin. (xin) zzz bá", WriteOptions(seed=7, stable_variants=True, missing_grid=True), out)
 
     actual_xopp_sha = sha(out)
     expected_xopp_sha = "d86e06d2eb50cc0c0f96d2163fc35035ea5a317c5e3ae8539aa4fab228706c62"
@@ -159,7 +159,7 @@ def test_real_path_stable_variants(tiny_bank_path, tmp_path):
     )
     assert result.missing_grid_path, "stable_variants: kỳ vọng có file _thieu.xopp nhưng không có"
     actual_thieu_sha = sha(result.missing_grid_path)
-    expected_thieu_sha = "675c31b5796f2515179eb504fae88cb16f4adc8f446b02104b75b3c1838d11b3"
+    expected_thieu_sha = "acb71b94f99fcf51b639b91a2abcc906267a7a5e1be4a5c3b4c333115cc6338c"
     assert actual_thieu_sha == expected_thieu_sha, (
         f"stable_variants: file _thieu.xopp khác bản gốc cố định. Mã băm mới: {actual_thieu_sha}"
     )

@@ -14,6 +14,7 @@ import {
 } from "./paper.js";
 import { exportXopp, exportSvg, exportPng, createZipArchive, downloadBlob } from "./export.js";
 import { t } from "./i18n.js";
+import { escapeHtml } from "./html-utils.js";
 
 // Trạng thái cục bộ của tab Viết
 let currentDoc = null;         // Kết quả parse XML từ xopp
@@ -361,16 +362,6 @@ function showWarning(msg) {
     warningsBox.innerHTML = `<div>⚠️ ${escapeHtml(msg)}</div>`;
     warningsBox.style.display = "block";
   }
-}
-
-function escapeHtml(str) {
-  return String(str).replace(/[&<>"']/g, (m) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;",
-  }[m]));
 }
 
 // -------------------------------------------------------------

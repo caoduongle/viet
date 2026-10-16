@@ -63,11 +63,11 @@ def test_make_grid_co_o_do_co_tay_o_dau_tien(tiny_bank, tmp_path):
     assert TAG_HW3_CALIB in ts and TAG_HW3 not in ts
     assert ts.count(cw) == 1 and "ba" in ts and "chào" in ts and "tiêu đề thử" in ts
 
-    # hw2 legacy: sinh TAG_CALIB ("hw2c")
+    # make_grid chỉ sinh chuẩn hw3 chuẩn hoá (bỏ sinh mới hw2)
     p2 = str(tmp_path / "g2.xopp")
     xopp.make_grid(p2, ["ba", "chào"], tiny_bank, "tiêu đề thử", grid_version="hw2")
     ts2 = texts(p2)
-    assert TAG_CALIB in ts2 and TAG_PLAIN not in ts2
+    assert TAG_HW3_CALIB in ts2 and TAG_HW3 not in ts2
     assert ts2.count(cw) == 1 and "ba" in ts2 and "chào" in ts2 and "tiêu đề thử" in ts2
 
 
@@ -78,11 +78,11 @@ def test_make_grid_khong_calib(tiny_bank, tmp_path):
     ts = texts(p)
     assert TAG_HW3 in ts and TAG_HW3_CALIB not in ts and "xin" not in ts
 
-    # hw2 legacy: sinh TAG_PLAIN ("hw2")
+    # make_grid chỉ sinh chuẩn hw3 chuẩn hoá (bỏ sinh mới hw2)
     p2 = str(tmp_path / "g2.xopp")
     xopp.make_grid(p2, ["ba"], tiny_bank, "h", calib=False, grid_version="hw2")
     ts2 = texts(p2)
-    assert TAG_PLAIN in ts2 and TAG_CALIB not in ts2 and "xin" not in ts2
+    assert TAG_HW3 in ts2 and TAG_HW3_CALIB not in ts2 and "xin" not in ts2
 
 
 def test_make_grid_nhieu_trang(tiny_bank, tmp_path):

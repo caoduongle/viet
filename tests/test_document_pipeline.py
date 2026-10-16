@@ -347,7 +347,7 @@ def test_d4b_does_not_overwrite_user_handwriting_in_missing_grid(tiny_bank_path,
     ctl = AppController(tiny_bank_path)
     ctl.load_bank()
     out = str(tmp_path / "out_d4b.xopp")
-    res1 = ctl.write_text("zebra quokka", WriteOptions(seed=1), out)
+    res1 = ctl.write_text("zebra quokka", WriteOptions(seed=1, missing_grid=True), out)
     grid_1 = res1.missing_grid_path
     assert grid_1 and os.path.exists(grid_1)
     # Giả lập người dùng viết nét vào grid_1
@@ -359,7 +359,7 @@ def test_d4b_does_not_overwrite_user_handwriting_in_missing_grid(tiny_bank_path,
     bytes_before = open(grid_1, "rb").read()
 
     # Chạy lại write_text
-    res2 = ctl.write_text("zebra quokka", WriteOptions(seed=1, scale=1.1), out)
+    res2 = ctl.write_text("zebra quokka", WriteOptions(seed=1, scale=1.1, missing_grid=True), out)
     assert res2.missing_grid_path == str(tmp_path / "out_d4b_thieu_2.xopp")
     assert os.path.exists(res2.missing_grid_path)
     # File cũ có nét của người dùng còn nguyên

@@ -70,7 +70,7 @@ class WriteOptions:
 
     # Chế độ kết xuất: semantic (tái dàn trang) hoặc fidelity (khóa cố định bố cục)
     mode: str = "semantic"
-    missing_grid: bool = True     # tự động tạo file _thieu.xopp khi thiếu mẫu (có thể tắt bằng --no-missing-grid)
+    missing_grid: bool = False    # mặc định False: không tự động tạo file _thieu.xopp gây rác MEMFS trên Web
     assemble_letters: bool = True   # tự động ghép từ các mẫu chữ cái khi thiếu từ nguyên khối
 
     # Các tuỳ chọn chất lượng ghép chữ cái & độ đậm nét

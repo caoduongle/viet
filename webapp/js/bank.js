@@ -12,6 +12,8 @@
 
 import * as storage from "./storage.js";
 import { switchTab } from "./app.js";
+import { escapeHtml } from "./html-utils.js";
+import { decompressXoppBase64, parseXoppXml, renderPageSvgElement } from "./paper.js";
 
 let sendWorkerFn = null;
 
@@ -262,15 +264,16 @@ function applyFiltersAndRender() {
     const isLow = item.count < 2;
     const badgeClass = isLow ? "coverage-low" : "coverage-good";
     const badgeText = isLow ? `${item.count} mẫu (ít)` : `${item.count} mẫu`;
+    const escapedLabel = escapeHtml(item.label);
 
     card.innerHTML = `
       <div style="position: absolute; top: 8px; left: 8px; z-index: 2;">
         <input type="checkbox" class="chk-card-item" data-label="${encodeURIComponent(item.label)}" ${isChecked ? "checked" : ""} style="cursor: pointer; width: 16px; height: 16px;">
       </div>
       <div class="bank-card-thumb" id="thumb-${encodeURIComponent(item.label)}">
-        <span style="font-size: 1.4rem; color: #94a3b8;">${item.label}</span>
+        <span style="font-size: 1.4rem; color: #94a3b8;">${escapedLabel}</span>
       </div>
-      <div class="bank-card-title">${item.label}</div>
+      <div class="bank-card-title">${escapedLabel}</div>
       <div class="bank-card-meta">
         <span class="coverage-badge ${badgeClass}">${badgeText}</span>
       </div>
@@ -449,7 +452,7 @@ async function openLabelDetail(label, category, count) {
       itemCard.className = "sample-item-card";
 
       const svgHtml = sample.s ? createSvgFromStrokes(sample.s, 140, 56, { showBaseline: true }) : "";
-      const widthVal = sample.w ? `${sample.w} pt` : "";
+      const widthVal = sample.w ? `${escapeHtml(sample.w)} pt` : "";
 
       itemCard.innerHTML = `
         <div class="sample-item-thumb">${svgHtml}</div>
@@ -461,13 +464,14 @@ async function openLabelDetail(label, category, count) {
       samplesGrid.appendChild(itemCard);
     });
   } catch (err) {
-    samplesGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #dc2626;">Lỗi tải mẫu: ${err.message}</div>`;
+    samplesGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #dc2626;">Lỗi tải mẫu: ${escapeHtml(err.message)}</div>`;
   }
 }
 
 async function handleRandomPreview() {
   if (!currentDetailLabel || !sendWorkerFn) return;
 
+  const targetLabel = currentDetailLabel;
   const box = document.getElementById("modal-random-preview-box");
   const content = document.getElementById("modal-random-preview-content");
   if (!box || !content) return;
@@ -480,9 +484,15 @@ async function handleRandomPreview() {
     const previews = [];
 
     for (const seed of seeds) {
+      if (currentDetailLabel !== targetLabel) return;
       const res = await sendWorkerFn("write_text", {
-        text: currentDetailLabel,
-        options: { seed, strict_case: false },
+        text: targetLabel,
+        options: {
+          seed,
+          strict_case: false,
+          missing_grid: false,
+          background: "plain",
+        },
         format: "txt",
       });
       if (res && res.ok && res.xopp_base64) {
@@ -490,19 +500,62 @@ async function handleRandomPreview() {
       }
     }
 
+    if (currentDetailLabel !== targetLabel) return;
+
     content.innerHTML = "";
     for (const p of previews) {
       const pBox = document.createElement("div");
-      pBox.style.padding = "0.4rem 0.6rem";
+      pBox.style.padding = "0.5rem";
       pBox.style.background = "#fff";
       pBox.style.border = "1px solid var(--border-color)";
       pBox.style.borderRadius = "4px";
       pBox.style.fontSize = "0.8rem";
-      pBox.innerHTML = `<div>Hạt giống seed: <b>${p.seed}</b></div>`;
+
+      const seedTitle = document.createElement("div");
+      seedTitle.style.marginBottom = "0.35rem";
+      seedTitle.style.color = "var(--text-secondary)";
+      seedTitle.innerHTML = `Hạt giống seed: <b>${p.seed}</b>`;
+      pBox.appendChild(seedTitle);
+
+      try {
+        const xml = await decompressXoppBase64(p.xopp_base64);
+        if (currentDetailLabel !== targetLabel) return;
+        const doc = parseXoppXml(xml);
+        if (doc && doc.pages && doc.pages.length > 0) {
+          const page = doc.pages[0];
+          // Tính toán bounding box của toàn bộ nét vẽ để cắt gọn viewBox
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const s of page.strokes || []) {
+            for (const pt of s.points || []) {
+              if (pt.x < minX) minX = pt.x;
+              if (pt.x > maxX) maxX = pt.x;
+              if (pt.y < minY) minY = pt.y;
+              if (pt.y > maxY) maxY = pt.y;
+            }
+          }
+
+          const svgEl = renderPageSvgElement(page);
+          if (minX !== Infinity) {
+            const pad = 10;
+            const w = Math.max(maxX - minX, 2) + pad * 2;
+            const h = Math.max(maxY - minY, 2) + pad * 2;
+            svgEl.setAttribute("viewBox", `${minX - pad} ${minY - pad} ${w} ${h}`);
+          }
+          svgEl.style.height = "70px";
+          svgEl.style.width = "100%";
+          svgEl.style.display = "block";
+          pBox.appendChild(svgEl);
+        }
+      } catch (renderErr) {
+        console.warn("Lỗi dựng SVG xem thử:", renderErr);
+      }
+
       content.appendChild(pBox);
     }
   } catch (err) {
-    content.innerHTML = `<div style="color: #dc2626; font-size: 0.85rem;">Lỗi kết xuất: ${err.message}</div>`;
+    if (currentDetailLabel === targetLabel) {
+      content.innerHTML = `<div style="color: #dc2626; font-size: 0.85rem;">Lỗi kết xuất: ${escapeHtml(err.message)}</div>`;
+    }
   }
 }
 

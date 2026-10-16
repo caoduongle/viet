@@ -495,7 +495,7 @@ class DocumentLayoutEngine:
             cur_y = pf.content_top
 
         def render_paragraph_inlines(inlines: list[Inline], scale_mult: float = 1.0, prefix: str = "",
-                                     indent: float = 0.0):
+                                     indent: float = 0.0, align: str = "left"):
             nonlocal ntok, nmiss
             if prefix:
                 inlines = [Text(text=prefix)] + list(inlines)
@@ -511,7 +511,7 @@ class DocumentLayoutEngine:
             curw = 0.0
             line_asc = line_desc = 0.0     # chiều cao lớn nhất của công thức inline trên dòng hiện tại
 
-            def flush_line():
+            def flush_line(is_last_line: bool = False):
                 nonlocal cur_y, total_lines, total_strokes, cur_line, curw, line_asc, line_desc
                 if not cur_line:
                     return
@@ -540,9 +540,28 @@ class DocumentLayoutEngine:
                     token_box_y = cur_y + extra_top
 
                 line_start_x = self.x0 + indent
+                actual_line_w = cur_line[-1][0] + cur_line[-1][2]
+                rem_space = max(0.0, avail_w - actual_line_w)
+
+                norm_align = (align or "left").lower()
+                final_line = cur_line
+
+                if norm_align == "center":
+                    line_start_x += rem_space / 2.0
+                elif norm_align == "right":
+                    line_start_x += rem_space
+                elif norm_align == "justify":
+                    if not is_last_line and len(cur_line) > 1 and rem_space > 0:
+                        gap_add = rem_space / (len(cur_line) - 1)
+                        adjusted_line = []
+                        for idx, itm in enumerate(cur_line):
+                            new_start = itm[0] + idx * gap_add
+                            adjusted_line.append(RenderItem(new_start, itm[1], itm[2], itm[3], itm[4], itm[5], itm[6]))
+                        final_line = adjusted_line
+
                 if self.token_layout_callback is not None:
                     page_idx = pb.n_pages
-                    for itm in cur_line:
+                    for itm in final_line:
                         if itm[4]:
                             box_x = line_start_x + itm[0]
                             box_y = token_box_y
@@ -559,7 +578,7 @@ class DocumentLayoutEngine:
                             )
 
                 line_strokes = self._render_text_line(
-                    cur_line, line_base_y, line_start_x,
+                    final_line, line_base_y, line_start_x,
                     scale_mult=scale_mult,
                 )
                 cur_page.extend(line_strokes)
@@ -590,7 +609,7 @@ class DocumentLayoutEngine:
                     tok_id = f"{tok_str}#0"
                     occ = 0
                 if miss == ["__LINE_BREAK__"]:
-                    flush_line()
+                    flush_line(is_last_line=True)
                     continue
 
                 if self.opts.stable_variants:
@@ -601,7 +620,7 @@ class DocumentLayoutEngine:
                 else:
                     sp = self.rnd.choice(self.gaps) * self.S * scale_mult * self.opts.space * (1 + self.rnd.gauss(0, 0.06 * self.J))
                 if cur_line and curw + sp + w > avail_w:
-                    flush_line()
+                    flush_line(is_last_line=False)
 
                 start = curw + (sp if cur_line else 0.0)
                 r_item = RenderItem(start, st, w, miss, tok_str, tok_id, occ)
@@ -612,7 +631,7 @@ class DocumentLayoutEngine:
                     line_asc = max(line_asc, ext[0] * self.S * scale_mult)
                     line_desc = max(line_desc, ext[1] * self.S * scale_mult)
 
-            flush_line()
+            flush_line(is_last_line=True)
 
         def render_math_block(block: MathBlock, indent: float = 0.0):
             """Công thức display: căn giữa, tự ngắt dòng sau quan hệ/toán tử nếu quá rộng, thu nhỏ nếu cần."""
@@ -687,7 +706,9 @@ class DocumentLayoutEngine:
                     if isinstance(sub, Paragraph):
                         pref = pfx if first_sub else "  "
                         first_sub = False
-                        render_paragraph_inlines(sub.inlines, scale_mult=1.0, prefix=pref, indent=indent)
+                        render_paragraph_inlines(
+                            sub.inlines, scale_mult=1.0, prefix=pref, indent=indent, align=getattr(sub, "align", "left")
+                        )
                         if not snap_ruling:
                             cur_y += self.line_h * 0.1
                     elif isinstance(sub, MathBlock):
@@ -721,7 +742,7 @@ class DocumentLayoutEngine:
                             if cur_y > max_page_y:
                                 new_page()
                     else:
-                        render_paragraph_inlines(block.inlines, scale_mult=1.0)
+                        render_paragraph_inlines(block.inlines, scale_mult=1.0, align=getattr(block, "align", "left"))
                         if not snap_ruling:
                             cur_y += self.line_h * 0.2
 
@@ -1082,8 +1103,7 @@ class DocumentLayoutEngine:
                 grid_path,
                 [k for k, _ in items],
                 self.bank,
-                "Từ/ký hiệu CHƯA có mẫu: viết mỗi từ/ký hiệu vào ô theo 4 vạch kẻ mốc (chuẩn hw3), rồi Ctrl+S và chạy: python hw_note.py learn %s"
-                % os.path.basename(grid_path),
+                "Từ/ký hiệu CHƯA có mẫu: viết mỗi từ/ký hiệu vào ô theo 4 vạch kẻ mốc (chuẩn hw3), rồi Ctrl+S và nạp file này tại tab Dạy chữ -> Nạp file lưới.",
                 grid_version="hw3",
             )
             result.missing_grid_path = grid_path

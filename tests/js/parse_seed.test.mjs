@@ -51,3 +51,17 @@ test("parseSeed: ô rỗng hoặc null/undefined giữ nguyên seed hiện tại
   assert.strictEqual(undefinedVal.seed, 42);
   assert.strictEqual(undefinedVal.valid, false);
 });
+
+test("DOM: index.html và write.js có phần tử và xử lý lỗi trực quan #opt-seed-error", async () => {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+
+  const indexPath = path.resolve("webapp/index.html");
+  const indexHtml = await fs.readFile(indexPath, "utf-8");
+  assert.ok(indexHtml.includes('id="opt-seed-error"'), "webapp/index.html phải có thẻ #opt-seed-error");
+
+  const writeJsPath = path.resolve("webapp/js/write.js");
+  const writeJs = await fs.readFile(writeJsPath, "utf-8");
+  assert.ok(writeJs.includes("optSeedError"), "webapp/js/write.js phải có xử lý optSeedError");
+  assert.ok(writeJs.includes("is-invalid"), "webapp/js/write.js phải thêm/bỏ class is-invalid");
+});
