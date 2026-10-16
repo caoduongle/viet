@@ -822,19 +822,28 @@ async function setupLatexModal(textarea) {
   }
 }
 
-async function loadLatexSymbols(container, textarea, modal) {
+export async function loadLatexSymbols(container, textarea, modal, fetchFn = null) {
   try {
-    const res = await sendWorkerMessage("get_latex_symbols");
+    const fetcher = typeof fetchFn === "function" ? fetchFn : () => sendWorkerMessage("get_latex_symbols");
+    const res = await fetcher();
     if (!res || !res.ok || !res.symbols) {
-      container.innerHTML = "<div>Không tải được bảng ký hiệu.</div>";
+      const emptyDiv = document.createElement("div");
+      emptyDiv.textContent = "Không tải được bảng ký hiệu.";
+      container.replaceChildren(emptyDiv);
       return;
     }
 
-    container.innerHTML = "";
+    container.replaceChildren();
     // Nhóm theo category
     for (const [catName, symbols] of Object.entries(res.symbols)) {
       const catDiv = document.createElement("div");
-      catDiv.innerHTML = `<div style="font-weight: 600; margin-bottom: 0.35rem; color: var(--text-primary);">${catName}</div>`;
+      const titleDiv = document.createElement("div");
+      titleDiv.style.fontWeight = "600";
+      titleDiv.style.marginBottom = "0.35rem";
+      titleDiv.style.color = "var(--text-primary)";
+      titleDiv.textContent = catName;
+      catDiv.appendChild(titleDiv);
+
       const btnGrid = document.createElement("div");
       btnGrid.style.display = "flex";
       btnGrid.style.flexWrap = "wrap";
@@ -857,7 +866,9 @@ async function loadLatexSymbols(container, textarea, modal) {
       container.appendChild(catDiv);
     }
   } catch (err) {
-    container.innerHTML = `<div>Lỗi tải ký hiệu: ${err.message}</div>`;
+    const errDiv = document.createElement("div");
+    errDiv.textContent = `Lỗi tải ký hiệu: ${err.message}`;
+    container.replaceChildren(errDiv);
   }
 }
 

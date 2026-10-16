@@ -29,7 +29,7 @@ Nếu bạn đã có tệp kho mẫu cá nhân từ phiên bản Desktop trướ
 ## Hướng dẫn cài đặt & Khởi chạy (Dành cho Lập trình viên)
 
 ### Yêu cầu môi trường
-- **Python 3.10+** (đã kiểm thử tự động trên CI với Python 3.10, 3.11, 3.12, 3.13).
+- **Python 3.10+** (tương thích môi trường Python >= 3.10; hệ thống CI kiểm thử tự động chính thức trên Python 3.12, 3.13 và 3.14 future-proofing).
 - **Node.js 18+** (cho các công cụ đóng gói Web, kiểm thử Playwright và Pyodide).
 - **Zero GUI Dependencies**: Toàn bộ kho mã nguồn lõi chạy headless 100%, tuyệt đối không cần cài đặt `python3-tk` hay máy chủ hiển thị `xvfb`.
 

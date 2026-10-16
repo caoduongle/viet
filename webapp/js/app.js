@@ -13,14 +13,57 @@ import { initTheme } from "./theme.js";
 let worker = null;
 let reqId = 1;
 const pendingRequests = new Map();
-
 let saveDebounceTimer = null;
 let reminderDismissed = false;
 
-export function sendWorkerMessage(method, params = {}) {
+export function setWorkerInstance(w) {
+  worker = w;
+  if (worker) {
+    attachWorkerHandlers(worker);
+  }
+}
+
+export function getPendingRequestsCount() {
+  return pendingRequests.size;
+}
+
+export function handleWorkerFatalError(errorMsg) {
+  console.error("[Worker Fatal Error]", errorMsg);
+  for (const [id, req] of pendingRequests.entries()) {
+    if (req.timer) clearTimeout(req.timer);
+    req.reject(new Error(`Sự cố Web Worker: ${errorMsg}`));
+  }
+  pendingRequests.clear();
+  try {
+    setStatus("status_error", true);
+  } catch (e) {
+    // ignore in tests without full DOM
+  }
+  if (typeof document !== "undefined") {
+    const splashStatus = document.getElementById("splash-status");
+    if (splashStatus) {
+      splashStatus.textContent = `Lỗi hệ thống: ${errorMsg}. Vui lòng tải lại trang.`;
+    }
+  }
+}
+
+export function sendWorkerMessage(method, params = {}, timeoutMs = 60000) {
   return new Promise((resolve, reject) => {
+    if (!worker) {
+      reject(new Error("Web Worker chưa được khởi tạo."));
+      return;
+    }
     const id = reqId++;
-    pendingRequests.set(id, { resolve, reject });
+    const timer = setTimeout(() => {
+      if (pendingRequests.has(id)) {
+        pendingRequests.delete(id);
+        const timeoutErr = new Error(`Yêu cầu '${method}' sang Web Worker đã quá thời gian chờ (${timeoutMs}ms).`);
+        timeoutErr.name = "WorkerTimeoutError";
+        reject(timeoutErr);
+      }
+    }, timeoutMs);
+
+    pendingRequests.set(id, { resolve, reject, timer, method });
     worker.postMessage({ id, method, params });
   });
 }
@@ -88,10 +131,8 @@ if (typeof window !== "undefined") {
 // -------------------------------------------------------------
 // 2. Khởi tạo Worker
 // -------------------------------------------------------------
-function initWorker() {
-  worker = new Worker("js/worker/py-worker.js", { type: "module" });
-
-  worker.onmessage = (e) => {
+export function attachWorkerHandlers(targetWorker) {
+  targetWorker.onmessage = (e) => {
     const data = e.data;
     if (data.type === "PROGRESS") {
       const { percent, message } = data.payload;
@@ -109,14 +150,30 @@ function initWorker() {
       const req = pendingRequests.get(data.id);
       if (req) {
         pendingRequests.delete(data.id);
+        if (req.timer) clearTimeout(req.timer);
         if (data.ok) {
           req.resolve(data.result);
         } else {
           req.reject(new Error(data.error));
         }
+      } else {
+        console.warn(`[Worker] Bỏ qua phản hồi muộn cho yêu cầu #${data.id}`);
       }
     }
   };
+
+  targetWorker.onerror = (e) => {
+    handleWorkerFatalError(e.message || "Lỗi runtime trong Web Worker");
+  };
+
+  targetWorker.onmessageerror = () => {
+    handleWorkerFatalError("Lỗi giải mã thông điệp (message deserialization error)");
+  };
+}
+
+function initWorker() {
+  worker = new Worker("js/worker/py-worker.js", { type: "module" });
+  attachWorkerHandlers(worker);
 }
 
 // -------------------------------------------------------------

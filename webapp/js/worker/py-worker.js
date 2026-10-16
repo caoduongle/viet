@@ -269,19 +269,25 @@ _batch_drop_res = _bridge.drop_chars(_chars_list)
       for (const whl of lazyWheels) {
         if (!loadedWheels.has(whl)) {
           const whlUrl = new URL(`wheels/${whl}`, PYODIDE_BASE).href;
-          const resp = await fetch(whlUrl);
-          if (resp.ok) {
-            const buf = await resp.arrayBuffer();
-            pyodide.FS.writeFile(`/tmp/${whl}`, new Uint8Array(buf));
-            pyodide.runPython(`
+          let resp;
+          try {
+            resp = await fetch(whlUrl);
+          } catch (netErr) {
+            throw new Error(`Lỗi kết nối khi tải thư viện ${whl}: ${netErr.message}`);
+          }
+          if (!resp.ok) {
+            throw new Error(`Không thể nạp thư viện ${whl}: Máy chủ phản hồi HTTP ${resp.status} (${resp.statusText})`);
+          }
+          const buf = await resp.arrayBuffer();
+          pyodide.FS.writeFile(`/tmp/${whl}`, new Uint8Array(buf));
+          pyodide.runPython(`
 import zipfile
 import site
 site_packages = site.getsitepackages()[0]
 with zipfile.ZipFile("/tmp/${whl}") as z:
     z.extractall(site_packages)
 `);
-            loadedWheels.add(whl);
-          }
+          loadedWheels.add(whl);
         }
       }
       const { bytes } = params || {};

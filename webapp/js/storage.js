@@ -40,6 +40,9 @@ export async function getDB() {
 export function getSyncChannel(onMessageCallback) {
   if (!broadcastChannel) {
     broadcastChannel = new BroadcastChannel(SYNC_CHANNEL_NAME);
+    if (broadcastChannel && typeof broadcastChannel.unref === "function") {
+      broadcastChannel.unref();
+    }
   }
   if (onMessageCallback) {
     broadcastChannel.onmessage = (event) => {
@@ -47,6 +50,13 @@ export function getSyncChannel(onMessageCallback) {
     };
   }
   return broadcastChannel;
+}
+
+export function closeSyncChannel() {
+  if (broadcastChannel) {
+    broadcastChannel.close();
+    broadcastChannel = null;
+  }
 }
 
 export function broadcastBankSync(profileId) {
@@ -58,14 +68,78 @@ export function broadcastBankSync(profileId) {
   });
 }
 
+export function setDBInstance(db) {
+  dbInstance = db;
+}
+
+/**
+ * Thực thi giao dịch IndexedDB bền vững:
+ * - Chỉ resolve khi tx.oncomplete kích hoạt (dữ liệu đã commit bền vững xuống đĩa).
+ * - Bắt tx.onerror và tx.onabort, bảo toàn mã lỗi QuotaExceededError từ request.
+ */
+export function executeTransaction(db, storeNames, mode, operationFn) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(storeNames, mode);
+    let result = undefined;
+    let lastRequestError = null;
+    let settled = false;
+
+    const safeReject = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+
+    const safeResolve = (val) => {
+      if (settled) return;
+      settled = true;
+      resolve(val);
+    };
+
+    tx.oncomplete = () => safeResolve(result);
+
+    tx.onerror = () => {
+      const err = tx.error || lastRequestError || new Error("Lỗi giao dịch IndexedDB");
+      safeReject(err);
+    };
+
+    tx.onabort = () => {
+      const err = tx.error || lastRequestError || new DOMException("Giao dịch IndexedDB bị hủy bỏ", "AbortError");
+      safeReject(err);
+    };
+
+    try {
+      const store = Array.isArray(storeNames) ? null : tx.objectStore(storeNames);
+      result = operationFn(store, tx, (reqErr) => {
+        lastRequestError = reqErr;
+      });
+    } catch (err) {
+      safeReject(err);
+    }
+  });
+}
+
+let inMemoryLockChain = Promise.resolve();
+
 export async function requestProfileLock(profileId, taskFn) {
-  if (navigator.locks && navigator.locks.request) {
+  if (typeof navigator !== "undefined" && navigator.locks && navigator.locks.request) {
     return navigator.locks.request(`chuviettay_lock_${profileId}`, async () => {
       return await taskFn();
     });
   }
-  // Dự phòng nếu trình duyệt không hỗ trợ Web Locks API
-  return await taskFn();
+  // Dự phòng nếu trình duyệt không hỗ trợ Web Locks API:
+  // Tuần tự hoá bằng chuỗi Promise trong cùng tab
+  const prevChain = inMemoryLockChain;
+  let release;
+  inMemoryLockChain = new Promise((res) => {
+    release = res;
+  });
+  try {
+    await prevChain;
+    return await taskFn();
+  } finally {
+    release();
+  }
 }
 
 export async function getProfile(profileId) {
@@ -79,18 +153,36 @@ export async function getProfile(profileId) {
   });
 }
 
-export async function saveProfile(profile) {
+export async function saveProfile(profile, expectedUpdatedAt) {
   const db = await getDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("profiles", "readwrite");
-    const store = tx.objectStore("profiles");
-    const payload = {
-      ...profile,
-      updated_at: Date.now(),
-    };
-    const req = store.put(payload);
-    req.onsuccess = () => resolve(payload);
-    req.onerror = () => reject(req.error);
+  const payload = {
+    ...profile,
+    updated_at: typeof profile.updated_at === "number" ? profile.updated_at : Date.now(),
+  };
+
+  return executeTransaction(db, "profiles", "readwrite", (store, tx, onError) => {
+    if (expectedUpdatedAt !== undefined) {
+      const getReq = store.get(payload.id);
+      getReq.onsuccess = () => {
+        const existing = getReq.result;
+        if (existing && existing.updated_at !== expectedUpdatedAt) {
+          const conflictErr = new DOMException(
+            `Xung đột đồng bộ: hồ sơ đã bị cập nhật bởi phiên khác (kỳ vọng: ${expectedUpdatedAt}, thực tế: ${existing.updated_at}).`,
+            "ConcurrencyConflictError"
+          );
+          onError(conflictErr);
+          tx.abort();
+          return;
+        }
+        const putReq = store.put(payload);
+        putReq.onerror = () => onError(putReq.error);
+      };
+      getReq.onerror = () => onError(getReq.error);
+    } else {
+      const putReq = store.put(payload);
+      putReq.onerror = () => onError(putReq.error);
+    }
+    return payload;
   });
 }
 
@@ -107,12 +199,10 @@ export async function listProfiles() {
 
 export async function deleteProfile(profileId) {
   const db = await getDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("profiles", "readwrite");
-    const store = tx.objectStore("profiles");
+  return executeTransaction(db, "profiles", "readwrite", (store, tx, onError) => {
     const req = store.delete(profileId);
-    req.onsuccess = () => resolve(true);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => onError(req.error);
+    return true;
   });
 }
 
@@ -129,12 +219,10 @@ export async function getSetting(key, defaultValue = null) {
 
 export async function setSetting(key, value) {
   const db = await getDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("app_settings", "readwrite");
-    const store = tx.objectStore("app_settings");
+  return executeTransaction(db, "app_settings", "readwrite", (store, tx, onError) => {
     const req = store.put({ key, value });
-    req.onsuccess = () => resolve(true);
-    req.onerror = () => reject(req.error);
+    req.onerror = () => onError(req.error);
+    return true;
   });
 }
 
@@ -155,35 +243,46 @@ export function getLocalSyncedTimestamp() {
  * 3. Worker flush_save() -> Bank.save() tự so sánh stat để merge -> export_bank()
  * 4. Ghi lại IndexedDB và phát sóng BroadcastChannel
  */
-export async function syncAndSaveActiveProfile(sendWorkerFn) {
+export async function syncAndSaveActiveProfile(sendWorkerFn, maxRetries = 3) {
   const activeId = await getSetting("active_profile_id", "default_profile");
   return await requestProfileLock(activeId, async () => {
-    const currentProfile = await getProfile(activeId);
-    let diskGzBytes = null;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        const currentProfile = await getProfile(activeId);
+        let diskGzBytes = null;
+        const baseUpdatedAt = currentProfile ? currentProfile.updated_at : undefined;
 
-    // Chỉ merge nếu IndexedDB có bản mới hơn bản tab hiện tại từng đọc
-    if (currentProfile && currentProfile.data && currentProfile.updated_at > localSyncedTimestamp) {
-      console.log("[Storage] Phát hiện thay đổi từ tab khác trong IndexedDB, tiến hành hợp nhất...");
-      diskGzBytes = Array.from(new Uint8Array(currentProfile.data));
+        // Chỉ merge nếu IndexedDB có bản mới hơn bản tab hiện tại từng đọc
+        if (currentProfile && currentProfile.data && currentProfile.updated_at > localSyncedTimestamp) {
+          console.log("[Storage] Phát hiện thay đổi từ tab khác trong IndexedDB, tiến hành hợp nhất...");
+          diskGzBytes = Array.from(new Uint8Array(currentProfile.data));
+        }
+
+        const mergedBytes = await sendWorkerFn("sync_save", { diskGzBytes });
+        if (!mergedBytes) {
+          throw new Error("Không nhận được dữ liệu kho sau khi đồng bộ.");
+        }
+
+        const updatedProfile = {
+          id: activeId,
+          name: currentProfile ? currentProfile.name : "Kho của tôi",
+          data: mergedBytes,
+          teach_count_since_backup: currentProfile ? (currentProfile.teach_count_since_backup || 0) : 0,
+          updated_at: Date.now(),
+        };
+
+        const savedProfile = await saveProfile(updatedProfile, baseUpdatedAt);
+        localSyncedTimestamp = savedProfile.updated_at;
+        broadcastBankSync(activeId);
+        return savedProfile;
+      } catch (err) {
+        if (err.name === "ConcurrencyConflictError" && attempt < maxRetries - 1) {
+          console.warn(`[Storage] Xung đột đồng bộ (thử lần ${attempt + 1}/${maxRetries}), thử lại...`);
+          continue;
+        }
+        throw err;
+      }
     }
-
-    const mergedBytes = await sendWorkerFn("sync_save", { diskGzBytes });
-    if (!mergedBytes) {
-      throw new Error("Không nhận được dữ liệu kho sau khi đồng bộ.");
-    }
-
-    const now = Date.now();
-    const updatedProfile = {
-      id: activeId,
-      name: currentProfile ? currentProfile.name : "Kho của tôi",
-      data: mergedBytes,
-      teach_count_since_backup: currentProfile ? (currentProfile.teach_count_since_backup || 0) : 0,
-      updated_at: now,
-    };
-    await saveProfile(updatedProfile);
-    localSyncedTimestamp = now;
-    broadcastBankSync(activeId);
-    return updatedProfile;
   });
 }
 

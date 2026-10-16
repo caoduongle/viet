@@ -123,6 +123,42 @@ with gzip.open(tiny_path, "wt", encoding="utf-8") as f:
 
 test_results = []
 
+def check_file(path_str, expected_sha):
+    p = Path(path_str) if path_str else None
+    if not p or not p.exists():
+        return {
+            "path": str(path_str) if path_str else "",
+            "exists": False,
+            "actual_sha": None,
+            "expected_sha": expected_sha,
+            "byte_length": 0,
+            "status": "MISSING",
+        }
+    actual_hash = sha(str(p))
+    size = p.stat().st_size
+    is_match = (actual_hash == expected_sha)
+    return {
+        "path": str(p),
+        "exists": True,
+        "actual_sha": actual_hash,
+        "expected_sha": expected_sha,
+        "byte_length": size,
+        "status": "MATCH" if is_match else "MISMATCH",
+    }
+
+def record_test(name, main_file_dict, grid_file_dict=None):
+    main_ok = (main_file_dict["status"] == "MATCH")
+    grid_ok = True
+    if grid_file_dict is not None and grid_file_dict.get("required"):
+        grid_ok = (grid_file_dict["status"] == "MATCH")
+    passed = main_ok and grid_ok
+    test_results.append({
+        "name": name,
+        "passed": passed,
+        "main": main_file_dict,
+        "grid": grid_file_dict,
+    })
+
 # 4 ca tiêu chuẩn
 for name in sorted(CASES):
     ctl = AppController(tiny_path)
@@ -130,16 +166,14 @@ for name in sorted(CASES):
     text, opts = CASES[name]
     out = f"/tmp/golden_run/{name}.xopp"
     res = ctl.write_text(text, opts, out)
-    xopp_sha = sha(out)
-    expected_xopp = GOLDEN_REAL[name]["xopp"]
-    match_xopp = (xopp_sha == expected_xopp)
+    main_res = check_file(out, GOLDEN_REAL[name]["xopp"])
     
-    thieu_ok = True
+    grid_res = None
     expected_thieu = GOLDEN_REAL[name].get("thieu")
     if expected_thieu:
-        if not res.missing_grid_path or sha(res.missing_grid_path) != expected_thieu:
-            thieu_ok = False
-    test_results.append((name, match_xopp and thieu_ok, xopp_sha, expected_xopp))
+        grid_res = check_file(res.missing_grid_path, expected_thieu)
+        grid_res["required"] = True
+    record_test(name, main_res, grid_res)
 
 # Ca assemble_letters
 qbank = _create_quality_test_bank(Path("/tmp/golden_run"))
@@ -148,55 +182,70 @@ ctl_asm = AppController(qbank.path)
 ctl_asm.load_bank()
 out_asm = "/tmp/golden_run/assemble_letters.xopp"
 res_asm = ctl_asm.write_text("pipeline", WriteOptions(seed=42, assemble_letters=True, auto_xh=True), out_asm)
-xopp_asm_sha = sha(out_asm)
-exp_asm = GOLDEN_REAL["assemble_letters"]["xopp"]
-test_results.append(("assemble_letters", xopp_asm_sha == exp_asm, xopp_asm_sha, exp_asm))
+record_test("assemble_letters", check_file(out_asm, GOLDEN_REAL["assemble_letters"]["xopp"]))
 
 # Ca math
 ctl_m = AppController(tiny_path)
 ctl_m.load_bank()
 doc_m = MarkdownImporter().import_text("xin ba $1,2$\\n\\n$$\\\\frac{1}{2}$$").document
 out_m = "/tmp/golden_run/math.xopp"
-ctl_m.write_document(doc_m, WriteOptions(seed=13), out_m)
-xopp_m_sha = sha(out_m)
-exp_m = GOLDEN_REAL["math"]["xopp"]
-test_results.append(("math", xopp_m_sha == exp_m, xopp_m_sha, exp_m))
+res_m = ctl_m.write_document(doc_m, WriteOptions(seed=13), out_m)
+record_test("math", check_file(out_m, GOLDEN_REAL["math"]["xopp"]))
 
 # Ca table
 ctl_t = AppController(tiny_path)
 ctl_t.load_bank()
 doc_t = MarkdownImporter().import_text("| xin | ba |\\n|---|---|\\n| 1 | 2 |").document
 out_t = "/tmp/golden_run/table.xopp"
-ctl_t.write_document(doc_t, WriteOptions(seed=17), out_t)
-xopp_t_sha = sha(out_t)
-exp_t = GOLDEN_REAL["table"]["xopp"]
-test_results.append(("table", xopp_t_sha == exp_t, xopp_t_sha, exp_t))
+res_t = ctl_t.write_document(doc_t, WriteOptions(seed=17), out_t)
+record_test("table", check_file(out_t, GOLDEN_REAL["table"]["xopp"]))
 
 # Ca markdown_list
 ctl_l = AppController(tiny_path)
 ctl_l.load_bank()
 doc_l = MarkdownImporter().import_text("# xin\\n\\n- ba\\n- chào\\n\\n1. xin\\n2. ba").document
 out_l = "/tmp/golden_run/markdown_list.xopp"
-res_l = ctl_l.write_document(doc_l, WriteOptions(seed=19), out_l)
-xopp_l_sha = sha(out_l)
-exp_l = GOLDEN_REAL["markdown_list"]["xopp"]
-thieu_l_ok = False
-if res_l.missing_grid_path and sha(res_l.missing_grid_path) == GOLDEN_REAL["markdown_list"]["thieu"]:
-    thieu_l_ok = True
-test_results.append(("markdown_list", (xopp_l_sha == exp_l) and thieu_l_ok, xopp_l_sha, exp_l))
+res_l = ctl_l.write_document(doc_l, WriteOptions(seed=19, missing_grid=True), out_l)
+main_l = check_file(out_l, GOLDEN_REAL["markdown_list"]["xopp"])
+grid_l = check_file(res_l.missing_grid_path, GOLDEN_REAL["markdown_list"]["thieu"])
+grid_l["required"] = True
+record_test("markdown_list", main_l, grid_l)
 `);
 
-  const results = pyodide.globals.get("test_results").toJs();
+  const results = pyodide.globals.get("test_results").toJs({ dict_converter: Object.fromEntries });
   console.log("\n================ KẾT QUẢ GOLDEN MASTER TRONG PYODIDE ================");
   let allPassed = true;
-  for (const [name, passed, actualSha, expectedSha] of results) {
+  for (const item of results) {
+    const { name, passed, main, grid } = item;
     if (passed) {
-      console.log(`  [PASS] ${name}: SHA-256 trùng khớp 100%`);
+      if (grid && grid.required) {
+        console.log(`  [PASS] ${name}: SHA-256 trùng khớp 100% (tệp chính & lưới phụ)`);
+      } else {
+        console.log(`  [PASS] ${name}: SHA-256 trùng khớp 100%`);
+      }
     } else {
       allPassed = false;
       console.error(`  [FAIL] ${name}:`);
-      console.error(`         Kỳ vọng: ${expectedSha}`);
-      console.error(`         Nhận:    ${actualSha}`);
+      if (main.status !== "MATCH") {
+        console.error(`    - Tệp chính (${main.path}):`);
+        if (!main.exists) {
+          console.error(`      Trạng thái: [THIẾU TỆP KHÔNG TỒN TẠI]`);
+        } else {
+          console.error(`      Trạng thái: [KHÔNG KHỚP MÃ BĂM]`);
+          console.error(`      Kỳ vọng:    ${main.expected_sha}`);
+          console.error(`      Nhận:       ${main.actual_sha} (${main.byte_length} bytes)`);
+        }
+      }
+      if (grid && grid.required && grid.status !== "MATCH") {
+        console.error(`    - Tệp lưới phụ (${grid.path || "chưa tạo"}):`);
+        if (!grid.exists) {
+          console.error(`      Trạng thái: [THIẾU TỆP KHÔNG TỒN TẠI]`);
+        } else {
+          console.error(`      Trạng thái: [KHÔNG KHỚP MÃ BĂM]`);
+          console.error(`      Kỳ vọng:    ${grid.expected_sha}`);
+          console.error(`      Nhận:       ${grid.actual_sha} (${grid.byte_length} bytes)`);
+        }
+      }
     }
   }
   console.log("====================================================================\n");

@@ -174,4 +174,92 @@ test.describe("User Story 5: Đa tab đồng bộ không mất dữ liệu (E2E)
 
     await context.close();
   });
+
+  test("hai page cùng context khi KHÔNG CÓ Web Locks (navigator.locks = undefined), dạy xen kẽ và hội tụ", async ({ browser }) => {
+    test.setTimeout(90000);
+    const context = await browser.newContext();
+    // Giả lập trình duyệt không hỗ trợ Web Locks API
+    await context.addInitScript(() => {
+      try {
+        Object.defineProperty(navigator, "locks", {
+          value: undefined,
+          configurable: true,
+        });
+      } catch (e) {
+        // ignore
+      }
+    });
+
+    const page1 = await context.newPage();
+    await page1.goto("/");
+    await expect(page1.locator("#splash-screen")).toBeHidden({ timeout: 45000 });
+
+    const welcome1 = page1.locator("#welcome-modal");
+    await expect(welcome1).toBeVisible({ timeout: 15000 });
+    const bankFilePath = path.resolve("tests/data/kho_mau_tong_hop.json.gz");
+    const fileChooserPromise = page1.waitForEvent("filechooser");
+    await page1.click("#btn-welcome-import");
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles(bankFilePath);
+    await expect(welcome1).toBeHidden({ timeout: 20000 });
+
+    const page2 = await context.newPage();
+    await page2.goto("/");
+    await expect(page2.locator("#splash-screen")).toBeHidden({ timeout: 45000 });
+    await expect(page2.locator("#welcome-modal")).toBeHidden({ timeout: 10000 });
+
+    async function drawStroke(page: any) {
+      const canvas = page.locator("#teach-canvas");
+      await expect(canvas).toBeVisible();
+      const canvasBox = await canvas.boundingBox();
+      expect(canvasBox).not.toBeNull();
+      const cx = canvasBox!.x + 100;
+      const cy = canvasBox!.y + 100;
+
+      await canvas.evaluate((el: HTMLElement, { x, y }: { x: number; y: number }) => {
+        el.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, pointerType: "pen", isPrimary: true, clientX: x, clientY: y, button: 0, buttons: 1 }));
+        el.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, pointerType: "pen", isPrimary: true, clientX: x + 40, clientY: y - 30, button: 0, buttons: 1 }));
+        el.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, pointerType: "pen", isPrimary: true, clientX: x + 40, clientY: y - 30, button: 0, buttons: 0 }));
+      }, { x: cx, y: cy });
+    }
+
+    // 1. Page 1: Dạy ký hiệu "="
+    await page1.click('[data-tab="teach"]');
+    await page1.fill("#input-teach-add", "=");
+    await page1.click("#btn-teach-add");
+    await expect(page1.locator("#teach-target-word")).toHaveText("=");
+    await drawStroke(page1);
+
+    const saveBtn1 = page1.locator("#btn-teach-save");
+    await expect(saveBtn1).toBeEnabled();
+    await saveBtn1.click();
+    await page1.waitForTimeout(3000);
+
+    // 2. Page 2: Dạy ký hiệu "%"
+    await page2.click('[data-tab="teach"]');
+    await page2.fill("#input-teach-add", "%");
+    await page2.click("#btn-teach-add");
+    await expect(page2.locator("#teach-target-word")).toHaveText("%");
+    await drawStroke(page2);
+
+    const saveBtn2 = page2.locator("#btn-teach-save");
+    await expect(saveBtn2).toBeEnabled();
+    await saveBtn2.click();
+    await page2.waitForTimeout(3000);
+
+    // 3. Kiểm tra Hội tụ trên cả Page 1 và Page 2
+    await page1.click('[data-tab="bank"]');
+    await page1.fill("#input-search-bank", "=");
+    await expect(page1.locator("#bank-cards-grid .bank-card-title", { hasText: /^=$/ })).toBeVisible({ timeout: 10000 });
+    await page1.fill("#input-search-bank", "%");
+    await expect(page1.locator("#bank-cards-grid .bank-card-title", { hasText: /^%$/ })).toBeVisible({ timeout: 10000 });
+
+    await page2.click('[data-tab="bank"]');
+    await page2.fill("#input-search-bank", "=");
+    await expect(page2.locator("#bank-cards-grid .bank-card-title", { hasText: /^=$/ })).toBeVisible({ timeout: 10000 });
+    await page2.fill("#input-search-bank", "%");
+    await expect(page2.locator("#bank-cards-grid .bank-card-title", { hasText: /^%$/ })).toBeVisible({ timeout: 10000 });
+
+    await context.close();
+  });
 });
