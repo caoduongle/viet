@@ -33,27 +33,45 @@ const PRECACHE_URLS = [
   "./pyodide/wheels/mdurl-0.1.2-py3-none-any.whl",
   "./pyodide/wheels/mdit_py_plugins-0.6.1-py3-none-any.whl",
   "./pyodide/wheels/markdown_it_py-4.2.0-py3-none-any.whl",
-  "./pyodide/wheels/python_docx-1.1.2-py3-none-any.whl",
-  "./pyodide/wheels/lxml-6.1.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
 ];
 
-// 1. Cài đặt Service Worker và nạp trước toàn bộ tài nguyên (B5: bắt buộc thành công)
+const OPTIONAL_LAZY_URLS = [
+  "./pyodide/wheels/python_docx-1.1.2-py3-none-any.whl",
+  "./pyodide/wheels/lxml-6.1.3-cp314-cp314-pyemscripten_2026_0_wasm32.whl",
+  "./pyodide/wheels/typing_extensions-4.15.0-py3-none-any.whl",
+];
+
+// 1. Cài đặt Service Worker nguyên tử (Fetch-All-First, rollback xóa cache dở dang nếu đứt mạng)
 self.addEventListener("install", (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      // Dùng Promise.all để fail fast nếu bất kỳ core asset nào lỗi
-      await Promise.all(
-        PRECACHE_URLS.map(async (url) => {
-          const resp = await fetch(url, { cache: "no-cache" });
-          if (!resp || !resp.ok) {
-            throw new Error(`[SW] Không thể nạp tài nguyên bắt buộc lúc install: ${url} (status: ${resp?.status})`);
-          }
-          await cache.put(url, resp);
-        })
-      );
-    })
+    (async () => {
+      try {
+        // 1. Fetch và xác thực toàn bộ PRECACHE_URLS trong bộ nhớ TRƯỚC khi ghi vào CacheStorage
+        const entries = await Promise.all(
+          PRECACHE_URLS.map(async (url) => {
+            const resp = await fetch(url, { cache: "no-cache" });
+            if (!resp || !resp.ok) {
+              throw new Error(
+                `[SW] Không thể nạp tài nguyên bắt buộc lúc install: ${url} (status: ${resp?.status})`
+              );
+            }
+            return { url, resp: resp.clone() };
+          })
+        );
+
+        // 2. Chỉ mở cache và ghi khi TẤT CẢ các tệp bắt buộc đã tải thành công 100%
+        const cache = await caches.open(CACHE_NAME);
+        await Promise.all(entries.map(({ url, resp }) => cache.put(url, resp)));
+
+        // 3. Chỉ gọi skipWaiting() bên trong waitUntil sau khi cache mới đã hoàn tất nguyên tử
+        await self.skipWaiting();
+      } catch (err) {
+        console.error("[SW Install Error] Hủy bỏ cài đặt cache dở dang:", err);
+        await caches.delete(CACHE_NAME);
+        throw err;
+      }
+    })()
   );
-  self.skipWaiting();
 });
 
 // 2. Kích hoạt và dọn dẹp các phiên bản cache cũ

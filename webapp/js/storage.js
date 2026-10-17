@@ -99,12 +99,12 @@ export function executeTransaction(db, storeNames, mode, operationFn) {
     tx.oncomplete = () => safeResolve(result);
 
     tx.onerror = () => {
-      const err = tx.error || lastRequestError || new Error("Lỗi giao dịch IndexedDB");
+      const err = lastRequestError || tx.error || new Error("Lỗi giao dịch IndexedDB");
       safeReject(err);
     };
 
     tx.onabort = () => {
-      const err = tx.error || lastRequestError || new DOMException("Giao dịch IndexedDB bị hủy bỏ", "AbortError");
+      const err = lastRequestError || tx.error || new DOMException("Giao dịch IndexedDB bị hủy bỏ", "AbortError");
       safeReject(err);
     };
 
@@ -114,6 +114,11 @@ export function executeTransaction(db, storeNames, mode, operationFn) {
         lastRequestError = reqErr;
       });
     } catch (err) {
+      try {
+        tx.abort();
+      } catch (_) {
+        // tx có thể đã ở trạng thái inactive/aborted
+      }
       safeReject(err);
     }
   });
@@ -165,20 +170,49 @@ export async function saveProfile(profile, expectedUpdatedAt) {
       const getReq = store.get(payload.id);
       getReq.onsuccess = () => {
         const existing = getReq.result;
-        if (existing && existing.updated_at !== expectedUpdatedAt) {
-          const conflictErr = new DOMException(
-            `Xung đột đồng bộ: hồ sơ đã bị cập nhật bởi phiên khác (kỳ vọng: ${expectedUpdatedAt}, thực tế: ${existing.updated_at}).`,
-            "ConcurrencyConflictError"
-          );
-          onError(conflictErr);
-          tx.abort();
-          return;
+
+        // 1. Kỳ vọng hồ sơ đang tồn tại với phiên bản cụ thể (expectedUpdatedAt là số)
+        if (typeof expectedUpdatedAt === "number") {
+          if (!existing) {
+            const conflictErr = new DOMException(
+              `Xung đột đồng bộ: hồ sơ '${payload.id}' đã bị xóa bởi phiên khác.`,
+              "ConcurrencyConflictError"
+            );
+            onError(conflictErr);
+            tx.abort();
+            return;
+          }
+          if (existing.updated_at !== expectedUpdatedAt) {
+            const conflictErr = new DOMException(
+              `Xung đột đồng bộ: hồ sơ đã bị cập nhật bởi phiên khác (kỳ vọng: ${expectedUpdatedAt}, thực tế: ${existing.updated_at}).`,
+              "ConcurrencyConflictError"
+            );
+            onError(conflictErr);
+            tx.abort();
+            return;
+          }
+        } else if (expectedUpdatedAt === null) {
+          // 2. Kỳ vọng hồ sơ chưa từng tồn tại (khởi tạo mới)
+          if (existing) {
+            const conflictErr = new DOMException(
+              `Xung đột đồng bộ: hồ sơ '${payload.id}' đã tồn tại, không thể khởi tạo mới đồng thời.`,
+              "ConcurrencyConflictError"
+            );
+            onError(conflictErr);
+            tx.abort();
+            return;
+          }
         }
+
+        // Đảm bảo dấu thời gian đơn điệu tăng chặt
+        payload.updated_at = Math.max(payload.updated_at, existing ? existing.updated_at + 1 : 1);
+
         const putReq = store.put(payload);
         putReq.onerror = () => onError(putReq.error);
       };
       getReq.onerror = () => onError(getReq.error);
     } else {
+      // 3. Ghi đè cưỡng bức không điều kiện
       const putReq = store.put(payload);
       putReq.onerror = () => onError(putReq.error);
     }
@@ -243,17 +277,31 @@ export function getLocalSyncedTimestamp() {
  * 3. Worker flush_save() -> Bank.save() tự so sánh stat để merge -> export_bank()
  * 4. Ghi lại IndexedDB và phát sóng BroadcastChannel
  */
-export async function syncAndSaveActiveProfile(sendWorkerFn, maxRetries = 3) {
+export async function syncAndSaveActiveProfile(sendWorkerFn, maxRetries = 3, options = {}) {
   const activeId = await getSetting("active_profile_id", "default_profile");
-  return await requestProfileLock(activeId, async () => {
+  const lockFn = options.skipLock ? async (_id, fn) => fn() : requestProfileLock;
+  return await lockFn(activeId, async () => {
+    let syncedTs = options.initialSyncedTimestamp !== undefined ? options.initialSyncedTimestamp : localSyncedTimestamp;
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         const currentProfile = await getProfile(activeId);
-        let diskGzBytes = null;
-        const baseUpdatedAt = currentProfile ? currentProfile.updated_at : undefined;
 
-        // Chỉ merge nếu IndexedDB có bản mới hơn bản tab hiện tại từng đọc
-        if (currentProfile && currentProfile.data && currentProfile.updated_at > localSyncedTimestamp) {
+        // Kiểm tra an toàn: nếu tab hiện tại từng nạp/đồng bộ hồ sơ này (syncedTs > 0),
+        // nhưng hiện tại hồ sơ đã bị xóa khỏi IndexedDB bởi tab khác:
+        if (!currentProfile && syncedTs > 0) {
+          const deletedErr = new DOMException(
+            `Hồ sơ đang đồng bộ ('${activeId}') đã bị xóa bởi một tab khác.`,
+            "ConcurrencyConflictError"
+          );
+          deletedErr.codeName = "ProfileDeletedConflictError";
+          throw deletedErr;
+        }
+
+        let diskGzBytes = null;
+        const baseUpdatedAt = currentProfile ? currentProfile.updated_at : null;
+
+        // Chỉ merge nếu IndexedDB có bản mới hơn bản tab hiện tại từng đọc, hoặc đang retry sau xung đột
+        if (currentProfile && currentProfile.data && (currentProfile.updated_at > syncedTs || attempt > 0)) {
           console.log("[Storage] Phát hiện thay đổi từ tab khác trong IndexedDB, tiến hành hợp nhất...");
           diskGzBytes = Array.from(new Uint8Array(currentProfile.data));
         }
@@ -276,7 +324,7 @@ export async function syncAndSaveActiveProfile(sendWorkerFn, maxRetries = 3) {
         broadcastBankSync(activeId);
         return savedProfile;
       } catch (err) {
-        if (err.name === "ConcurrencyConflictError" && attempt < maxRetries - 1) {
+        if (err.name === "ConcurrencyConflictError" && err.codeName !== "ProfileDeletedConflictError" && attempt < maxRetries - 1) {
           console.warn(`[Storage] Xung đột đồng bộ (thử lần ${attempt + 1}/${maxRetries}), thử lại...`);
           continue;
         }

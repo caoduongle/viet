@@ -16,10 +16,34 @@ const pendingRequests = new Map();
 let saveDebounceTimer = null;
 let reminderDismissed = false;
 
+let workerGeneration = 0;
+let isRecovering = false;
+let isUiInitialized = false;
+let recoveryPromise = null;
+
+export function getWorkerGeneration() {
+  return workerGeneration;
+}
+
+export function getIsRecovering() {
+  return isRecovering;
+}
+
+export function getIsUiInitialized() {
+  return isUiInitialized;
+}
+
+export function resetUiInitializedForTesting() {
+  isUiInitialized = false;
+  isRecovering = false;
+  workerGeneration = 0;
+  recoveryPromise = null;
+}
+
 export function setWorkerInstance(w) {
   worker = w;
   if (worker) {
-    attachWorkerHandlers(worker);
+    attachWorkerHandlers(worker, workerGeneration);
   }
 }
 
@@ -42,7 +66,18 @@ export function handleWorkerFatalError(errorMsg) {
   if (typeof document !== "undefined") {
     const splashStatus = document.getElementById("splash-status");
     if (splashStatus) {
-      splashStatus.textContent = `Lỗi hệ thống: ${errorMsg}. Vui lòng tải lại trang.`;
+      splashStatus.textContent = `Lỗi hệ thống: ${errorMsg}. Vui lòng thử lại.`;
+    }
+    const btnRetry = document.getElementById("btn-worker-retry");
+    if (btnRetry) {
+      btnRetry.style.display = "inline-block";
+      btnRetry.disabled = false;
+      if (!btnRetry.__hasRetryListener) {
+        btnRetry.__hasRetryListener = true;
+        btnRetry.addEventListener("click", () => {
+          recoverWorker();
+        });
+      }
     }
   }
 }
@@ -59,6 +94,17 @@ export function sendWorkerMessage(method, params = {}, timeoutMs = 60000) {
         pendingRequests.delete(id);
         const timeoutErr = new Error(`Yêu cầu '${method}' sang Web Worker đã quá thời gian chờ (${timeoutMs}ms).`);
         timeoutErr.name = "WorkerTimeoutError";
+
+        // T020: Chấm dứt vật lý Worker bị treo để ngăn duplicate execution
+        if (worker && typeof worker.terminate === "function") {
+          try {
+            worker.terminate();
+          } catch (_) {}
+        }
+        workerGeneration++;
+        worker = null;
+
+        handleWorkerFatalError(`Tác vụ '${method}' bị quá hạn chờ (${timeoutMs}ms)`);
         reject(timeoutErr);
       }
     }, timeoutMs);
@@ -66,6 +112,66 @@ export function sendWorkerMessage(method, params = {}, timeoutMs = 60000) {
     pendingRequests.set(id, { resolve, reject, timer, method });
     worker.postMessage({ id, method, params });
   });
+}
+
+let workerReadyResolve = null;
+
+export function recoverWorker(WorkerClass = null) {
+  if (isRecovering && recoveryPromise) {
+    return recoveryPromise;
+  }
+  isRecovering = true;
+
+  const btnRetry = typeof document !== "undefined" ? document.getElementById("btn-worker-retry") : null;
+  if (btnRetry) {
+    btnRetry.disabled = true;
+  }
+  try {
+    setStatus("status_loading", false, true);
+  } catch (_) {}
+
+  recoveryPromise = (async () => {
+    try {
+      // 1. Chấm dứt Worker cũ và cô lập generation
+      workerGeneration++;
+      if (worker && typeof worker.terminate === "function") {
+        try {
+          worker.terminate();
+        } catch (_) {}
+      }
+      worker = null;
+
+      // 2. Reject toàn bộ pendingRequests
+      for (const [id, req] of pendingRequests.entries()) {
+        if (req.timer) clearTimeout(req.timer);
+        req.reject(new Error("Bộ xử lý nền đã được khởi động lại."));
+      }
+      pendingRequests.clear();
+
+      // 3. Khởi tạo Worker mới và chờ tín hiệu READY
+      const TargetWorkerClass = WorkerClass || (typeof Worker !== "undefined" ? Worker : null);
+      if (TargetWorkerClass) {
+        const readyPromise = new Promise((resolve) => {
+          workerReadyResolve = resolve;
+        });
+        worker = new TargetWorkerClass("js/worker/py-worker.js", { type: "module" });
+        attachWorkerHandlers(worker, workerGeneration);
+        await readyPromise;
+      }
+
+      return true;
+    } finally {
+      if (btnRetry) {
+        btnRetry.disabled = false;
+        btnRetry.style.display = "none";
+      }
+      isRecovering = false;
+      recoveryPromise = null;
+      workerReadyResolve = null;
+    }
+  })();
+
+  return recoveryPromise;
 }
 
 // -------------------------------------------------------------
@@ -131,21 +237,43 @@ if (typeof window !== "undefined") {
 // -------------------------------------------------------------
 // 2. Khởi tạo Worker
 // -------------------------------------------------------------
-export function attachWorkerHandlers(targetWorker) {
+export function attachWorkerHandlers(targetWorker, generation = workerGeneration) {
   targetWorker.onmessage = (e) => {
+    if (generation !== workerGeneration) {
+      return;
+    }
     const data = e.data;
     if (data.type === "PROGRESS") {
       const { percent, message } = data.payload;
-      const bar = document.getElementById("splash-bar");
-      const status = document.getElementById("splash-status");
-      if (bar) bar.style.width = `${percent}%`;
-      if (status) status.textContent = message;
+      if (typeof document !== "undefined") {
+        const bar = document.getElementById("splash-bar");
+        const status = document.getElementById("splash-status");
+        if (bar) bar.style.width = `${percent}%`;
+        if (status) status.textContent = message;
+      }
     } else if (data.type === "READY") {
-      onWorkerReady();
+      onWorkerReady().then(() => {
+        if (workerReadyResolve) {
+          workerReadyResolve(true);
+          workerReadyResolve = null;
+        }
+      }).catch((err) => {
+        console.error("Lỗi khi nạp lại kho sau khi phục hồi:", err);
+        if (workerReadyResolve) {
+          workerReadyResolve(false);
+          workerReadyResolve = null;
+        }
+      });
     } else if (data.type === "ERROR") {
       console.error("Lỗi Worker:", data.payload);
-      const status = document.getElementById("splash-status");
-      if (status) status.textContent = `Lỗi khởi tạo: ${data.payload.message}`;
+      if (typeof document !== "undefined") {
+        const status = document.getElementById("splash-status");
+        if (status) status.textContent = `Lỗi khởi tạo: ${data.payload.message}`;
+      }
+      if (workerReadyResolve) {
+        workerReadyResolve(false);
+        workerReadyResolve = null;
+      }
     } else if (data.id) {
       const req = pendingRequests.get(data.id);
       if (req) {
@@ -163,92 +291,123 @@ export function attachWorkerHandlers(targetWorker) {
   };
 
   targetWorker.onerror = (e) => {
+    if (generation !== workerGeneration) {
+      return;
+    }
     handleWorkerFatalError(e.message || "Lỗi runtime trong Web Worker");
+    if (workerReadyResolve) {
+      workerReadyResolve(false);
+      workerReadyResolve = null;
+    }
   };
 
   targetWorker.onmessageerror = () => {
+    if (generation !== workerGeneration) {
+      return;
+    }
     handleWorkerFatalError("Lỗi giải mã thông điệp (message deserialization error)");
   };
 }
 
 function initWorker() {
   worker = new Worker("js/worker/py-worker.js", { type: "module" });
-  attachWorkerHandlers(worker);
+  attachWorkerHandlers(worker, workerGeneration);
 }
 
 // -------------------------------------------------------------
 // 3. Xử lý sau khi Pyodide Worker đã sẵn sàng
 // -------------------------------------------------------------
-async function onWorkerReady() {
-  // Ẩn màn hình splash
-  const splash = document.getElementById("splash-screen");
-  if (splash) splash.style.display = "none";
-
-  // Xin quyền lưu trữ bền vững (T037)
-  if (navigator.storage && navigator.storage.persist) {
-    try {
-      const isPersisted = await navigator.storage.persist();
-      console.log("[Storage] Persisted storage:", isPersisted);
-    } catch (e) {
-      console.warn("[Storage] Persist request error:", e);
+export async function onWorkerReady() {
+  // Ẩn màn hình splash và nút thử lại
+  if (typeof document !== "undefined") {
+    const splash = document.getElementById("splash-screen");
+    if (splash) splash.style.display = "none";
+    const btnRetry = document.getElementById("btn-worker-retry");
+    if (btnRetry) {
+      btnRetry.style.display = "none";
+      btnRetry.disabled = false;
     }
   }
 
-  // Khởi tạo tab Kho mẫu, Tab Viết chữ & Tab Dạy mẫu
-  initBankTab(sendWorkerMessage);
-  initWriteTab();
-  const teachController = new TeachController(
-    { request: sendWorkerMessage },
-    { onSampleSaved: notifySampleTaught }
-  );
-  await teachController.init();
-  window.__teachController = teachController;
-
-  // Lắng nghe đồng bộ đa tab qua BroadcastChannel (T066)
-  storage.getSyncChannel(async (msg) => {
-    if (msg.type === "BANK_SYNCHRONIZED") {
-      const activeId = await storage.getSetting("active_profile_id", "default_profile");
-      if (msg.profileId === activeId) {
-        console.log("[Multi-Tab] Nhận tín hiệu đồng bộ từ tab khác cho hồ sơ:", activeId);
-        storage.setLocalSyncedTimestamp(msg.timestamp || Date.now());
-        setStatus("status_syncing", false, true);
-        const profile = await storage.getProfile(activeId);
-        if (profile && profile.data) {
-          await sendWorkerMessage("load_bank", {
-            gzBytes: Array.from(new Uint8Array(profile.data)),
-            createIfMissing: false,
-          });
-          await refreshBankView();
-          if (window.__teachController) {
-            await window.__teachController.refresh();
-          }
-        }
-        setStatus("status_ready");
+  const isFirstInit = !isUiInitialized;
+  // Khởi tạo các event listeners và controller giao diện một lần duy nhất
+  if (!isUiInitialized) {
+    // Xin quyền lưu trữ bền vững (T037)
+    if (typeof navigator !== "undefined" && navigator.storage && navigator.storage.persist) {
+      try {
+        const isPersisted = await navigator.storage.persist();
+        console.log("[Storage] Persisted storage:", isPersisted);
+      } catch (e) {
+        console.warn("[Storage] Persist request error:", e);
       }
     }
-  });
 
-  // Gắn hook tự động flush lưu khi người dùng chuyển tab trình duyệt hoặc đóng trang (T066)
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") {
-      triggerSyncSave();
+    // Khởi tạo tab Kho mẫu, Tab Viết chữ & Tab Dạy mẫu khi có DOM
+    if (typeof document !== "undefined") {
+      initBankTab(sendWorkerMessage);
+      initWriteTab();
+      const teachController = new TeachController(
+        { request: sendWorkerMessage },
+        { onSampleSaved: notifySampleTaught }
+      );
+      await teachController.init();
+      if (typeof window !== "undefined") {
+        window.__teachController = teachController;
+      }
+      initQuotaAndBackupReminders();
+      initGuideModal();
     }
-  });
-  window.addEventListener("pagehide", () => {
-    triggerSyncSave();
-  });
 
-  // Thiết lập sự kiện cho Cảnh báo dung lượng & Nhắc nhở sao lưu (T067)
-  initQuotaAndBackupReminders();
-  initGuideModal();
+    // Lắng nghe đồng bộ đa tab qua BroadcastChannel (T066)
+    storage.getSyncChannel(async (msg) => {
+      if (msg.type === "BANK_SYNCHRONIZED") {
+        const activeId = await storage.getSetting("active_profile_id", "default_profile");
+        if (msg.profileId === activeId) {
+          console.log("[Multi-Tab] Nhận tín hiệu đồng bộ từ tab khác cho hồ sơ:", activeId);
+          storage.setLocalSyncedTimestamp(msg.timestamp || Date.now());
+          setStatus("status_syncing", false, true);
+          const profile = await storage.getProfile(activeId);
+          if (profile && profile.data) {
+            await sendWorkerMessage("load_bank", {
+              gzBytes: Array.from(new Uint8Array(profile.data)),
+              createIfMissing: false,
+            });
+            if (typeof document !== "undefined") {
+              await refreshBankView();
+            }
+            if (typeof window !== "undefined" && window.__teachController) {
+              await window.__teachController.refresh();
+            }
+          }
+          setStatus("status_ready");
+        }
+      }
+    });
 
-  // Kiểm tra hồ sơ trong IndexedDB (T035, T036)
+    // Gắn hook tự động flush lưu khi người dùng chuyển tab trình duyệt hoặc đóng trang (T066)
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "hidden") {
+          triggerSyncSave();
+        }
+      });
+    }
+    if (typeof window !== "undefined") {
+      window.addEventListener("pagehide", () => {
+        triggerSyncSave();
+      });
+    }
+
+    isUiInitialized = true;
+  }
+
+  // Nạp lại / Khởi tạo hồ sơ trong IndexedDB
   const profiles = await storage.listProfiles();
   if (!profiles || profiles.length === 0) {
-    // Chưa có kho nào -> Hiện màn hình chào (T035)
-    showWelcomeModal();
+    if (isFirstInit && typeof document !== "undefined") {
+      showWelcomeModal();
+    }
   } else {
-    // Đã có kho -> Nạp hồ sơ đang kích hoạt
     const activeId = await storage.getSetting("active_profile_id", profiles[0].id);
     const profile = await storage.getProfile(activeId);
     if (profile && profile.data) {
@@ -257,14 +416,22 @@ async function onWorkerReady() {
         gzBytes: Array.from(new Uint8Array(profile.data)),
         createIfMissing: false,
       });
-      await refreshBankView();
+      if (typeof document !== "undefined") {
+        await refreshBankView();
+      }
+      if (typeof window !== "undefined" && window.__teachController) {
+        await window.__teachController.refresh();
+      }
     }
   }
 
-  // Kiểm tra hạn ngạch bộ nhớ lần đầu
-  await checkQuotaStatus();
+  // Kiểm tra hạn ngạch bộ nhớ
+  if (typeof document !== "undefined") {
+    await checkQuotaStatus();
+  }
 
   setStatus("status_ready");
+  isRecovering = false;
 }
 
 function initQuotaAndBackupReminders() {
@@ -295,6 +462,7 @@ function initQuotaAndBackupReminders() {
 }
 
 export function setStatus(statusKey, isError = false, isBusy = false) {
+  if (typeof document === "undefined") return;
   const indicator = document.getElementById("status-indicator");
   const statusText = document.getElementById("status-text");
   if (indicator) {
@@ -490,5 +658,11 @@ if (typeof document !== "undefined") {
     initTabs();
     initWorker();
     initServiceWorker();
+    const btnRetry = document.getElementById("btn-worker-retry");
+    if (btnRetry) {
+      btnRetry.addEventListener("click", () => {
+        recoverWorker();
+      });
+    }
   });
 }

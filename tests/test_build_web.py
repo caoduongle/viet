@@ -155,3 +155,51 @@ def test_prepare_dist_dir_safety(monkeypatch, tmp_path: Path):
     # 4. Hợp lệ: mock_default_dist -> thành công
     build_web.prepare_dist_dir(mock_default_dist)
     assert mock_default_dist.exists()
+
+
+def test_sw_precache_and_lazy_urls_separation(built_dist: Path):
+    """sw.js phân tách đúng PRECACHE_URLS (core) và OPTIONAL_LAZY_URLS (lazy wheels) và có băm 12 ký tự."""
+    sw_file = built_dist / "sw.js"
+    assert sw_file.exists()
+    content = sw_file.read_text(encoding="utf-8")
+
+    import re
+
+    cache_match = re.search(r'const\s+CACHE_NAME\s*=\s*"([^"]+)";', content)
+    assert cache_match, "Không tìm thấy CACHE_NAME trong sw.js"
+    cache_name = cache_match.group(1)
+    assert re.match(r"^chuviettay-cache-[a-f0-9]{12}$", cache_name), f"CACHE_NAME sai định dạng băm: {cache_name}"
+
+    precache_match = re.search(r"const\s+PRECACHE_URLS\s*=\s*(\[[\s\S]*?\]);", content)
+    assert precache_match, "Không tìm thấy PRECACHE_URLS trong sw.js"
+    precache_urls = json.loads(precache_match.group(1))
+
+    lazy_match = re.search(r"const\s+OPTIONAL_LAZY_URLS\s*=\s*(\[[\s\S]*?\]);", content)
+    assert lazy_match, "Không tìm thấy OPTIONAL_LAZY_URLS trong sw.js"
+    lazy_urls = json.loads(lazy_match.group(1))
+
+    # Core files bắt buộc có trong PRECACHE_URLS
+    assert "./" in precache_urls
+    assert any("pyodide.asm.wasm" in u for u in precache_urls)
+    assert any("python_stdlib.zip" in u for u in precache_urls)
+    assert any("chuviettay.zip" in u for u in precache_urls)
+
+    # Startup wheels phải nằm trong PRECACHE_URLS
+    assert any("markdown_it_py" in u for u in precache_urls)
+    assert any("mdit_py_plugins" in u for u in precache_urls)
+    assert any("mdurl" in u for u in precache_urls)
+
+    # Lazy wheels (docx, lxml, typing_extensions) KHÔNG được nằm trong PRECACHE_URLS
+    assert not any("python_docx" in u for u in precache_urls), "python_docx không được nằm trong PRECACHE_URLS"
+    assert not any("lxml" in u for u in precache_urls), "lxml không được nằm trong PRECACHE_URLS"
+    assert not any("typing_extensions" in u for u in precache_urls), "typing_extensions không được nằm trong PRECACHE_URLS"
+
+    # Lazy wheels PHẢI nằm trong OPTIONAL_LAZY_URLS
+    assert any("python_docx" in u for u in lazy_urls), "python_docx phải nằm trong OPTIONAL_LAZY_URLS"
+    assert any("lxml" in u for u in lazy_urls), "lxml phải nằm trong OPTIONAL_LAZY_URLS"
+    assert any("typing_extensions" in u for u in lazy_urls), "typing_extensions phải nằm trong OPTIONAL_LAZY_URLS"
+
+    # Hai tập URL này phải rời nhau
+    overlap = set(precache_urls).intersection(set(lazy_urls))
+    assert len(overlap) == 0, f"PRECACHE_URLS và OPTIONAL_LAZY_URLS bị trùng lặp: {overlap}"
+

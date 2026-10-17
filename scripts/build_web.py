@@ -285,12 +285,24 @@ def generate_version_json(dist_dir: Path) -> None:
 
 
 def generate_sw_js(dist_dir: Path) -> None:
-    """Tạo file sw.js động với CACHE_NAME có băm nội dung 12 ký tự và danh sách PRECACHE_URLS thực tế."""
+    """Tạo file sw.js động với CACHE_NAME có băm nội dung 12 ký tự, tách riêng PRECACHE_URLS và OPTIONAL_LAZY_URLS."""
     sw_template_path = WEBAPP_SRC / "sw.js"
     if not sw_template_path.exists():
         return
 
     template_content = sw_template_path.read_text(encoding="utf-8")
+
+    # Đọc danh sách wheel lazy từ vendor_lock.json
+    lazy_wheel_filenames = set()
+    if VENDOR_LOCK_PATH.exists():
+        try:
+            with open(VENDOR_LOCK_PATH, "r", encoding="utf-8") as f:
+                vlock = json.load(f)
+                for pkg, meta in vlock.get("packages", {}).items():
+                    if meta.get("stage") == "lazy":
+                        lazy_wheel_filenames.add(meta.get("file_name"))
+        except Exception as e:
+            print(f"[build_web] Cảnh báo khi đọc vendor_lock.json: {e}")
 
     # 1. Thu thập tất cả các tệp trong dist_dir (trừ sw.js) và tính băm tổng hợp
     files_to_cache: list[tuple[str, str]] = []  # (rel_url, file_sha)
@@ -310,15 +322,21 @@ def generate_sw_js(dist_dir: Path) -> None:
     content_hash_12 = hasher.hexdigest()[:12]
     cache_name = f"chuviettay-cache-{content_hash_12}"
 
-    # Danh sách precache gồm gốc trang web và các tệp thực tế
+    # Phân tách PRECACHE_URLS (core) và OPTIONAL_LAZY_URLS (lazy wheels)
     precache_list = ["./"]
+    optional_lazy_list: list[str] = []
+
     for url, _ in files_to_cache:
-        precache_list.append(url)
+        file_name = Path(url).name
+        if file_name in lazy_wheel_filenames:
+            optional_lazy_list.append(url)
+        else:
+            precache_list.append(url)
 
     precache_json = json.dumps(precache_list, indent=2)
+    optional_lazy_json = json.dumps(optional_lazy_list, indent=2)
 
-    # Thay thế CACHE_NAME và PRECACHE_URLS trong template
-    # Pattern: const CACHE_NAME = "...";
+    # Thay thế CACHE_NAME, PRECACHE_URLS và OPTIONAL_LAZY_URLS trong template
     import re
 
     new_content = re.sub(
@@ -331,10 +349,17 @@ def generate_sw_js(dist_dir: Path) -> None:
         f"const PRECACHE_URLS = {precache_json};",
         new_content,
     )
+    new_content = re.sub(
+        r'const\s+OPTIONAL_LAZY_URLS\s*=\s*\[[\s\S]*?\];',
+        f"const OPTIONAL_LAZY_URLS = {optional_lazy_json};",
+        new_content,
+    )
 
     out_sw = dist_dir / "sw.js"
     out_sw.write_text(new_content, encoding="utf-8")
-    print(f"[build_web] Đã sinh sw.js động với {cache_name} ({len(precache_list)} URL precached).")
+    print(
+        f"[build_web] Đã sinh sw.js động với {cache_name} ({len(precache_list)} core URL precached, {len(optional_lazy_list)} lazy URL tách riêng)."
+    )
 
 
 def sanity_check_dist(dist_dir: Path) -> None:
