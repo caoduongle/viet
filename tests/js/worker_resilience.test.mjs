@@ -40,6 +40,24 @@ class MockWorker {
     }
   }
 
+  simulateReady() {
+    if (this.onmessage) {
+      this.onmessage({ data: { type: "READY" } });
+    }
+  }
+
+  simulateErrorType(message = "Lỗi khởi tạo Worker") {
+    if (this.onmessage) {
+      this.onmessage({ data: { type: "ERROR", payload: { message } } });
+    }
+  }
+
+  simulateError(message = "Lỗi runtime trong Web Worker") {
+    if (this.onerror) {
+      this.onerror({ message });
+    }
+  }
+
   terminate() {
     this.terminated = true;
   }
@@ -194,5 +212,183 @@ test("T015: recoverWorker khởi tạo lại Worker, cô lập generation và n�
   assert.doesNotThrow(() => {
     initialWorker.simulateResponse(999, true, { zombie: true });
   });
+});
+
+function setupMockDocument() {
+  const knownIds = new Set([
+    "btn-worker-retry",
+    "splash-screen",
+    "splash-status",
+    "status-indicator",
+    "status-text",
+    "quota-warning-banner",
+    "backup-reminder-toast",
+  ]);
+  const elements = new Map();
+  const getOrCreate = (id) => {
+    if (!knownIds.has(id)) {
+      return null;
+    }
+    if (!elements.has(id)) {
+      elements.set(id, {
+        id,
+        style: { display: "none" },
+        disabled: false,
+        textContent: "",
+        className: "",
+        addEventListener: () => {},
+      });
+    }
+    return elements.get(id);
+  };
+  globalThis.document = {
+    getElementById: (id) => getOrCreate(id),
+    addEventListener: () => {},
+  };
+  const hadWindow = typeof globalThis.window !== "undefined";
+  if (!hadWindow) {
+    globalThis.window = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    };
+  }
+  return {
+    btnRetry: getOrCreate("btn-worker-retry"),
+    splash: getOrCreate("splash-screen"),
+    cleanup: () => {
+      delete globalThis.document;
+      if (!hadWindow) {
+        delete globalThis.window;
+      }
+    },
+  };
+}
+
+test("T005: recoverWorker timeout tự động chấm dứt worker mới, giữ nút Thử lại và trả về false", async () => {
+  resetUiInitializedForTesting();
+  const dom = setupMockDocument();
+  try {
+    let createdWorker = null;
+    class HangingWorker extends MockWorker {
+      constructor() {
+        super();
+        createdWorker = this;
+      }
+    }
+
+    // Gọi recoverWorker với timeout ngắn 50ms
+    const promise = recoverWorker(HangingWorker, 50);
+    assert.equal(dom.btnRetry.disabled, true, "Nút Thử lại phải bị disabled trong lúc đang khôi phục");
+
+    const result = await promise;
+    assert.equal(result, false, "recoverWorker phải trả về false khi bị timeout");
+    assert.equal(createdWorker.terminated, true, "Worker mới bị treo phải bị terminate()");
+    assert.notEqual(dom.btnRetry.style.display, "none", "Nút Thử lại phải còn hiển thị khi khôi phục thất bại");
+    assert.equal(dom.btnRetry.disabled, false, "Nút Thử lại phải được re-enabled khi khôi phục thất bại");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("T005: recoverWorker khi nhận ERROR, onerror hoặc onmessageerror từ worker mới thì trả về false và giữ nút Thử lại", async () => {
+  resetUiInitializedForTesting();
+  const dom = setupMockDocument();
+  try {
+    // 1. Nhánh type === "ERROR"
+    let worker1 = null;
+    class ErrorTypeWorker extends MockWorker {
+      constructor() {
+        super();
+        worker1 = this;
+      }
+    }
+    const p1 = recoverWorker(ErrorTypeWorker, 5000);
+    worker1.simulateErrorType("Pyodide module load failed");
+    const res1 = await p1;
+    assert.equal(res1, false);
+    assert.notEqual(dom.btnRetry.style.display, "none");
+    assert.equal(dom.btnRetry.disabled, false);
+
+    // 2. Nhánh onerror
+    let worker2 = null;
+    class OnErrorWorker extends MockWorker {
+      constructor() {
+        super();
+        worker2 = this;
+      }
+    }
+    const p2 = recoverWorker(OnErrorWorker, 5000);
+    worker2.simulateError("WASM compile error");
+    const res2 = await p2;
+    assert.equal(res2, false);
+    assert.notEqual(dom.btnRetry.style.display, "none");
+    assert.equal(dom.btnRetry.disabled, false);
+
+    // 3. Nhánh onmessageerror
+    let worker3 = null;
+    class MessageErrorWorker extends MockWorker {
+      constructor() {
+        super();
+        worker3 = this;
+      }
+    }
+    const p3 = recoverWorker(MessageErrorWorker, 5000);
+    worker3.simulateMessageError();
+    const res3 = await p3;
+    assert.equal(res3, false);
+    assert.notEqual(dom.btnRetry.style.display, "none");
+    assert.equal(dom.btnRetry.disabled, false);
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("T006: recoverWorker khi onWorkerReady ném lỗi (load_bank thất bại) thì giữ nút Thử lại và trả về false", async () => {
+  resetUiInitializedForTesting();
+  const dom = setupMockDocument();
+  storage.setDBInstance(new MockIDBDatabase());
+
+  // Lưu sẵn một hồ sơ để onWorkerReady gọi load_bank
+  await storage.setSetting("active_profile_id", "broken_profile");
+  await storage.saveProfile({
+    id: "broken_profile",
+    name: "Kho lỗi",
+    data: [1, 2, 3],
+    updated_at: 1000,
+  });
+
+  try {
+    let workerInstance = null;
+    let loadBankCalled = false;
+    class RejectingLoadBankWorker extends MockWorker {
+      constructor() {
+        super();
+        workerInstance = this;
+      }
+      postMessage(msg) {
+        super.postMessage(msg);
+        if (msg.method === "load_bank") {
+          loadBankCalled = true;
+          // Trả về lỗi khi load_bank
+          queueMicrotask(() => {
+            this.simulateResponse(msg.id, false, null, "Corrupted gzip bank stream");
+          });
+        }
+      }
+    }
+
+    const promise = recoverWorker(RejectingLoadBankWorker, 5000);
+    // Worker gửi READY, kích hoạt onWorkerReady -> gọi load_bank -> nhận lỗi
+    workerInstance.simulateReady();
+
+    const result = await promise;
+    assert.equal(loadBankCalled, true, "onWorkerReady phải thực sự gọi load_bank");
+    assert.equal(result, false, "recoverWorker phải trả về false khi load_bank trong onWorkerReady bị lỗi");
+    assert.equal(getIsUiInitialized(), false, "isUiInitialized phải giữ nguyên false khi load_bank thất bại");
+    assert.notEqual(dom.btnRetry.style.display, "none", "Nút Thử lại phải còn hiển thị khi nạp kho mẫu thất bại");
+    assert.equal(dom.btnRetry.disabled, false, "Nút Thử lại phải re-enabled sau khi nạp kho mẫu thất bại");
+  } finally {
+    dom.cleanup();
+  }
 });
 

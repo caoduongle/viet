@@ -26,6 +26,11 @@ from chuviettay.model.text_utils import (
 )
 
 
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from chuviettay.model.rng import SeedContext
+
+
 class Writer:
     """Một phiên ghép chữ cho MỘT lần "write" (giữ self.last để né chọn trùng mẫu 2
     lần liên tiếp cho cùng một token, và self.missing để gom các phần chưa có mẫu)."""
@@ -53,9 +58,11 @@ class Writer:
         self.assembled: list[str] = []        # các từ đã ghép tự động từ chữ cái
         self._char_width_cache: dict[str, float] = {}  # bộ đệm đo độ rộng ký tự thuần tuý
         self._token_counts: dict[str, int] = {}
-        self._token_last: dict[tuple[str, str], int] = {}
+        self._token_last: dict[tuple[str, str, str], int] = {}
+        self._current_ctx_type: str = "text"
         self._current_tok: str = ""
         self._current_k: int = 0
+        self._current_context: SeedContext | None = None
         self._char_idx: int = 0
 
     def pick(self, lst: list, tag: str):
@@ -69,16 +76,27 @@ class Writer:
             char_idx = self._char_idx
             self._char_idx += 1
             master_seed = self.seed if self.seed is not None else 0
+            ctx_type = getattr(self, "_current_ctx_type", "text")
             scoped_rng = ScopedRNG(master_seed, "tok", self._current_tok, self._current_k, "variant", tag, char_idx)
             i = scoped_rng.randrange(len(lst))
             avoid_idx = self.last.get(tag)
             if avoid_idx is None:
-                avoid_idx = self._token_last.get((self._current_tok, tag))
+                if self._current_k > 0 and (ctx_type, self._current_tok, tag, self._current_k - 1) in self._token_last:
+                    avoid_idx = self._token_last[(ctx_type, self._current_tok, tag, self._current_k - 1)]
+                else:
+                    prev = self._token_last.get((ctx_type, self._current_tok, tag))
+                    if isinstance(prev, tuple):
+                        last_k, last_i = prev
+                        if self._current_k >= last_k:
+                            avoid_idx = last_i
+                    else:
+                        avoid_idx = prev
             if len(lst) > 1 and avoid_idx == i:
                 extra = scoped_rng.randrange(len(lst) - 1)
                 i = (i + 1 + extra) % len(lst)
             self.last[tag] = i
-            self._token_last[(self._current_tok, tag)] = i
+            self._token_last[(ctx_type, self._current_tok, tag, self._current_k)] = i
+            self._token_last[(ctx_type, self._current_tok, tag)] = (self._current_k, i)
         else:
             i = self.rnd.randrange(len(lst))
             if len(lst) > 1 and self.last.get(tag) == i:
@@ -363,9 +381,7 @@ class Writer:
                 if self.stable_variants:
                     from chuviettay.model.rng import ScopedRNG
                     master_seed = self.seed if self.seed is not None else 0
-                    char_idx = self._char_idx
-                    self._char_idx += 1
-                    scoped_rng = ScopedRNG(master_seed, "tok", self._current_tok, self._current_k, "jitter", char_idx)
+                    scoped_rng = ScopedRNG(master_seed, "tok", self._current_tok, self._current_k, "jitter", idx)
                     jitter_amt = scoped_rng.uniform(-0.015 * self.J * xh, 0.015 * self.J * xh)
                     advance += jitter_amt
                 elif self.rnd:
@@ -477,19 +493,34 @@ class Writer:
             effective_w = glyph_w
         return norm_strokes, effective_w
 
-    def number(self, s: str, k: int | None = None) -> tuple[list[Stroke], float, list[str]]:
+    def number(
+        self,
+        s: str,
+        k: int | None = None,
+        context: SeedContext | None = None,
+        _preserve_context: bool = False,
+    ) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một chuỗi số/dấu chấm-phẩy-gạch ngang (đã khớp NUMRE), từng ký tự một,
         theo mẫu chữ số/dấu phẩy-chấm đã học. -> (nét, độ rộng, ký tự còn thiếu mẫu)."""
         if self.stable_variants:
-            if k is None:
-                k_idx = self._token_counts.get(s, 0)
-                self._token_counts[s] = k_idx + 1
-            else:
-                k_idx = k
-            self._current_tok = s
-            self._current_k = k_idx
-            self._char_idx = 0
-            self.last = {}
+            if not _preserve_context:
+                if context is not None:
+                    self._current_context = context
+                    self._current_ctx_type = context.content_type
+                    self._current_tok = context.element_id
+                    self._current_k = context.occurrence
+                    self._char_idx = context.sub_index
+                else:
+                    if k is None:
+                        k_idx = self._token_counts.get(s, 0)
+                        self._token_counts[s] = k_idx + 1
+                    else:
+                        k_idx = k
+                    self._current_ctx_type = "text"
+                    self._current_tok = s
+                    self._current_k = k_idx
+                    self._char_idx = 0
+                self.last = {}
 
         b = self.b
         xh = getattr(b, "xh", 7.94) or 7.94
@@ -524,18 +555,31 @@ class Writer:
             first = False
         return out, x, missing
 
-    def symbol(self, sym: str, k: int | None = None) -> tuple[list[Stroke], float, list[str]]:
+    def symbol(
+        self,
+        sym: str,
+        k: int | None = None,
+        context: SeedContext | None = None,
+    ) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một ký hiệu toán học / glyph đặc biệt từ bank.symbols.
         Nếu chưa có mẫu, trả về ([], fallback_width, [sym])."""
         if self.stable_variants:
-            if k is None:
-                k_idx = self._token_counts.get(sym, 0)
-                self._token_counts[sym] = k_idx + 1
+            if context is not None:
+                self._current_context = context
+                self._current_ctx_type = context.content_type
+                self._current_tok = context.element_id
+                self._current_k = context.occurrence
+                self._char_idx = context.sub_index
             else:
-                k_idx = k
-            self._current_tok = sym
-            self._current_k = k_idx
-            self._char_idx = 0
+                if k is None:
+                    k_idx = self._token_counts.get(sym, 0)
+                    self._token_counts[sym] = k_idx + 1
+                else:
+                    k_idx = k
+                self._current_ctx_type = "sym"
+                self._current_tok = sym
+                self._current_k = k_idx
+                self._char_idx = 0
             self.last = {}
 
         b = self.b
@@ -556,7 +600,12 @@ class Writer:
         return 0.3
 
     # -- một token (đã tách khoảng trắng)
-    def token(self, tok: str, k: int | None = None) -> tuple[list[Stroke], float, list[str]]:
+    def token(
+        self,
+        tok: str,
+        k: int | None = None,
+        context: SeedContext | None = None,
+    ) -> tuple[list[Stroke], float, list[str]]:
         """Ghép một token (đã tách theo khoảng trắng, có thể còn kèm dấu ngoặc/dấu câu
         bao quanh) thành nét viết tay. -> (nét, độ rộng, danh sách phần còn thiếu mẫu).
 
@@ -564,14 +613,22 @@ class Writer:
         không có mới tách ra lead (dấu mở ngoặc/nháy đầu) + core (phần thân: số hoặc
         từ) + trail (dấu đóng ngoặc/dấu câu cuối) rồi ghép từng phần."""
         if self.stable_variants:
-            if k is None:
-                k_idx = self._token_counts.get(tok, 0)
-                self._token_counts[tok] = k_idx + 1
+            if context is not None:
+                self._current_context = context
+                self._current_ctx_type = context.content_type
+                self._current_tok = context.element_id
+                self._current_k = context.occurrence
+                self._char_idx = context.sub_index
             else:
-                k_idx = k
-            self._current_tok = tok
-            self._current_k = k_idx
-            self._char_idx = 0
+                if k is None:
+                    k_idx = self._token_counts.get(tok, 0)
+                    self._token_counts[tok] = k_idx + 1
+                else:
+                    k_idx = k
+                self._current_ctx_type = "text"
+                self._current_tok = tok
+                self._current_k = k_idx
+                self._char_idx = 0
             self.last = {}
 
         b = self.b
@@ -622,7 +679,7 @@ class Writer:
         placed_core_strokes: list[Stroke] = []
         if core:
             if NUMRE.match(core):
-                st, w, m = self.number(core)
+                st, w, m = self.number(core, _preserve_context=True)
                 miss += m
             else:
                 r = self.word(core)

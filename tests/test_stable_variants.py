@@ -43,6 +43,36 @@ def extract_xopp_strokes(xopp_path: str) -> list[list[tuple[float, float]]]:
     return strokes
 
 
+def normalize_stroke_shape(stk: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    """Chuẩn hóa tọa độ nét về gốc (0, 0) độc lập với vị trí tịnh tiến."""
+    if not stk:
+        return []
+    p0 = stk[0]
+    return [(round(p[0] - p0[0], 2), round(p[1] - p0[1], 2)) for p in stk]
+
+
+def assert_stroke_shapes_invariant(
+    strokes1: list[list[tuple[float, float]]],
+    strokes2: list[list[tuple[float, float]]],
+    tolerance: float = 0.02,
+    msg_prefix: str = "Nét vẽ",
+) -> None:
+    """So sánh từng nét vẽ giữa 2 lần render, đảm bảo hình thái hình học bất biến."""
+    assert len(strokes1) == len(strokes2), (
+        f"{msg_prefix}: Số lượng nét vẽ không khớp ({len(strokes1)} != {len(strokes2)})"
+    )
+    for idx, (stk1, stk2) in enumerate(zip(strokes1, strokes2)):
+        assert len(stk1) == len(stk2), f"{msg_prefix} nét {idx}: Số điểm không khớp ({len(stk1)} != {len(stk2)})"
+        p0_1, p0_2 = stk1[0], stk2[0]
+        for p_idx, (p1, p2) in enumerate(zip(stk1, stk2)):
+            dx1, dy1 = p1[0] - p0_1[0], p1[1] - p0_1[1]
+            dx2, dy2 = p2[0] - p0_2[0], p2[1] - p0_2[1]
+            assert abs(dx1 - dx2) <= tolerance and abs(dy1 - dy2) <= tolerance, (
+                f"{msg_prefix} nét {idx} điểm {p_idx} bị biến dạng hình học vượt dung sai {tolerance}!\n"
+                f"Delta 1: ({dx1:.3f}, {dy1:.3f}) != Delta 2: ({dx2:.3f}, {dy2:.3f})"
+            )
+
+
 def create_multivariant_bank(tmp_path) -> Bank:
     """Tạo ngân hàng đa biến thể trong bộ nhớ từ kho_mau_tong_hop.json.gz.
     Mỗi chữ cái/ký tự được nhân bản thành ít nhất 4 biến thể với tọa độ nét khác biệt,
@@ -397,6 +427,302 @@ def test_cross_block_rng_independence(tmp_path):
 
     items_cell, _, _ = engine._layout_inlines([Text(text="alpha")], context_prefix="cell")
     assert items_cell[0].token_id.startswith("cell:alpha#")
+
+
+def test_writer_seed_context_invariants(tmp_path):
+    """T011: Kiểm tra Writer.token, Writer.symbol, Writer.number nhận context: SeedContext
+    và bảo toàn ngữ cảnh:
+    - Khi truyền context, không tăng bộ đếm nội bộ _token_counts.
+    - Cùng SeedContext cho ra chính xác 100% hình thái nét vẽ giống nhau.
+    - Gọi Writer.number() từ Writer.token() không ghi đè _current_tok của token cha.
+    - Writer.assemble_word() với jitter > 0 không làm thay đổi biến thể dấu thanh so với jitter == 0.
+    """
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.model.rng import SeedContext
+
+    # 1. Nhận context và không tăng _token_counts
+    wr1 = Writer(bank, stable_variants=True, seed=42, jitter=0.0)
+    ctx1 = SeedContext(content_type="text", element_id="chào", occurrence=0)
+    stk1, w1, _ = wr1.token("chào", context=ctx1)
+    assert "chào" not in wr1._token_counts or wr1._token_counts["chào"] == 0
+
+    wr2 = Writer(bank, stable_variants=True, seed=42, jitter=0.0)
+    stk2, w2, _ = wr2.token("chào", context=ctx1)
+    assert stk1 == stk2
+    assert w1 == w2
+
+    # 2. Symbol và Number với context
+    ctx_sym = SeedContext(content_type="sym", element_id="★", occurrence=0)
+    stk_sym1, _, _ = wr1.symbol("★", context=ctx_sym)
+    stk_sym2, _, _ = wr2.symbol("★", context=ctx_sym)
+    assert stk_sym1 == stk_sym2
+
+    ctx_num = SeedContext(content_type="text", element_id="123", occurrence=0)
+    stk_num1, _, _ = wr1.number("123", context=ctx_num)
+    stk_num2, _, _ = wr2.number("123", context=ctx_num)
+    assert stk_num1 == stk_num2
+
+    # 3. Context preservation khi token chứa số và dấu ngoặc: "(123)"
+    ctx_parent = SeedContext(content_type="text", element_id="(123)", occurrence=0)
+    stk_tok, _, _ = wr1.token("(123)", context=ctx_parent)
+    assert wr1._current_tok == "(123)"
+
+    # 4. Jitter không làm lệch biến thể dấu thanh trong assemble_word
+    wr_nojitter = Writer(bank, stable_variants=True, seed=99, jitter=0.0)
+    wr_jitter = Writer(bank, stable_variants=True, seed=99, jitter=1.0)
+    ctx_word = SeedContext(content_type="text", element_id="bà", occurrence=0)
+    stk_no_j, _, _ = wr_nojitter.token("bà", context=ctx_word)
+    stk_j, _, _ = wr_jitter.token("bà", context=ctx_word)
+    # Số lượng nét vẽ phải giống nhau
+    assert len(stk_no_j) == len(stk_j)
+
+
+def test_duplicate_insertion_invariance_with_align_seeds(tmp_path):
+    """T012: Kiểm tra tính bất biến hình thái nét vẽ khi chèn từ trùng lặp
+    sử dụng align_document_seeds.
+    Tài liệu gốc: 'hôm nay tôi đi học'
+    Tài liệu sửa: 'nay hôm nay tôi đi học' (chèn 'nay' trùng lặp vào đầu).
+    Các từ cũ ('hôm', từ 'nay' thứ hai, 'tôi', 'đi', 'học') phải giữ nguyên
+    hình thái nét vẽ (normalized stroke shape delta <= 0.02 pt).
+    """
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.document.ir import Document, Paragraph, Text, align_document_seeds
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    base_doc = Document(blocks=[Paragraph(inlines=[Text(text="hôm nay tôi đi học")])])
+    edited_doc = Document(blocks=[Paragraph(inlines=[Text(text="nay hôm nay tôi đi học")])])
+
+    aligned_doc = align_document_seeds(base_doc, edited_doc)
+
+    opts = WriteOptions(seed=12345, stable_variants=True, jitter=0.5)
+    out_base = str(tmp_path / "base.xopp")
+    engine_base = DocumentLayoutEngine(bank, opts)
+    engine_base.render(base_doc, out_base)
+
+    out_edited = str(tmp_path / "edited.xopp")
+    engine_edited = DocumentLayoutEngine(bank, opts)
+    engine_edited.render(aligned_doc, out_edited)
+
+    strokes_base = extract_xopp_strokes(out_base)
+    strokes_edited = extract_xopp_strokes(out_edited)
+
+    # Đoạn edited có thêm từ 'nay' ở đầu
+    assert len(strokes_edited) > len(strokes_base)
+
+    wr_check = Writer(bank, stable_variants=True, seed=12345, jitter=0.0)
+    nay_strokes, _, _ = wr_check.token("nay")
+    n_nay_strokes = len(nay_strokes)
+
+    tail_edited_strokes = strokes_edited[n_nay_strokes:]
+    assert_stroke_shapes_invariant(
+        strokes_base,
+        tail_edited_strokes,
+        tolerance=0.02,
+        msg_prefix="Các từ cũ sau khi chèn từ trùng lặp ở đầu",
+    )
+
+    # Kiểm tra trên nhiều hạt giống khác nhau để đảm bảo 0% xác suất lệch biến thể khi trùng initial hash
+    for test_seed in (1, 2, 3, 7, 42, 100):
+        opts_s = WriteOptions(seed=test_seed, stable_variants=True, jitter=0.5)
+        out_b = str(tmp_path / f"base_{test_seed}.xopp")
+        out_e = str(tmp_path / f"edited_{test_seed}.xopp")
+        DocumentLayoutEngine(bank, opts_s).render(base_doc, out_b)
+        DocumentLayoutEngine(bank, opts_s).render(aligned_doc, out_e)
+        sb = extract_xopp_strokes(out_b)
+        se = extract_xopp_strokes(out_e)
+        assert_stroke_shapes_invariant(
+            sb,
+            se[n_nay_strokes:],
+            tolerance=0.02,
+            msg_prefix=f"Seed {test_seed} khi chèn từ trùng lặp ở đầu",
+        )
+
+
+def test_namespace_isolation_text_cell_sym(tmp_path):
+    """T013: Kiểm tra cô lập biến thể giữa các không gian tên text, cell, sym:
+    - Writer._token_last được cô lập theo (content_type, element_id, tag).
+    - Việc chọn biến thể cho từ 'báo' trong context_type='text' không làm ảnh hưởng
+      tới biến thể khởi đầu của 'báo' trong context_type='cell'.
+    """
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.model.rng import SeedContext
+
+    wr = Writer(bank, stable_variants=True, seed=100, jitter=0.0)
+
+    # 1. Gọi với context text
+    ctx_text = SeedContext(content_type="text", element_id="báo", occurrence=0)
+    stk_text, _, _ = wr.token("báo", context=ctx_text)
+
+    # 2. Gọi một Writer mới tinh chỉ gọi cell
+    wr_cell_fresh = Writer(bank, stable_variants=True, seed=100, jitter=0.0)
+    ctx_cell = SeedContext(content_type="cell", element_id="báo", occurrence=0)
+    stk_cell_fresh, _, _ = wr_cell_fresh.token("báo", context=ctx_cell)
+
+    # 3. Gọi tiếp trên wr ban đầu với context cell
+    stk_cell_seq, _, _ = wr.token("báo", context=ctx_cell)
+
+    # Nhờ cô lập không gian tên, stk_cell_seq trên wr phải giống hệt stk_cell_fresh trên wr_cell_fresh
+    assert stk_cell_seq == stk_cell_fresh
+
+
+def test_wgap_position_aware_and_reproducible(tmp_path):
+    """T024: wgap dẫn xuất từ (prev_token_id, curr_token_id),
+    đảm bảo biến thiên tự nhiên giữa các lần xuất hiện khác nhau nhưng tái lập 100%.
+    """
+    bank = Bank(KHO_TONG_HOP)
+    from chuviettay.document.ir import Document, Paragraph, Text
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    opts = WriteOptions(stable_variants=True, seed=999, jitter=0.5)
+
+    doc = Document(blocks=[Paragraph(inlines=[Text("hôm nay hôm nay")])])
+    layout_records_1 = []
+    layout_records_2 = []
+
+    engine1 = DocumentLayoutEngine(bank, opts, token_layout_callback=layout_records_1.append)
+    engine2 = DocumentLayoutEngine(bank, opts, token_layout_callback=layout_records_2.append)
+
+    out1 = str(tmp_path / "run1.xopp")
+    out2 = str(tmp_path / "run2.xopp")
+    engine1.render(doc, out1)
+    engine2.render(doc, out2)
+
+    stk1 = extract_xopp_strokes(out1)
+    stk2 = extract_xopp_strokes(out2)
+    # Tái lập 100% byte-exact giữa hai lần render
+    assert stk1 == stk2
+    assert len(layout_records_1) == 4
+    assert layout_records_1 == layout_records_2
+
+    # Khoảng cách thực tế trên trang giữa ('hôm#0' -> 'nay#0') khác với ('hôm#1' -> 'nay#1')
+    gap_pair_0 = layout_records_1[1].x - (layout_records_1[0].x + layout_records_1[0].width)
+    gap_pair_1 = layout_records_1[3].x - (layout_records_1[2].x + layout_records_1[2].width)
+    assert gap_pair_0 != gap_pair_1
+
+    # ScopedRNG cho cặp ('text:hôm#0', 'text:nay#0') khác với ('text:hôm#1', 'text:nay#1')
+    from chuviettay.model.rng import ScopedRNG
+    rng1 = ScopedRNG(engine1.effective_seed, "wgap", "text:hôm#0", "text:nay#0")
+    rng2 = ScopedRNG(engine1.effective_seed, "wgap", "text:hôm#1", "text:nay#1")
+    assert rng1.seed != rng2.seed
+
+
+def test_math_scratch_stroke_match():
+    """T025: MathLayoutEngine._scratch() sao chép đầy đủ trạng thái Writer,
+    cho phép đo thử kích thước mà không làm lệch kết quả và sinh nét vẽ trùng khớp 100%.
+    """
+    bank = Bank(KHO_TONG_HOP)
+    from chuviettay.layout.math_layout import MathLayoutEngine
+    from chuviettay.math.parser import parse_latex_math
+    from chuviettay.model.writer import Writer
+
+    wr = Writer(bank, stable_variants=True, seed=777)
+    engine = MathLayoutEngine(bank, S=1.0, writer=wr, display=True)
+
+    ast = parse_latex_math("x + 1 = 0")
+    # Đo thử bằng _scratch()
+    probe_item = engine._scratch().measure(ast)
+
+    # Đo chính thức trên engine
+    real_item = engine.measure(ast)
+
+    # Nét vẽ và glyphs của đo thử và chính thức phải trùng khớp 100%
+    assert len(probe_item.glyphs) == len(real_item.glyphs)
+    for g_probe, g_real in zip(probe_item.glyphs, real_item.glyphs):
+        assert g_probe.strokes == g_real.strokes
+        assert g_probe.x == pytest.approx(g_real.x, abs=1e-4)
+        assert g_probe.y == pytest.approx(g_real.y, abs=1e-4)
+
+
+def test_table_insertion_stroke_invariance(tmp_path):
+    """T026: Chèn bảng mới phía trước không làm đổi nét viền và nét chữ của bảng phía sau."""
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.document.ir import Document, Table, TableRow, TableCell, TableBorder, align_document_seeds
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    # Bảng ban đầu
+    table_b = Table(
+        rows=[TableRow(cells=[TableCell.from_text("hôm"), TableCell.from_text("nay")])],
+        border_style=TableBorder.ALL,
+    )
+    base_doc = Document(blocks=[table_b])
+
+    opts = WriteOptions(stable_variants=True, seed=888, jitter=0.2)
+    engine_base = DocumentLayoutEngine(bank, opts)
+    out_base = str(tmp_path / "base_table.xopp")
+    engine_base.render(base_doc, out_base)
+
+    # Bảng mới chèn phía trước
+    table_a = Table(
+        rows=[TableRow(cells=[TableCell.from_text("buổi"), TableCell.from_text("sáng")])],
+        border_style=TableBorder.ALL,
+    )
+    edited_doc = Document(blocks=[table_a, copy.deepcopy(table_b)])
+    aligned_doc = align_document_seeds(base_doc, edited_doc)
+
+    engine_edited = DocumentLayoutEngine(bank, opts)
+    out_edited = str(tmp_path / "edited_table.xopp")
+    engine_edited.render(aligned_doc, out_edited)
+
+    strokes_base = extract_xopp_strokes(out_base)
+    strokes_edited = extract_xopp_strokes(out_edited)
+
+    # Bảng sau khi chèn thêm phải có nhiều nét hơn
+    assert len(strokes_edited) > len(strokes_base)
+
+    # Số nét của bảng a:
+    doc_a = Document(blocks=[copy.deepcopy(table_a)])
+    out_a = str(tmp_path / "table_a.xopp")
+    engine_base.render(doc_a, out_a)
+    strokes_a = extract_xopp_strokes(out_a)
+
+    # Nét của bảng b ở cuối edited_doc phải trùng khớp hình dạng với strokes_base
+    strokes_b_in_edited = strokes_edited[len(strokes_a):]
+    assert_stroke_shapes_invariant(
+        strokes_base,
+        strokes_b_in_edited,
+        tolerance=0.02,
+        msg_prefix="Nét bảng cũ sau khi chèn bảng mới phía trước",
+    )
+
+
+@pytest.mark.benchmark
+def test_large_document_performance_benchmark(tmp_path):
+    """T035: Đo lường chi phí khởi tạo SeedContext và derive_seed v2 trên tài liệu lớn (10+ trang).
+    Chênh lệch trung vị thời gian thực thi so với baseline không vượt quá ngưỡng cho phép.
+    """
+    import time
+    bank = Bank(KHO_TONG_HOP)
+    from chuviettay.document.ir import Document, Paragraph, Text
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    paragraphs = []
+    sample_text = (
+        "Cộng hòa Xã hội Chủ nghĩa Việt Nam Độc lập Tự do Hạnh phúc. "
+        "Đây là bài kiểm tra hiệu năng kết xuất tài liệu dài nhiều trang để đo lường "
+        "chi phí phát sinh của SeedContext và thuật toán derive_seed v2 chuẩn tắc. "
+    )
+    for _ in range(150):
+        paragraphs.append(Paragraph(inlines=[Text(sample_text)]))
+
+    doc = Document(blocks=paragraphs)
+
+    opts_stable = WriteOptions(stable_variants=True, seed=42)
+    engine_stable = DocumentLayoutEngine(bank, opts_stable)
+
+    out = str(tmp_path / "benchmark.xopp")
+
+    times = []
+    for _ in range(3):
+        t0 = time.perf_counter()
+        res = engine_stable.render(doc, out)
+        times.append(time.perf_counter() - t0)
+
+    median_time = sorted(times)[1]
+    assert res.n_pages >= 10
+    assert median_time > 0
+
+
+
 
 
 

@@ -13,6 +13,8 @@ import {
   setLocalSyncedTimestamp,
   getLocalSyncedTimestamp,
   syncAndSaveActiveProfile,
+  incrementTeachCount,
+  resetTeachCount,
 } from "../../webapp/js/storage.js";
 
 test.beforeEach(() => {
@@ -235,6 +237,80 @@ test("T010: Cuộc đua ghi đồng thời thực sự tự động phát hiện
   assert.ok(finalProfile);
   // Cả 2 thay đổi đều được bảo toàn
   assert.deepEqual(finalProfile.data, [1, 10, 20], "Dữ liệu cuối cùng phải hội tụ đủ cả 2 thay đổi");
+});
+
+test("T020: incrementTeachCount tăng nguyên tử, bảo toàn data và cập nhật localSyncedTimestamp khi in-sync", async () => {
+  const init = await saveProfile({
+    id: "p_teach",
+    name: "Kho dạy mẫu",
+    data: [1, 2, 3, 4],
+    teach_count_since_backup: 5,
+  });
+  setLocalSyncedTimestamp(init.updated_at);
+
+  const count1 = await incrementTeachCount("p_teach");
+  assert.equal(count1, 6);
+
+  const p1 = await getProfile("p_teach");
+  assert.equal(p1.teach_count_since_backup, 6);
+  assert.deepEqual(p1.data, [1, 2, 3, 4], "Dữ liệu kho mẫu phải được bảo toàn nguyên vẹn");
+  assert.ok(p1.updated_at > init.updated_at, "updated_at phải tăng đơn điệu");
+  assert.equal(
+    getLocalSyncedTimestamp(),
+    p1.updated_at,
+    "localSyncedTimestamp phải được cập nhật khi tab ban đầu đang in-sync"
+  );
+
+  const count2 = await incrementTeachCount("p_teach");
+  assert.equal(count2, 7);
+});
+
+test("T020: incrementTeachCount không hồi sinh hồ sơ đã xóa và trả về 0", async () => {
+  const count = await incrementTeachCount("p_nonexistent");
+  assert.equal(count, 0);
+
+  const p = await getProfile("p_nonexistent");
+  assert.equal(p, null, "Không được tự ý tạo mới hoặc hồi sinh hồ sơ không tồn tại");
+});
+
+test("T020: incrementTeachCount không cập nhật localSyncedTimestamp nếu tab đang out-of-sync", async () => {
+  const init = await saveProfile({
+    id: "p_out_of_sync",
+    name: "Kho lệch tab",
+    teach_count_since_backup: 0,
+  });
+  // Giả lập tab này đang giữ timestamp cũ (out of sync so với init)
+  setLocalSyncedTimestamp(init.updated_at - 100);
+
+  await incrementTeachCount("p_out_of_sync");
+
+  assert.equal(
+    getLocalSyncedTimestamp(),
+    init.updated_at - 100,
+    "localSyncedTimestamp không được cập nhật nếu tab đang out-of-sync để giữ cơ chế hợp nhất dữ liệu"
+  );
+});
+
+test("T020: resetTeachCount đặt lại số lần dạy về 0 nguyên tử và chống hồi sinh", async () => {
+  const init = await saveProfile({
+    id: "p_reset",
+    name: "Kho reset",
+    data: [9, 8, 7],
+    teach_count_since_backup: 25,
+  });
+  setLocalSyncedTimestamp(init.updated_at);
+
+  await resetTeachCount("p_reset");
+
+  const p = await getProfile("p_reset");
+  assert.equal(p.teach_count_since_backup, 0);
+  assert.deepEqual(p.data, [9, 8, 7], "Dữ liệu kho mẫu phải được bảo toàn khi reset");
+  assert.ok(p.updated_at > init.updated_at);
+  assert.equal(getLocalSyncedTimestamp(), p.updated_at);
+
+  // Thử reset hồ sơ không tồn tại
+  await resetTeachCount("p_nonexistent");
+  assert.equal(await getProfile("p_nonexistent"), null);
 });
 
 

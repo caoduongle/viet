@@ -320,6 +320,7 @@ class DocumentLayoutEngine:
         for inline in merged_inlines:
             if isinstance(inline, Text):
                 norm = normalize_text(inline.text or "")
+                inline_tok_idx = 0
                 for tok in norm.split():
                     est_w = self.wr.measure_text_width(tok) * self.S * scale_mult
                     if max_item_width is not None and max_item_width > 0 and est_w > max_item_width:
@@ -335,14 +336,23 @@ class DocumentLayoutEngine:
                         chunks = [tok]
 
                     for chunk in chunks:
-                        st, w, miss = self.wr.token(chunk)
+                        if getattr(inline, "token_occurrences", None) is not None and inline_tok_idx < len(inline.token_occurrences):
+                            occ = inline.token_occurrences[inline_tok_idx]
+                        else:
+                            occ = self._doc_token_counts.get((context_prefix, chunk), 0)
+                            self._doc_token_counts[(context_prefix, chunk)] = occ + 1
+                        inline_tok_idx += 1
+                        from chuviettay.model.rng import SeedContext
+                        ctx = SeedContext(content_type=context_prefix, element_id=chunk, occurrence=occ)
+                        try:
+                            st, w, miss = self.wr.token(chunk, context=ctx)
+                        except TypeError:
+                            st, w, miss = self.wr.token(chunk)
                         ntok += 1
                         if miss:
                             nmiss += 1
                             for m in miss:
                                 self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                        occ = self._doc_token_counts.get((context_prefix, chunk), 0)
-                        self._doc_token_counts[(context_prefix, chunk)] = occ + 1
                         items.append(
                             RenderItem(
                                 start=0.0,
@@ -350,14 +360,25 @@ class DocumentLayoutEngine:
                                 width=w * self.S * scale_mult,
                                 missing=miss,
                                 token=chunk,
-                                token_id=f"{context_prefix}:{chunk}#{occ}",
+                                token_id=ctx.token_id,
                                 occurrence=occ,
                             )
                         )
 
             elif isinstance(inline, Symbol):
                 sym = inline.symbol
-                st, w, miss = self.wr.symbol(sym)
+                sym_prefix = "sym"
+                if getattr(inline, "occurrence", None) is not None:
+                    occ = inline.occurrence
+                else:
+                    occ = self._doc_token_counts.get((sym_prefix, sym), 0)
+                    self._doc_token_counts[(sym_prefix, sym)] = occ + 1
+                from chuviettay.model.rng import SeedContext
+                ctx = SeedContext(content_type=sym_prefix, element_id=sym, occurrence=occ)
+                try:
+                    st, w, miss = self.wr.symbol(sym, context=ctx)
+                except TypeError:
+                    st, w, miss = self.wr.symbol(sym)
                 ntok += 1
                 if miss:
                     nmiss += 1
@@ -366,9 +387,6 @@ class DocumentLayoutEngine:
                             missing_symbols[m] = missing_symbols.get(m, 0) + 1
                         else:
                             self.wr.missing[m] = self.wr.missing.get(m, 0) + 1
-                sym_prefix = "sym"
-                occ = self._doc_token_counts.get((sym_prefix, sym), 0)
-                self._doc_token_counts[(sym_prefix, sym)] = occ + 1
                 items.append(
                     RenderItem(
                         start=0.0,
@@ -376,18 +394,22 @@ class DocumentLayoutEngine:
                         width=w * self.S * scale_mult,
                         missing=miss,
                         token=sym,
-                        token_id=f"{sym_prefix}:{sym}#{occ}",
+                        token_id=ctx.token_id,
                         occurrence=occ,
                     )
                 )
 
             elif isinstance(inline, MathInline):
                 math_ast = inline.ast or parse_latex_math(inline.latex)
-                math_occ = self._math_inline_counts.get(inline.latex, 0)
+                math_id = getattr(inline, "stable_id", None) or inline.latex
+                if getattr(inline, "occurrence", None) is not None:
+                    math_occ = inline.occurrence
+                else:
+                    math_occ = self._math_inline_counts.get(math_id, 0)
+                    self._math_inline_counts[math_id] = math_occ + 1
                 if self.opts.stable_variants:
                     from chuviettay.model.rng import ScopedRNG
-                    self._math_inline_counts[inline.latex] = math_occ + 1
-                    math_seed = ScopedRNG(self.effective_seed, "math", inline.latex, math_occ).seed
+                    math_seed = ScopedRNG(self.effective_seed, "math", math_id, math_occ).seed
                     math_rnd = random.Random(math_seed)
                     math_wr = Writer(
                         self.bank,
@@ -478,6 +500,7 @@ class DocumentLayoutEngine:
         total_strokes = 0
         ntok = nmiss = 0
         total_tables = 0
+        table_sig_counts: dict[str, int] = {}
         total_math_blocks = 0
         missing_symbols: dict[str, int] = {}
         layout_warnings: list[str] = []
@@ -614,8 +637,8 @@ class DocumentLayoutEngine:
 
                 if self.opts.stable_variants:
                     from chuviettay.model.rng import ScopedRNG
-                    prev_tok = cur_line[-1][4] if cur_line and len(cur_line[-1]) > 4 else ""
-                    wgap_rng = ScopedRNG(self.effective_seed, "wgap", prev_tok, tok_str)
+                    prev_token_id = cur_line[-1].token_id if cur_line and hasattr(cur_line[-1], "token_id") else (cur_line[-1][5] if cur_line and len(cur_line[-1]) > 5 else "")
+                    wgap_rng = ScopedRNG(self.effective_seed, "wgap", prev_token_id, tok_id)
                     sp = wgap_rng.choice(self.gaps) * self.S * scale_mult * self.opts.space * (1 + wgap_rng.gauss(0, 0.06 * self.J))
                 else:
                     sp = self.rnd.choice(self.gaps) * self.S * scale_mult * self.opts.space * (1 + self.rnd.gauss(0, 0.06 * self.J))
@@ -639,9 +662,13 @@ class DocumentLayoutEngine:
             math_ast = block.ast or parse_latex_math(block.latex)
             if self.opts.stable_variants:
                 from chuviettay.model.rng import ScopedRNG
-                block_occ = self._math_block_counts.get(block.latex, 0)
-                self._math_block_counts[block.latex] = block_occ + 1
-                math_seed = ScopedRNG(self.effective_seed, "math_block", block.latex, block_occ).seed
+                math_id = getattr(block, "stable_id", None) or block.latex
+                if getattr(block, "occurrence", None) is not None:
+                    block_occ = block.occurrence
+                else:
+                    block_occ = self._math_block_counts.get(math_id, 0)
+                    self._math_block_counts[math_id] = block_occ + 1
+                math_seed = ScopedRNG(self.effective_seed, "math_block", math_id, block_occ).seed
                 math_rnd = random.Random(math_seed)
                 math_wr = Writer(
                     self.bank,
@@ -750,6 +777,27 @@ class DocumentLayoutEngine:
                     render_list(block)
 
                 elif isinstance(block, Table):
+                    if getattr(block, "stable_id", None):
+                        table_id = block.stable_id
+                    else:
+                        num_cols = len(block.rows[0].cells) if block.rows else 0
+                        first_row_texts = []
+                        if block.rows:
+                            for cell in block.rows[0].cells:
+                                for b in cell.blocks:
+                                    if isinstance(b, Paragraph):
+                                        for inl in b.inlines:
+                                            if isinstance(inl, Text) and inl.text:
+                                                first_row_texts.append(inl.text.strip())
+                        first_row_sig = "-".join(first_row_texts)[:30]
+                        tbl_sig = f"tbl:cols:{num_cols}|r0:{first_row_sig}"
+                        if getattr(block, "occurrence", None) is not None:
+                            tbl_occ = block.occurrence
+                        else:
+                            tbl_occ = table_sig_counts.get(tbl_sig, 0)
+                            table_sig_counts[tbl_sig] = tbl_occ + 1
+                        table_id = f"{tbl_sig}#{tbl_occ}"
+
                     def measure_word_bounds(word: str) -> float:
                         return self.wr.measure_text_width(word) * self.S
 
@@ -898,7 +946,7 @@ class DocumentLayoutEngine:
                         # 1. Sinh nét viền bảng cho trang hiện tại
                         if self.opts.stable_variants:
                             from chuviettay.model.rng import ScopedRNG
-                            tbl_seed = ScopedRNG(self.effective_seed, "tbl_border", total_tables, curr_row_idx).randrange(0, 1000000)
+                            tbl_seed = ScopedRNG(self.effective_seed, "tbl_border", table_id, curr_row_idx).randrange(0, 1000000)
                         else:
                             tbl_seed = self.rnd.randint(0, 1000000)
                         border_strokes = table_engine.generate_border_strokes(

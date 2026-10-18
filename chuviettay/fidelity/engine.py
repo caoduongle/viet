@@ -101,7 +101,9 @@ class FidelityLayoutEngine:
                 for idx, w_tok in enumerate(words):
                     occ = block_token_counts.get(w_tok, 0)
                     block_token_counts[w_tok] = occ + 1
-                    st, w, miss = self.wr.token(w_tok)
+                    from chuviettay.model.rng import SeedContext
+                    ctx = SeedContext(content_type="text", element_id=w_tok, occurrence=occ)
+                    st, w, miss = self.wr.token(w_tok, context=ctx)
                     total_tokens += 1
                     if miss:
                         missing_tokens += 1
@@ -111,15 +113,15 @@ class FidelityLayoutEngine:
                     w_scaled = w * eff_scale
                     if self.opts.stable_variants:
                         from chuviettay.model.rng import ScopedRNG
-                        prev_w = words[idx - 1] if idx > 0 else ""
-                        gap_rng = ScopedRNG(self.effective_seed, "wgap", prev_w, w_tok)
+                        prev_token_id = token_data[-1][5] if token_data else ""
+                        gap_rng = ScopedRNG(self.effective_seed, "wgap", prev_token_id, ctx.token_id)
                         gap_scaled = (gap_rng.choice(gaps) * eff_scale * self.opts.space) if idx > 0 else 0.0
                     else:
                         gap_scaled = (
                             (self.rnd.choice(gaps) * eff_scale * self.opts.space)
                             if idx > 0 else 0.0
                         )
-                    token_data.append((w_tok, st, w, gap_scaled, occ))
+                    token_data.append((w_tok, st, w, gap_scaled, occ, ctx.token_id))
                     total_w += gap_scaled + w_scaled
 
                 # Bước 2: Tự động co tỷ lệ nếu dòng bị dài hơn chiều rộng bounding box
@@ -140,14 +142,14 @@ class FidelityLayoutEngine:
                 if not isinstance(pen_dict, dict):
                     pen_dict = {"tool": "pen", "color": "#000000ff", "width": str(pen_dict)}
 
-                for w_tok, st, w, gap, occ in token_data:
+                for w_tok, st, w, gap, occ, tok_id in token_data:
                     cur_x += gap * scale_adj
                     if st:
                         placed = place(st, cur_x, baseline_y, final_scale, 0.0)
                         if self.opts.jitter > 0:
                             if self.opts.stable_variants:
                                 from chuviettay.model.rng import ScopedRNG
-                                wscale_rng = ScopedRNG(self.effective_seed, "tok", w_tok, occ, "geom")
+                                wscale_rng = ScopedRNG(self.effective_seed, "geom", tok_id)
                                 wscale = self.opts.wscale * (1 + wscale_rng.gauss(0, 0.02 * self.opts.jitter))
                             else:
                                 wscale = self.opts.wscale * (1 + self.rnd.gauss(0, 0.02 * self.opts.jitter))

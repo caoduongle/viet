@@ -138,7 +138,7 @@ class MathLayoutEngine:
         """Bản đo thử độc lập (Writer/RNG riêng) để ước lượng kích thước mà không làm lệch kết quả chính."""
         from chuviettay.model.writer import Writer
         w = self.writer
-        rnd_to_use = self.rnd if w.stable_variants else random.Random(0)
+        rnd_to_use = random.Random(w.seed if w.seed is not None else 0) if w.stable_variants else random.Random(0)
         sw = Writer(
             self.bank,
             rnd_to_use,
@@ -153,6 +153,11 @@ class MathLayoutEngine:
         )
         if w.stable_variants:
             sw._token_counts = dict(w._token_counts)
+            sw._token_last = dict(w._token_last)
+            sw._current_ctx_type = getattr(w, "_current_ctx_type", "text")
+            sw._current_tok = getattr(w, "_current_tok", "")
+            sw._current_k = getattr(w, "_current_k", 0)
+            sw.last = dict(w.last)
         return MathLayoutEngine(self.bank, S=self.S, writer=sw, rnd=rnd_to_use, display=self.display)
 
     def _script(self, node: MathNode, scale: float, depth: int) -> MathLayoutItem:
@@ -392,6 +397,10 @@ class MathLayoutEngine:
         sym = node.symbol
         # 1. Kho symbols
         if hasattr(self.bank, "symbols") and sym in self.bank.symbols and self.bank.symbols[sym]:
+            if getattr(self.writer, "stable_variants", False):
+                st, w, miss = self.writer.symbol(sym)
+                if st and not miss:
+                    return self._glyph_item(st, w, eff, 0.9)
             sample = self.bank.symbols[sym][0]
             return self._glyph_item(sample.get("s", []), float(sample.get("w", 10.0)), eff, 0.9)
 
@@ -798,9 +807,10 @@ class MathLayoutEngine:
         spans: list[tuple[int, int]] = [(0, len(items))]
         if len(items) > 1:
             eff = self.S * scale
-            widths = [scratch.measure(it, scale).size.width for it in items]
-            gaps = scratch._row_gaps(items, eff)
-            cls = scratch._resolved_classes(items)
+            item_scratch = self._scratch()
+            widths = [item_scratch.measure(it, scale).size.width for it in items]
+            gaps = item_scratch._row_gaps(items, eff)
+            cls = item_scratch._resolved_classes(items)
 
             def span_w(a: int, b: int) -> float:
                 return sum(widths[a:b]) + sum(gaps[a : b - 1]) if b > a else 0.0
@@ -820,7 +830,7 @@ class MathLayoutEngine:
         lines: list[MathLayoutItem] = []
         for a, b in spans:
             part = MathRow(items[a:b]) if len(items) > 1 else node
-            w = scratch.measure(part, scale).size.width
+            w = self._scratch().measure(part, scale).size.width
             sc = scale if w <= max_width else scale * max(0.5, max_width / w)
             lines.append(self.measure(part, sc))
         return lines

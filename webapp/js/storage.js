@@ -335,25 +335,70 @@ export async function syncAndSaveActiveProfile(sendWorkerFn, maxRetries = 3, opt
 }
 
 /**
- * Tăng bộ đếm số mẫu dạy từ lần sao lưu gần nhất.
+ * Tăng bộ đếm số mẫu dạy từ lần sao lưu gần nhất bằng giao dịch nguyên tử (T021, T022).
  */
 export async function incrementTeachCount(profileId) {
-  const profile = await getProfile(profileId);
-  if (!profile) return 1;
-  const current = (profile.teach_count_since_backup || 0) + 1;
-  profile.teach_count_since_backup = current;
-  await saveProfile(profile);
-  return current;
+  const db = await getDB();
+  let updatedCount = 0;
+  let wasInSync = false;
+  let newUpdatedAt = 0;
+
+  await executeTransaction(db, "profiles", "readwrite", (store, tx, onError) => {
+    const getReq = store.get(profileId);
+    getReq.onsuccess = () => {
+      const existing = getReq.result;
+      if (!existing) {
+        // Chống hồi sinh hồ sơ đã xóa (T021)
+        return;
+      }
+      wasInSync = localSyncedTimestamp > 0 && localSyncedTimestamp === existing.updated_at;
+      updatedCount = (existing.teach_count_since_backup || 0) + 1;
+      existing.teach_count_since_backup = updatedCount;
+      newUpdatedAt = Math.max(Date.now(), (existing.updated_at || 0) + 1);
+      existing.updated_at = newUpdatedAt;
+
+      const putReq = store.put(existing);
+      putReq.onerror = () => onError(putReq.error);
+    };
+    getReq.onerror = () => onError(getReq.error);
+  });
+
+  if (wasInSync && newUpdatedAt > 0) {
+    setLocalSyncedTimestamp(newUpdatedAt);
+  }
+
+  return updatedCount;
 }
 
 /**
- * Đặt lại bộ đếm số mẫu dạy khi người dùng đã sao lưu.
+ * Đặt lại bộ đếm số mẫu dạy khi người dùng đã sao lưu bằng giao dịch nguyên tử (T021, T022).
  */
 export async function resetTeachCount(profileId) {
-  const profile = await getProfile(profileId);
-  if (!profile) return;
-  profile.teach_count_since_backup = 0;
-  await saveProfile(profile);
+  const db = await getDB();
+  let wasInSync = false;
+  let newUpdatedAt = 0;
+
+  await executeTransaction(db, "profiles", "readwrite", (store, tx, onError) => {
+    const getReq = store.get(profileId);
+    getReq.onsuccess = () => {
+      const existing = getReq.result;
+      if (!existing) {
+        return;
+      }
+      wasInSync = localSyncedTimestamp > 0 && localSyncedTimestamp === existing.updated_at;
+      existing.teach_count_since_backup = 0;
+      newUpdatedAt = Math.max(Date.now(), (existing.updated_at || 0) + 1);
+      existing.updated_at = newUpdatedAt;
+
+      const putReq = store.put(existing);
+      putReq.onerror = () => onError(putReq.error);
+    };
+    getReq.onerror = () => onError(getReq.error);
+  });
+
+  if (wasInSync && newUpdatedAt > 0) {
+    setLocalSyncedTimestamp(newUpdatedAt);
+  }
 }
 
 /**

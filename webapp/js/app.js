@@ -19,6 +19,7 @@ let reminderDismissed = false;
 let workerGeneration = 0;
 let isRecovering = false;
 let isUiInitialized = false;
+let isDomListenersAttached = false;
 let recoveryPromise = null;
 
 export function getWorkerGeneration() {
@@ -35,6 +36,7 @@ export function getIsUiInitialized() {
 
 export function resetUiInitializedForTesting() {
   isUiInitialized = false;
+  isDomListenersAttached = false;
   isRecovering = false;
   workerGeneration = 0;
   recoveryPromise = null;
@@ -116,7 +118,7 @@ export function sendWorkerMessage(method, params = {}, timeoutMs = 60000) {
 
 let workerReadyResolve = null;
 
-export function recoverWorker(WorkerClass = null) {
+export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
   if (isRecovering && recoveryPromise) {
     return recoveryPromise;
   }
@@ -131,6 +133,8 @@ export function recoverWorker(WorkerClass = null) {
   } catch (_) {}
 
   recoveryPromise = (async () => {
+    let success = false;
+    let timer = null;
     try {
       // 1. Chấm dứt Worker cũ và cô lập generation
       workerGeneration++;
@@ -151,19 +155,55 @@ export function recoverWorker(WorkerClass = null) {
       // 3. Khởi tạo Worker mới và chờ tín hiệu READY
       const TargetWorkerClass = WorkerClass || (typeof Worker !== "undefined" ? Worker : null);
       if (TargetWorkerClass) {
+        const activeGen = workerGeneration;
         const readyPromise = new Promise((resolve) => {
           workerReadyResolve = resolve;
+          timer = setTimeout(() => {
+            if (workerReadyResolve) {
+              const resFn = workerReadyResolve;
+              workerReadyResolve = null;
+              if (worker && typeof worker.terminate === "function") {
+                try {
+                  worker.terminate();
+                } catch (_) {}
+              }
+              worker = null;
+              workerGeneration++;
+              handleWorkerFatalError(`Khởi tạo bộ xử lý nền quá thời gian chờ (${timeoutMs}ms)`);
+              resFn(false);
+            }
+          }, timeoutMs);
         });
-        worker = new TargetWorkerClass("js/worker/py-worker.js", { type: "module" });
-        attachWorkerHandlers(worker, workerGeneration);
-        await readyPromise;
+
+        try {
+          worker = new TargetWorkerClass("js/worker/py-worker.js", { type: "module" });
+          attachWorkerHandlers(worker, activeGen);
+          const isReady = await readyPromise;
+          success = isReady === true;
+        } catch (err) {
+          console.error("Lỗi khởi tạo Worker mới:", err);
+          handleWorkerFatalError(err.message || "Lỗi khởi tạo Web Worker");
+          success = false;
+        }
+      } else {
+        handleWorkerFatalError("Trình duyệt không hỗ trợ Web Worker");
+        success = false;
       }
 
-      return true;
+      return success;
+    } catch (fatalErr) {
+      console.error("Lỗi trong quá trình phục hồi Worker:", fatalErr);
+      handleWorkerFatalError(fatalErr.message || "Lỗi không xác định khi phục hồi");
+      return false;
     } finally {
+      if (timer) clearTimeout(timer);
       if (btnRetry) {
         btnRetry.disabled = false;
-        btnRetry.style.display = "none";
+        if (success) {
+          btnRetry.style.display = "none";
+        } else {
+          btnRetry.style.display = "inline-block";
+        }
       }
       isRecovering = false;
       recoveryPromise = null;
@@ -259,6 +299,7 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
         }
       }).catch((err) => {
         console.error("Lỗi khi nạp lại kho sau khi phục hồi:", err);
+        handleWorkerFatalError(err.message || "Lỗi khởi tạo lại kho mẫu");
         if (workerReadyResolve) {
           workerReadyResolve(false);
           workerReadyResolve = null;
@@ -266,9 +307,10 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
       });
     } else if (data.type === "ERROR") {
       console.error("Lỗi Worker:", data.payload);
+      handleWorkerFatalError(data.payload?.message || "Lỗi khởi tạo Worker");
       if (typeof document !== "undefined") {
         const status = document.getElementById("splash-status");
-        if (status) status.textContent = `Lỗi khởi tạo: ${data.payload.message}`;
+        if (status) status.textContent = `Lỗi khởi tạo: ${data.payload?.message || ""}`;
       }
       if (workerReadyResolve) {
         workerReadyResolve(false);
@@ -306,6 +348,10 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
       return;
     }
     handleWorkerFatalError("Lỗi giải mã thông điệp (message deserialization error)");
+    if (workerReadyResolve) {
+      workerReadyResolve(false);
+      workerReadyResolve = null;
+    }
   };
 }
 
@@ -318,20 +364,10 @@ function initWorker() {
 // 3. Xử lý sau khi Pyodide Worker đã sẵn sàng
 // -------------------------------------------------------------
 export async function onWorkerReady() {
-  // Ẩn màn hình splash và nút thử lại
-  if (typeof document !== "undefined") {
-    const splash = document.getElementById("splash-screen");
-    if (splash) splash.style.display = "none";
-    const btnRetry = document.getElementById("btn-worker-retry");
-    if (btnRetry) {
-      btnRetry.style.display = "none";
-      btnRetry.disabled = false;
-    }
-  }
-
   const isFirstInit = !isUiInitialized;
   // Khởi tạo các event listeners và controller giao diện một lần duy nhất
-  if (!isUiInitialized) {
+  if (!isDomListenersAttached) {
+    isDomListenersAttached = true;
     // Xin quyền lưu trữ bền vững (T037)
     if (typeof navigator !== "undefined" && navigator.storage && navigator.storage.persist) {
       try {
@@ -346,13 +382,15 @@ export async function onWorkerReady() {
     if (typeof document !== "undefined") {
       initBankTab(sendWorkerMessage);
       initWriteTab();
-      const teachController = new TeachController(
-        { request: sendWorkerMessage },
-        { onSampleSaved: notifySampleTaught }
-      );
-      await teachController.init();
-      if (typeof window !== "undefined") {
-        window.__teachController = teachController;
+      if (document.getElementById("tab-teach")) {
+        const teachController = new TeachController(
+          { request: sendWorkerMessage },
+          { onSampleSaved: notifySampleTaught }
+        );
+        await teachController.init();
+        if (typeof window !== "undefined") {
+          window.__teachController = teachController;
+        }
       }
       initQuotaAndBackupReminders();
       initGuideModal();
@@ -372,7 +410,7 @@ export async function onWorkerReady() {
               gzBytes: Array.from(new Uint8Array(profile.data)),
               createIfMissing: false,
             });
-            if (typeof document !== "undefined") {
+            if (typeof document !== "undefined" && document.getElementById("bank-summary")) {
               await refreshBankView();
             }
             if (typeof window !== "undefined" && window.__teachController) {
@@ -397,8 +435,6 @@ export async function onWorkerReady() {
         triggerSyncSave();
       });
     }
-
-    isUiInitialized = true;
   }
 
   // Nạp lại / Khởi tạo hồ sơ trong IndexedDB
@@ -416,7 +452,7 @@ export async function onWorkerReady() {
         gzBytes: Array.from(new Uint8Array(profile.data)),
         createIfMissing: false,
       });
-      if (typeof document !== "undefined") {
+      if (typeof document !== "undefined" && document.getElementById("bank-summary")) {
         await refreshBankView();
       }
       if (typeof window !== "undefined" && window.__teachController) {
@@ -430,6 +466,18 @@ export async function onWorkerReady() {
     await checkQuotaStatus();
   }
 
+  // Chỉ ẩn màn hình splash và nút thử lại khi toàn bộ quá trình nạp kho mẫu và khởi tạo thành công (T009)
+  if (typeof document !== "undefined") {
+    const splash = document.getElementById("splash-screen");
+    if (splash) splash.style.display = "none";
+    const btnRetry = document.getElementById("btn-worker-retry");
+    if (btnRetry) {
+      btnRetry.style.display = "none";
+      btnRetry.disabled = false;
+    }
+  }
+
+  isUiInitialized = true;
   setStatus("status_ready");
   isRecovering = false;
 }
