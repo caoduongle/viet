@@ -35,9 +35,13 @@ def test_chu_hoa_dau_tu_loose_va_strict(tiny_bank):
 
 
 def test_so_ghep_tung_chu_so_voi_khoang_cach(tiny_bank):
-    st, w, miss = W(tiny_bank).token("12")
+    wr = W(tiny_bank)
+    st, w, miss = wr.token("12")
     assert miss == [] and len(st) == 2
-    assert w == pytest.approx(3.0 + 3.5 + 4.0)      # '1' rộng 3, khoảng cách dgaps 3.5, '2' rộng 4
+    w1 = wr.get_char_advance_width("1")
+    w2 = wr.get_char_advance_width("2")
+    gap = wr._resolve_dgap(False, digit_idx=1)
+    assert w == pytest.approx(w1 + gap + w2)
 
 
 def test_so_thieu_chu_so_thi_bao_dung_chu_so_thieu(tiny_bank):

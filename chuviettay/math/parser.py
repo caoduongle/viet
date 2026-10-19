@@ -55,9 +55,8 @@ __all__ = [
 _log = logging.getLogger(__name__)
 
 _CMD_RE = re.compile(r"\\[a-zA-Z]+")
-# Số: 3.14 / 1.000.000 / 13{,}65. Theo quy ước TeX, dấu phẩy trần "0,1" là dấu ngăn cách (khoảng [0,1],
-# chỉ số x_{1,2}); muốn dấu phẩy thập phân kiểu Việt Nam hãy viết 0{,}1.
-_NUM_RE = re.compile(r"[0-9]+(?:\.[0-9]+)*(?:\{,\}[0-9]+)?")
+# Số: 3.14 / 1.000.000 / 13{,}65 / 0,39. Hỗ trợ dấu phẩy thập phân tiếng Việt dạng 0,39 và 0{,}1
+_NUM_RE = re.compile(r"[0-9]+(?:\.[0-9]+)*(?:(?:\{,\}|,(?=[0-9]))[0-9]+)*")
 _SIMPLE_TEXT_RE = re.compile(r"^[^\\{}$^_&#~]*$")
 _NEWLINE_CMD = "\\\\"
 

@@ -149,8 +149,10 @@ def test_decimal_numbers_are_single_tokens():
     assert items("13.65") == [TextNode("13.65", "num")]
     assert items("1.000.000") == [TextNode("1.000.000", "num")]
     assert items(r"0{,}5") == [TextNode("0,5", "num")]
-    # dấu phẩy trần là dấu ngăn cách (khoảng, chỉ số) theo quy ước TeX
-    assert items("0,5") == [TextNode("0", "num"), SymbolNode(","), TextNode("5", "num")]
+    # Hỗ trợ số thập phân tiếng Việt dạng 0,5 tự nhiên
+    assert items("0,5") == [TextNode("0,5", "num")]
+    # dấu phẩy trần có khoảng trắng là dấu ngăn cách (khoảng, danh sách)
+    assert items("0, 5") == [TextNode("0", "num"), SymbolNode(","), TextNode("5", "num")]
 
 
 def test_spacing_commands_and_tilde():

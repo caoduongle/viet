@@ -123,6 +123,7 @@ class MathLayoutEngine:
         self.display = display
         self._script_level = 0
         self._frac_level = 0
+        self._matrix_level = 0
 
     # ------------------------------------------------------------------ tiện ích
     def _em(self, eff: float) -> float:
@@ -158,7 +159,11 @@ class MathLayoutEngine:
             sw._current_tok = getattr(w, "_current_tok", "")
             sw._current_k = getattr(w, "_current_k", 0)
             sw.last = dict(w.last)
-        return MathLayoutEngine(self.bank, S=self.S, writer=sw, rnd=rnd_to_use, display=self.display)
+        eng = MathLayoutEngine(self.bank, S=self.S, writer=sw, rnd=rnd_to_use, display=self.display)
+        eng._script_level = self._script_level
+        eng._frac_level = self._frac_level
+        eng._matrix_level = self._matrix_level
+        return eng
 
     def _script(self, node: MathNode, scale: float, depth: int) -> MathLayoutItem:
         self._script_level += 1
@@ -293,7 +298,9 @@ class MathLayoutEngine:
         txt = node.text
         if not txt:
             return _zero()
-        numeric = node.kind == "num" or (node.kind == "" and txt.isdigit())
+        numeric = node.kind == "num" or (
+            node.kind == "" and any(c.isdigit() for c in txt) and all(c.isdigit() or c in ",." for c in txt)
+        )
         if numeric:
             st, w, miss = self.writer.number(txt)
         else:
@@ -310,11 +317,13 @@ class MathLayoutEngine:
             ys = [pt for stroke in st for pt in stroke[1::2]]
             has_ascender = numeric or any(c.isupper() or c in "bdfhklđ" for c in txt)
             if ys and has_ascender:
-                ascent = max(self.xh * eff, -min(ys) * eff)
+                ascent = max((0.85 if numeric else 1.0) * self.xh * eff, -min(ys) * eff)
             else:
                 ascent = self.xh * eff
             has_descender = any(c in "gjpqy" for c in txt)
-            if ys and has_descender:
+            if numeric:
+                descent = max(0.0, max(ys) * eff)
+            elif ys and has_descender:
                 descent = max(0.2 * self.xh * eff, max(ys) * eff)
             else:
                 descent = 0.2 * self.xh * eff
@@ -323,7 +332,23 @@ class MathLayoutEngine:
                 glyphs=[PositionedGlyph(strokes=st, x=0.0, y=0.0, scale=eff)],
             )
         char_w = 0.5 * self.xh * eff
-        return MathLayoutItem(size=_size(max(10.0 * eff, len(txt) * char_w), self.xh * eff, 0.2 * self.xh * eff))
+        descent_fallback = 0.0 if numeric else 0.2 * self.xh * eff
+        return MathLayoutItem(size=_size(max(10.0 * eff, len(txt) * char_w), self.xh * eff, descent_fallback))
+
+
+    def _get_item_ink_bounds(self, item: MathLayoutItem) -> tuple[float, float]:
+        """Trả về (min_y, max_y) quang học thực tế của nét vẽ trong item.
+        Nếu không có nét, lùi về (-item.size.ascent, item.size.descent)."""
+        ys: list[float] = []
+        for g in item.glyphs:
+            sc = g.scale
+            for st in g.strokes:
+                ys.extend(pt * sc + g.y for pt in st[1::2])
+        for s in item.strokes:
+            ys.extend(pt[1] for pt in s.points)
+        if ys:
+            return min(ys), max(ys)
+        return -item.size.ascent, item.size.descent
 
     # ------------------------------------------------------------------ ký hiệu
     def _glyph_item(self, strokes, w: float, eff: float, min_ascent: float) -> MathLayoutItem:
@@ -438,7 +463,8 @@ class MathLayoutEngine:
 
     # ------------------------------------------------------------------ phân số
     def _m_Fraction(self, node: Fraction, scale: float, eff: float, depth: int) -> MathLayoutItem:
-        child_scale = scale * 0.85
+        is_nested_or_matrix = self._frac_level > 0 or getattr(self, "_matrix_level", 0) > 0
+        child_scale = scale * (0.78 if is_nested_or_matrix else 0.80)
         self._frac_level += 1
         try:
             num_item = self.measure(node.num, child_scale, depth + 1)
@@ -446,22 +472,27 @@ class MathLayoutEngine:
         finally:
             self._frac_level -= 1
 
-        pad = 8.0 if node.bar else 2.0
-        frac_w = max(num_item.size.width, den_item.size.width) + pad * eff
+        content_w = max(num_item.size.width, den_item.size.width)
+        overhang = (0.18 if node.bar else 0.08) * self.xh * eff
+        frac_w = content_w + 2.0 * overhang
         math_axis = 0.45 * self.xh * eff
-        gap = 3.0 * eff if node.bar else 1.5 * eff
+        gap = (0.20 if node.bar else 0.12) * self.xh * eff
+
+        num_ink_top, num_ink_bot = self._get_item_ink_bounds(num_item)
+        den_ink_top, den_ink_bot = self._get_item_ink_bounds(den_item)
+
         num_x = (frac_w - num_item.size.width) / 2.0
-        num_y = -math_axis - gap - num_item.size.descent
+        num_y = -math_axis - gap - num_ink_bot
         den_x = (frac_w - den_item.size.width) / 2.0
-        den_y = -math_axis + gap + den_item.size.ascent
+        den_y = -math_axis + gap - den_ink_top
 
         canvas = _Canvas()
         if node.bar:
             canvas.line([(0.0, -math_axis), (frac_w, -math_axis)], 1.41 * eff)
         canvas.put(num_item, num_x, num_y)
         canvas.put(den_item, den_x, den_y)
-        total_ascent = math_axis + gap + num_item.size.height
-        total_descent = gap + den_item.size.height - math_axis
+        total_ascent = max(0.0, -(num_y + num_ink_top))
+        total_descent = max(0.0, den_y + den_ink_bot)
         return canvas.build(frac_w, total_ascent, total_descent)
 
     # ------------------------------------------------------------------ chỉ số trên / dưới
@@ -748,7 +779,11 @@ class MathLayoutEngine:
         if not rows:
             return _zero()
         ncols = max(len(r) for r in rows)
-        cells = [[self.measure(c, scale, depth + 1) for c in r] for r in rows]
+        self._matrix_level += 1
+        try:
+            cells = [[self.measure(c, scale, depth + 1) for c in r] for r in rows]
+        finally:
+            self._matrix_level -= 1
         xh = self.xh * eff
         em = self._em(eff)
 
@@ -756,9 +791,11 @@ class MathLayoutEngine:
         for r in cells:
             for j, it in enumerate(r):
                 col_w[j] = max(col_w[j], it.size.width)
-        row_asc = [max([it.size.ascent for it in r] + [0.95 * xh]) for r in cells]
-        row_desc = [max([it.size.descent for it in r] + [0.3 * xh]) for r in cells]
-        row_gap = 0.5 * xh
+        min_asc = 0.85 * xh if node.kind == "cases" else 0.95 * xh
+        min_desc = 0.20 * xh if node.kind == "cases" else 0.3 * xh
+        row_asc = [max([it.size.ascent for it in r] + [min_asc]) for r in cells]
+        row_desc = [max([it.size.descent for it in r] + [min_desc]) for r in cells]
+        row_gap = 0.35 * xh if node.kind == "cases" else 0.5 * xh
 
         def col_gap_before(j: int) -> float:
             if node.kind == "aligned":

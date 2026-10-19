@@ -19,11 +19,11 @@ from tests.test_letter_assembly_quality import _create_quality_test_bank
 
 GOLDEN_REAL = {
     "co_ban": {
-        "xopp": "2361f6e1a2798242545a8fdf22a92e1f8d62f251a2f14c783cab9916dcd21321",
+        "xopp": "0e9198eeda15627e535937943ce6cdee156dd35a77d139cb296ebe4c0d5e0f06",
         "thieu": "acb71b94f99fcf51b639b91a2abcc906267a7a5e1be4a5c3b4c333115cc6338c",
     },
     "tuy_chon": {
-        "xopp": "51a2e21adbf797d752f1b74e8ae46bd856b17472add095f5dbfaaec6fc2a6ab9",
+        "xopp": "cc710e3994f9a611dae9a747f9494921c8dd8b0fd41aa934ebb02296dd612b3c",
     },
     "nhieu_trang": {
         "xopp": "5552508f031d160fe23819e28693bf71ac2835e814639b9e0598faf7549a4542",
@@ -36,13 +36,13 @@ GOLDEN_REAL = {
         "xopp": "70e9ecaa3a8aa81dd0781ce719826c98aead718c60635ef9e14bd103e9b8aeed",
     },
     "math": {
-        "xopp": "a2669fc850c02d1cfd3b47f8bfbadd818ba336dc152aa4ad975a4cec24100951",
+        "xopp": "98096eb19692921ed459ad0ef43421d907040ba88441741efd4499b3c0d83c69",
     },
     "table": {
-        "xopp": "b5df9f7ad27ab25c57f3f27486f483c8181fb44b023e71578482a597f88a939c",
+        "xopp": "1508e182493a0b315c1eb6a3038f1f27e151a28ff08851e50d2b79e38871d03b",
     },
     "markdown_list": {
-        "xopp": "448890bdc4d3772b3423c09407024df7f3d90015686bc76c748c04736b5e7672",
+        "xopp": "39a1fd33e2d9d2e3b989631e2ce3663316fdb8b4069d07a31db9098f7e325a66",
         "thieu": "239e7b0d55a5abf5fa13898179fb273b900ec3935b11a2576e32103d18b9ca0a",
     },
 }
@@ -153,7 +153,7 @@ def test_real_path_stable_variants(tiny_bank_path, tmp_path):
     result = ctl.write_text("xin ba bà chào Xin 12 1,2 xin. (xin) zzz bá", WriteOptions(seed=7, stable_variants=True, missing_grid=True), out)
 
     actual_xopp_sha = sha(out)
-    expected_xopp_sha = "ebed1bb05df5cc06457baab029d7c64081fe0e743cac6444b1cdb7f67960c66d"
+    expected_xopp_sha = "923b969736c9724339216b46803e85ddba829de25ca813527e2142ea3774b386"
     assert actual_xopp_sha == expected_xopp_sha, (
         f"stable_variants: file .xopp khác bản gốc cố định. Mã băm mới: {actual_xopp_sha}"
     )

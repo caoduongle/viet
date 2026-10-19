@@ -140,7 +140,11 @@ class Writer:
             return self.pick(b.letters[char.lower()], "let:" + char.lower())
 
         if getattr(b, "digits", None) and char in b.digits:
-            return self.pick(b.digits[char], "d" + char)
+            raw_sample = self.pick(b.digits[char], "d" + char)
+            if raw_sample:
+                norm_st, adv_w = self._normalize_digit_sample(raw_sample, char)
+                return {"s": norm_st, "w": adv_w, "tag": raw_sample.get("tag", "d" + char)}
+            return raw_sample
 
         if getattr(b, "punct", None) and char in b.punct:
             return self.pick(b.punct[char], "p" + char)
@@ -178,6 +182,14 @@ class Writer:
             sample = b.words[char.lower()][0]
         elif getattr(b, "digits", None) and char in b.digits and b.digits[char]:
             sample = b.digits[char][0]
+            _, adv_w = self._normalize_digit_sample(sample, char)
+            self._char_width_cache[char] = adv_w
+            return adv_w
+        elif char in "-%" and getattr(b, "punct", None) and char in b.punct and b.punct[char]:
+            sample = b.punct[char][0]
+            _, adv_w = self._normalize_digit_sample(sample, char)
+            self._char_width_cache[char] = adv_w
+            return adv_w
         elif getattr(b, "punct", None) and char in b.punct and b.punct[char]:
             sample = b.punct[char][0]
         elif getattr(b, "symbols", None) and char in b.symbols and b.symbols[char]:
@@ -246,6 +258,21 @@ class Writer:
                     lead_w = sum(self.get_char_advance_width(c) for c in lead) + (len(lead) * letter_gap if lead else 0.0)
                     trail_w = sum(self.get_char_advance_width(c) for c in trail) + (len(trail) * letter_gap if trail else 0.0)
                     return (lead_w + float(core_sample["w"]) + trail_w) * scale
+        if NUMRE.match(nfc_text):
+            tot = 0.0
+            first = True
+            for ch in nfc_text:
+                if ch in ",.":
+                    cw = self.get_char_advance_width(ch)
+                    tot += cw + 0.18 * xh
+                    first = True
+                else:
+                    cw = self.get_char_advance_width(ch)
+                    gap = 0.0 if first else 0.12 * xh
+                    tot += gap + cw
+                    first = False
+            return tot * scale
+
         total_w = 0.0
         for idx, ch in enumerate(nfc_text):
             cw = self.get_char_advance_width(ch)
@@ -460,21 +487,75 @@ class Writer:
             rnd = ScopedRNG(master_seed, ctx_type, self._current_tok, self._current_k, "dgap", digit_idx)
         else:
             rnd = self.rnd
-        # Lọc các khoảng cách hợp lý (tương tự như cách engine lọc wgaps: 6.0 <= g <= 20.0)
-        # Đối với chữ số: dgap chỉ nên trong khoảng 0.5 đến 0.55 * xh (tối đa ~3.8 khi xh=7.0, ~4.3 khi xh=7.94)
-        valid_gaps = [float(g) for g in raw_gaps if 0.5 <= float(g) <= 0.55 * xh] if raw_gaps else []
-        if valid_gaps:
-            gap = rnd.choice(valid_gaps)
-        elif raw_gaps:
-            # Nếu toàn bộ mẫu trong kho đều quá lớn (ví dụ kho cũ bị outlier > 5.0), clamp về dải an toàn
-            min_dgap = 0.08 * xh
-            max_dgap = 0.22 * xh
-            g_raw = rnd.choice(raw_gaps)
-            scaled = float(g_raw) * (xh / 7.94)
+        min_dgap = 0.10 * xh
+        max_dgap = 0.18 * xh
+        if raw_gaps:
+            g_raw = float(rnd.choice(raw_gaps))
+            scaled = g_raw * (xh / 7.94) if abs(xh - 7.94) > 1e-3 else g_raw
             gap = clamp(scaled, min_dgap, max_dgap)
         else:
-            gap = 0.14 * xh
+            gap = 0.12 * xh
         return gap * (0.5 if is_hyphen else 1.0)
+
+    def _normalize_digit_sample(self, inst: dict, ch: str, xh: float | None = None) -> tuple[list[Stroke], float]:
+        """Chuẩn hóa mẫu chữ số/ký hiệu số:
+        - Với ch in '0123456789%':
+          + Chân chữ chạm đường cơ sở: dy = -max_y.
+          + Chiều cao mục tiêu: target_h = 1.20 * xh.
+          + Co giãn scale_y = clamp(target_h / sample_h, 0.35, 1.85) nếu sample_h lệch ngoài [1.14*xh, 1.26*xh].
+          + scale_x = clamp(scale_y ** 0.5, 0.75, 1.30).
+          + Biên trái min_x = 0.0.
+          + advance_width = (max_x - min_x) * scale_x.
+        - Với ch == '-':
+          + min_x = 0.0.
+          + Căn tâm dọc tại trục toán học y = -0.45 * xh.
+          + advance_width = (max_x - min_x).
+        Trả về (danh sách nét đã chuẩn hóa, độ rộng tiến quang học).
+        """
+        eff_xh = xh if (xh is not None and xh > 0) else (getattr(self.b, "xh", 7.94) or 7.94)
+        raw_s = inst.get("s", [])
+        raw_w = float(inst.get("w", 0.6 * eff_xh))
+        if not raw_s:
+            return [], raw_w
+        xs = [pt for st in raw_s for pt in st[0::2]]
+        ys = [pt for st in raw_s for pt in st[1::2]]
+        if not xs or not ys:
+            return [], raw_w
+        raw_min_x, raw_max_x = min(xs), max(xs)
+        raw_min_y, raw_max_y = min(ys), max(ys)
+        xh = eff_xh
+
+        if ch == "-":
+            dx = -raw_min_x
+            mid_y = (raw_min_y + raw_max_y) / 2.0
+            dy = -0.45 * xh - mid_y
+            norm_strokes = [
+                [round(pt + dx, 2) if i % 2 == 0 else round(pt + dy, 2) for i, pt in enumerate(st)]
+                for st in raw_s
+            ]
+            bbox_w = raw_max_x - raw_min_x
+            adv_w = bbox_w if bbox_w > 1e-3 else raw_w
+            return norm_strokes, adv_w
+
+        dx = -raw_min_x
+        dy = -raw_max_y
+        sample_h = raw_max_y - raw_min_y
+        target_h = 1.20 * xh
+
+        if sample_h > 1e-3 and (sample_h < 1.14 * xh or sample_h > 1.26 * xh):
+            scale_y = clamp(target_h / sample_h, 0.35, 1.85)
+            scale_x = clamp(scale_y ** 0.5, 0.75, 1.30)
+        else:
+            scale_x, scale_y = 1.0, 1.0
+
+        norm_strokes = [
+            [round((pt + dx) * scale_x, 2) if i % 2 == 0 else round((pt + dy) * scale_y, 2)
+             for i, pt in enumerate(st)]
+            for st in raw_s
+        ]
+        bbox_w = (raw_max_x - raw_min_x) * scale_x
+        adv_w = bbox_w if bbox_w > 1e-3 else (raw_w * scale_x)
+        return norm_strokes, adv_w
 
     def _normalize_punct_sample(self, inst: dict) -> tuple[list[Stroke], float]:
         """Chuẩn hóa mẫu dấu câu về gốc x = 0.0, trả về (danh sách nét đã dịch, độ rộng thực tế)."""
@@ -494,6 +575,7 @@ class Writer:
         else:
             effective_w = glyph_w
         return norm_strokes, effective_w
+
 
     def number(
         self,
@@ -543,16 +625,22 @@ class Writer:
                 first = True
                 continue
             lib = b.digits.get(ch)
-            if not lib and getattr(b, "words", None) and ch in b.words:
+            if not lib and ch == "-" and getattr(b, "punct", None) and "-" in b.punct:
+                lib = b.punct["-"]
+            elif not lib and ch == "%" and getattr(b, "punct", None) and "%" in b.punct:
+                lib = b.punct["%"]
+            elif not lib and getattr(b, "symbols", None) and ch in b.symbols:
+                lib = b.symbols[ch]
+            elif not lib and getattr(b, "words", None) and ch in b.words:
                 lib = b.words[ch]
             if not lib:
                 missing.append(ch)
                 continue
             g = self.pick(lib, "d" + ch)
             gap = self._resolve_dgap(first, is_hyphen=(ch == "-"), digit_idx=d_idx)
-            d_st, d_w = self._normalize_punct_sample(g)
+            d_st, d_w = self._normalize_digit_sample(g, ch)
             out += [shift(st, x + gap, 0) for st in d_st]
-            w_advance = float(g.get("w", d_w))
+            w_advance = d_w
             x += gap + w_advance
             first = False
         return out, x, missing
@@ -637,6 +725,10 @@ class Writer:
         xh = getattr(b, "xh", 7.94) or 7.94
         pen_w = float(b.pen.get("width", 1.41)) if b.pen else 1.41
 
+        # Single digit/percent or digit in bank.digits: route through self.number() for consistent baseline & height normalization
+        if (len(tok) == 1 and (tok.isdigit() or tok == "%")) or (getattr(b, "digits", None) and tok in b.digits):
+            return self.number(tok, _preserve_context=True)
+
         if len(tok) == 1:
             if getattr(b, "punct", None) and tok in b.punct:
                 inst = self.pick(b.punct[tok], "p" + tok)
@@ -646,9 +738,6 @@ class Writer:
             if sample:
                 w_tok = sample.get("w", 1.0 * xh)
                 return list(sample["s"]), w_tok, []
-        if getattr(b, "digits", None) and tok in b.digits:
-            inst = self.pick(b.digits[tok], "d" + tok)
-            return list(inst["s"]), inst["w"], []
         if getattr(b, "punct", None) and tok in b.punct:
             inst = self.pick(b.punct[tok], "p" + tok)
             p_st, p_w = self._normalize_punct_sample(inst)

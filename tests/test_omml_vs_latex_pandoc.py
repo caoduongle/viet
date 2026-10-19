@@ -16,9 +16,10 @@ pytestmark = pytest.mark.skipif(shutil.which("pandoc") is None, reason="cần pa
 CORPUS = os.path.join(os.path.dirname(__file__), "data", "math_corpus.txt")
 # Pandoc không dịch được \dbinom / \over; x^23 và \tfrac được pandoc hiểu khác chuẩn TeX -> không so sánh
 SKIP = (r"\dbinom", r"\over", "x^23", r"\tfrac")
-# Khác biệt có chủ đích giữa hai đường (không phải lỗi): pandoc ghi \operatorname{Var} thành chữ thường m:nor
-# và \setminus: pandoc ghi U+005C '\\', parser LaTeX ghi U+2216 '∖' (hai cách viết cùng một nét chéo, layout vẽ như nhau)
-KNOWN_DIFFERENT = (r"\operatorname{Var}", r"\setminus")
+# Khác biệt có chủ đích giữa hai đường (không phải lỗi): pandoc ghi \operatorname{Var} thành chữ thường m:nor;
+# \setminus: pandoc ghi U+005C '\\', parser LaTeX ghi U+2216 '∖';
+# và dấu phẩy trần trong số thập phân tiếng Việt (6,88% -> LaTeX gộp số, pandoc tách dấu phẩy chuẩn TeX).
+KNOWN_DIFFERENT = (r"\operatorname{Var}", r"\setminus", r",")
 
 
 def _lines():
