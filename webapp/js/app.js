@@ -34,12 +34,17 @@ export function getIsUiInitialized() {
   return isUiInitialized;
 }
 
+export function getIsDomListenersAttached() {
+  return isDomListenersAttached;
+}
+
 export function resetUiInitializedForTesting() {
   isUiInitialized = false;
   isDomListenersAttached = false;
   isRecovering = false;
   workerGeneration = 0;
   recoveryPromise = null;
+  clearHandshakeTimer = null;
 }
 
 export function setWorkerInstance(w) {
@@ -117,6 +122,7 @@ export function sendWorkerMessage(method, params = {}, timeoutMs = 60000) {
 }
 
 let workerReadyResolve = null;
+let clearHandshakeTimer = null;
 
 export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
   if (isRecovering && recoveryPromise) {
@@ -162,6 +168,7 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
             if (workerReadyResolve) {
               const resFn = workerReadyResolve;
               workerReadyResolve = null;
+              clearHandshakeTimer = null;
               if (worker && typeof worker.terminate === "function") {
                 try {
                   worker.terminate();
@@ -173,6 +180,12 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
               resFn(false);
             }
           }, timeoutMs);
+          clearHandshakeTimer = () => {
+            if (timer) {
+              clearTimeout(timer);
+              timer = null;
+            }
+          };
         });
 
         try {
@@ -197,6 +210,10 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
       return false;
     } finally {
       if (timer) clearTimeout(timer);
+      if (clearHandshakeTimer) {
+        clearHandshakeTimer();
+        clearHandshakeTimer = null;
+      }
       if (btnRetry) {
         btnRetry.disabled = false;
         if (success) {
@@ -292,12 +309,22 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
         if (status) status.textContent = message;
       }
     } else if (data.type === "READY") {
-      onWorkerReady().then(() => {
+      if (clearHandshakeTimer) {
+        clearHandshakeTimer();
+        clearHandshakeTimer = null;
+      }
+      onWorkerReady(generation).then(() => {
+        if (generation !== workerGeneration) {
+          return;
+        }
         if (workerReadyResolve) {
           workerReadyResolve(true);
           workerReadyResolve = null;
         }
       }).catch((err) => {
+        if (generation !== workerGeneration) {
+          return;
+        }
         console.error("Lỗi khi nạp lại kho sau khi phục hồi:", err);
         handleWorkerFatalError(err.message || "Lỗi khởi tạo lại kho mẫu");
         if (workerReadyResolve) {
@@ -306,6 +333,10 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
         }
       });
     } else if (data.type === "ERROR") {
+      if (clearHandshakeTimer) {
+        clearHandshakeTimer();
+        clearHandshakeTimer = null;
+      }
       console.error("Lỗi Worker:", data.payload);
       handleWorkerFatalError(data.payload?.message || "Lỗi khởi tạo Worker");
       if (typeof document !== "undefined") {
@@ -336,6 +367,10 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
     if (generation !== workerGeneration) {
       return;
     }
+    if (clearHandshakeTimer) {
+      clearHandshakeTimer();
+      clearHandshakeTimer = null;
+    }
     handleWorkerFatalError(e.message || "Lỗi runtime trong Web Worker");
     if (workerReadyResolve) {
       workerReadyResolve(false);
@@ -346,6 +381,10 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
   targetWorker.onmessageerror = () => {
     if (generation !== workerGeneration) {
       return;
+    }
+    if (clearHandshakeTimer) {
+      clearHandshakeTimer();
+      clearHandshakeTimer = null;
     }
     handleWorkerFatalError("Lỗi giải mã thông điệp (message deserialization error)");
     if (workerReadyResolve) {
@@ -363,95 +402,113 @@ function initWorker() {
 // -------------------------------------------------------------
 // 3. Xử lý sau khi Pyodide Worker đã sẵn sàng
 // -------------------------------------------------------------
-export async function onWorkerReady() {
+export async function onWorkerReady(generation = workerGeneration) {
+  if (generation !== undefined && generation !== workerGeneration) {
+    return;
+  }
   const isFirstInit = !isUiInitialized;
   // Khởi tạo các event listeners và controller giao diện một lần duy nhất
   if (!isDomListenersAttached) {
-    isDomListenersAttached = true;
-    // Xin quyền lưu trữ bền vững (T037)
-    if (typeof navigator !== "undefined" && navigator.storage && navigator.storage.persist) {
-      try {
-        const isPersisted = await navigator.storage.persist();
-        console.log("[Storage] Persisted storage:", isPersisted);
-      } catch (e) {
-        console.warn("[Storage] Persist request error:", e);
-      }
-    }
-
-    // Khởi tạo tab Kho mẫu, Tab Viết chữ & Tab Dạy mẫu khi có DOM
-    if (typeof document !== "undefined") {
-      initBankTab(sendWorkerMessage);
-      initWriteTab();
-      if (document.getElementById("tab-teach")) {
-        const teachController = new TeachController(
-          { request: sendWorkerMessage },
-          { onSampleSaved: notifySampleTaught }
-        );
-        await teachController.init();
-        if (typeof window !== "undefined") {
-          window.__teachController = teachController;
+    try {
+      // Xin quyền lưu trữ bền vững (T037)
+      if (typeof navigator !== "undefined" && navigator.storage && navigator.storage.persist) {
+        try {
+          const isPersisted = await navigator.storage.persist();
+          console.log("[Storage] Persisted storage:", isPersisted);
+        } catch (e) {
+          console.warn("[Storage] Persist request error:", e);
         }
       }
-      initQuotaAndBackupReminders();
-      initGuideModal();
-    }
+      if (generation !== undefined && generation !== workerGeneration) return;
 
-    // Lắng nghe đồng bộ đa tab qua BroadcastChannel (T066)
-    storage.getSyncChannel(async (msg) => {
-      if (msg.type === "BANK_SYNCHRONIZED") {
-        const activeId = await storage.getSetting("active_profile_id", "default_profile");
-        if (msg.profileId === activeId) {
-          console.log("[Multi-Tab] Nhận tín hiệu đồng bộ từ tab khác cho hồ sơ:", activeId);
-          storage.setLocalSyncedTimestamp(msg.timestamp || Date.now());
-          setStatus("status_syncing", false, true);
-          const profile = await storage.getProfile(activeId);
-          if (profile && profile.data) {
-            await sendWorkerMessage("load_bank", {
-              gzBytes: Array.from(new Uint8Array(profile.data)),
-              createIfMissing: false,
-            });
-            if (typeof document !== "undefined" && document.getElementById("bank-summary")) {
-              await refreshBankView();
-            }
-            if (typeof window !== "undefined" && window.__teachController) {
-              await window.__teachController.refresh();
-            }
+      // Khởi tạo tab Kho mẫu, Tab Viết chữ & Tab Dạy mẫu khi có DOM
+      if (typeof document !== "undefined") {
+        initBankTab(sendWorkerMessage);
+        initWriteTab();
+        if (document.getElementById("tab-teach")) {
+          const teachController = new TeachController(
+            { request: sendWorkerMessage },
+            { onSampleSaved: notifySampleTaught }
+          );
+          await teachController.init();
+          if (generation !== undefined && generation !== workerGeneration) return;
+          if (typeof window !== "undefined") {
+            window.__teachController = teachController;
           }
-          setStatus("status_ready");
         }
+        initQuotaAndBackupReminders();
+        initGuideModal();
       }
-    });
 
-    // Gắn hook tự động flush lưu khi người dùng chuyển tab trình duyệt hoặc đóng trang (T066)
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "hidden") {
-          triggerSyncSave();
+      // Lắng nghe đồng bộ đa tab qua BroadcastChannel (T066)
+      storage.getSyncChannel(async (msg) => {
+        if (msg.type === "BANK_SYNCHRONIZED") {
+          const activeId = await storage.getSetting("active_profile_id", "default_profile");
+          if (msg.profileId === activeId) {
+            console.log("[Multi-Tab] Nhận tín hiệu đồng bộ từ tab khác cho hồ sơ:", activeId);
+            storage.setLocalSyncedTimestamp(msg.timestamp || Date.now());
+            setStatus("status_syncing", false, true);
+            const profile = await storage.getProfile(activeId);
+            if (profile && profile.data) {
+              await sendWorkerMessage("load_bank", {
+                gzBytes: Array.from(new Uint8Array(profile.data)),
+                createIfMissing: false,
+              });
+              if (typeof document !== "undefined" && document.getElementById("bank-summary")) {
+                await refreshBankView();
+              }
+              if (typeof window !== "undefined" && window.__teachController) {
+                await window.__teachController.refresh();
+              }
+            }
+            setStatus("status_ready");
+          }
         }
       });
-    }
-    if (typeof window !== "undefined") {
-      window.addEventListener("pagehide", () => {
-        triggerSyncSave();
-      });
+
+      // Gắn hook tự động flush lưu khi người dùng chuyển tab trình duyệt hoặc đóng trang (T066)
+      if (typeof document !== "undefined") {
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden") {
+            triggerSyncSave();
+          }
+        });
+      }
+      if (typeof window !== "undefined") {
+        window.addEventListener("pagehide", () => {
+          triggerSyncSave();
+        });
+      }
+
+      isDomListenersAttached = true;
+    } catch (err) {
+      isDomListenersAttached = false;
+      throw err;
     }
   }
 
+  if (generation !== undefined && generation !== workerGeneration) return;
+
   // Nạp lại / Khởi tạo hồ sơ trong IndexedDB
   const profiles = await storage.listProfiles();
+  if (generation !== undefined && generation !== workerGeneration) return;
+
   if (!profiles || profiles.length === 0) {
     if (isFirstInit && typeof document !== "undefined") {
       showWelcomeModal();
     }
   } else {
     const activeId = await storage.getSetting("active_profile_id", profiles[0].id);
+    if (generation !== undefined && generation !== workerGeneration) return;
     const profile = await storage.getProfile(activeId);
+    if (generation !== undefined && generation !== workerGeneration) return;
     if (profile && profile.data) {
       storage.setLocalSyncedTimestamp(profile.updated_at || Date.now());
       await sendWorkerMessage("load_bank", {
         gzBytes: Array.from(new Uint8Array(profile.data)),
         createIfMissing: false,
       });
+      if (generation !== undefined && generation !== workerGeneration) return;
       if (typeof document !== "undefined" && document.getElementById("bank-summary")) {
         await refreshBankView();
       }
@@ -461,10 +518,14 @@ export async function onWorkerReady() {
     }
   }
 
+  if (generation !== undefined && generation !== workerGeneration) return;
+
   // Kiểm tra hạn ngạch bộ nhớ
   if (typeof document !== "undefined") {
     await checkQuotaStatus();
   }
+
+  if (generation !== undefined && generation !== workerGeneration) return;
 
   // Chỉ ẩn màn hình splash và nút thử lại khi toàn bộ quá trình nạp kho mẫu và khởi tạo thành công (T009)
   if (typeof document !== "undefined") {

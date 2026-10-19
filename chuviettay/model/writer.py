@@ -77,7 +77,7 @@ class Writer:
             self._char_idx += 1
             master_seed = self.seed if self.seed is not None else 0
             ctx_type = getattr(self, "_current_ctx_type", "text")
-            scoped_rng = ScopedRNG(master_seed, "tok", self._current_tok, self._current_k, "variant", tag, char_idx)
+            scoped_rng = ScopedRNG(master_seed, ctx_type, self._current_tok, self._current_k, "variant", tag, char_idx)
             i = scoped_rng.randrange(len(lst))
             avoid_idx = self.last.get(tag)
             if avoid_idx is None:
@@ -381,7 +381,8 @@ class Writer:
                 if self.stable_variants:
                     from chuviettay.model.rng import ScopedRNG
                     master_seed = self.seed if self.seed is not None else 0
-                    scoped_rng = ScopedRNG(master_seed, "tok", self._current_tok, self._current_k, "jitter", idx)
+                    ctx_type = getattr(self, "_current_ctx_type", "text")
+                    scoped_rng = ScopedRNG(master_seed, ctx_type, self._current_tok, self._current_k, "jitter", idx)
                     jitter_amt = scoped_rng.uniform(-0.015 * self.J * xh, 0.015 * self.J * xh)
                     advance += jitter_amt
                 elif self.rnd:
@@ -455,7 +456,8 @@ class Writer:
         if self.stable_variants:
             from chuviettay.model.rng import ScopedRNG
             master_seed = self.seed if self.seed is not None else 0
-            rnd = ScopedRNG(master_seed, "tok", self._current_tok, self._current_k, "dgap", digit_idx)
+            ctx_type = getattr(self, "_current_ctx_type", "text")
+            rnd = ScopedRNG(master_seed, ctx_type, self._current_tok, self._current_k, "dgap", digit_idx)
         else:
             rnd = self.rnd
         # Lọc các khoảng cách hợp lý (tương tự như cách engine lọc wgaps: 6.0 <= g <= 20.0)

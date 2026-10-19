@@ -100,8 +100,7 @@ def encode_canonical_key(val: Any) -> bytes:
         for item in val:
             items_bytes.extend(encode_canonical_key(item))
         return b"t" + struct.pack(">I", len(val)) + bytes(items_bytes)
-    payload = unicodedata.normalize("NFC", str(val)).encode("utf-8")
-    return b"s" + struct.pack(">I", len(payload)) + payload
+    raise TypeError(f"Unsupported key type for canonical encoding: {type(val).__name__}")
 
 
 def derive_seed(master_seed: int, *keys: Any, version: str = "v2") -> int:

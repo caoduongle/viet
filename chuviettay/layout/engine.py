@@ -310,7 +310,15 @@ class DocumentLayoutEngine:
         merged_inlines: list[Inline] = []
         for inl in inlines:
             if isinstance(inl, Text) and merged_inlines and isinstance(merged_inlines[-1], Text):
-                merged_inlines[-1].text += (inl.text or "")
+                t1_occ = getattr(merged_inlines[-1], "token_occurrences", None)
+                t2_occ = getattr(inl, "token_occurrences", None)
+                if t1_occ is None and t2_occ is None:
+                    merged_inlines[-1].text += (inl.text or "")
+                elif t1_occ is not None and t2_occ is not None:
+                    merged_inlines[-1].text += (inl.text or "")
+                    merged_inlines[-1].token_occurrences = list(t1_occ) + list(t2_occ)
+                else:
+                    merged_inlines.append(inl)
             else:
                 merged_inlines.append(inl)
 
@@ -335,15 +343,21 @@ class DocumentLayoutEngine:
                     else:
                         chunks = [tok]
 
-                    for chunk in chunks:
-                        if getattr(inline, "token_occurrences", None) is not None and inline_tok_idx < len(inline.token_occurrences):
-                            occ = inline.token_occurrences[inline_tok_idx]
-                        else:
-                            occ = self._doc_token_counts.get((context_prefix, chunk), 0)
-                            self._doc_token_counts[(context_prefix, chunk)] = occ + 1
-                        inline_tok_idx += 1
+                    if getattr(inline, "token_occurrences", None) is not None and inline_tok_idx < len(inline.token_occurrences):
+                        tok_occ = inline.token_occurrences[inline_tok_idx]
+                    else:
+                        tok_occ = self._doc_token_counts.get((context_prefix, tok), 0)
+                        self._doc_token_counts[(context_prefix, tok)] = tok_occ + 1
+                    inline_tok_idx += 1
+
+                    for chunk_idx, chunk in enumerate(chunks):
                         from chuviettay.model.rng import SeedContext
-                        ctx = SeedContext(content_type=context_prefix, element_id=chunk, occurrence=occ)
+                        ctx = SeedContext(
+                            content_type=context_prefix,
+                            element_id=chunk,
+                            occurrence=tok_occ,
+                            sub_index=chunk_idx,
+                        )
                         try:
                             st, w, miss = self.wr.token(chunk, context=ctx)
                         except TypeError:
@@ -361,7 +375,7 @@ class DocumentLayoutEngine:
                                 missing=miss,
                                 token=chunk,
                                 token_id=ctx.token_id,
-                                occurrence=occ,
+                                occurrence=tok_occ,
                             )
                         )
 

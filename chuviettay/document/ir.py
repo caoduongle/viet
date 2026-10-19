@@ -169,103 +169,78 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
     def extract_doc_elements(doc: Document) -> tuple[list[dict], dict[tuple[str, str], int]]:
         elements = []
         counts: dict[tuple[str, str], int] = {}
-        for block in doc.blocks:
-            if isinstance(block, (Paragraph, Heading)):
-                for inline in block.inlines:
-                    if isinstance(inline, Text):
-                        norm = _normalize_text(inline.text or "")
-                        for tok_idx, tok in enumerate(norm.split()):
-                            occ = counts.get(("text", tok), 0)
-                            counts[("text", tok)] = occ + 1
+
+        def _extract_blocks(blocks: list[Block], context_prefix: str = "text") -> None:
+            for block in blocks:
+                if isinstance(block, (Paragraph, Heading)):
+                    for inline in block.inlines:
+                        if isinstance(inline, Text):
+                            norm = _normalize_text(inline.text or "")
+                            for tok_idx, tok in enumerate(norm.split()):
+                                occ = counts.get((context_prefix, tok), 0)
+                                counts[(context_prefix, tok)] = occ + 1
+                                elements.append({
+                                    "content_type": context_prefix,
+                                    "element_id": tok,
+                                    "occ": occ,
+                                    "node": inline,
+                                    "tok_idx": tok_idx,
+                                })
+                        elif isinstance(inline, Symbol):
+                            occ = counts.get(("sym", inline.symbol), 0)
+                            counts[("sym", inline.symbol)] = occ + 1
                             elements.append({
-                                "content_type": "text",
-                                "element_id": tok,
+                                "content_type": "sym",
+                                "element_id": inline.symbol,
                                 "occ": occ,
                                 "node": inline,
-                                "tok_idx": tok_idx,
                             })
-                    elif isinstance(inline, Symbol):
-                        occ = counts.get(("sym", inline.symbol), 0)
-                        counts[("sym", inline.symbol)] = occ + 1
-                        elements.append({
-                            "content_type": "sym",
-                            "element_id": inline.symbol,
-                            "occ": occ,
-                            "node": inline,
-                        })
-                    elif isinstance(inline, MathInline):
-                        occ = counts.get(("math_inline", inline.latex), 0)
-                        counts[("math_inline", inline.latex)] = occ + 1
-                        elements.append({
-                            "content_type": "math_inline",
-                            "element_id": inline.latex,
-                            "occ": occ,
-                            "node": inline,
-                        })
-            elif isinstance(block, MathBlock):
-                occ = counts.get(("math_block", block.latex), 0)
-                counts[("math_block", block.latex)] = occ + 1
-                elements.append({
-                    "content_type": "math_block",
-                    "element_id": block.latex,
-                    "occ": occ,
-                    "node": block,
-                })
-            elif isinstance(block, Table):
-                num_cols = len(block.rows[0].cells) if block.rows else 0
-                first_row_texts = []
-                if block.rows:
-                    for cell in block.rows[0].cells:
-                        for b in cell.blocks:
-                            if isinstance(b, Paragraph):
-                                for inl in b.inlines:
-                                    if isinstance(inl, Text) and inl.text:
-                                        first_row_texts.append(inl.text.strip())
-                first_row_sig = "-".join(first_row_texts)[:30]
-                tbl_sig = f"tbl:cols:{num_cols}|r0:{first_row_sig}"
-                occ = counts.get(("table", tbl_sig), 0)
-                counts[("table", tbl_sig)] = occ + 1
-                elements.append({
-                    "content_type": "table",
-                    "element_id": tbl_sig,
-                    "occ": occ,
-                    "node": block,
-                })
-                for row in block.rows:
-                    for cell in row.cells:
-                        for c_block in cell.blocks:
-                            if isinstance(c_block, (Paragraph, Heading)):
-                                for inline in c_block.inlines:
-                                    if isinstance(inline, Text):
-                                        norm = _normalize_text(inline.text or "")
-                                        for tok_idx, tok in enumerate(norm.split()):
-                                            occ = counts.get(("cell", tok), 0)
-                                            counts[("cell", tok)] = occ + 1
-                                            elements.append({
-                                                "content_type": "cell",
-                                                "element_id": tok,
-                                                "occ": occ,
-                                                "node": inline,
-                                                "tok_idx": tok_idx,
-                                            })
-                                    elif isinstance(inline, Symbol):
-                                        occ = counts.get(("sym", inline.symbol), 0)
-                                        counts[("sym", inline.symbol)] = occ + 1
-                                        elements.append({
-                                            "content_type": "sym",
-                                            "element_id": inline.symbol,
-                                            "occ": occ,
-                                            "node": inline,
-                                        })
-                                    elif isinstance(inline, MathInline):
-                                        occ = counts.get(("math_inline", inline.latex), 0)
-                                        counts[("math_inline", inline.latex)] = occ + 1
-                                        elements.append({
-                                            "content_type": "math_inline",
-                                            "element_id": inline.latex,
-                                            "occ": occ,
-                                            "node": inline,
-                                        })
+                        elif isinstance(inline, MathInline):
+                            occ = counts.get(("math_inline", inline.latex), 0)
+                            counts[("math_inline", inline.latex)] = occ + 1
+                            elements.append({
+                                "content_type": "math_inline",
+                                "element_id": inline.latex,
+                                "occ": occ,
+                                "node": inline,
+                            })
+                elif isinstance(block, ListBlock):
+                    for item_blocks in block.items:
+                        _extract_blocks(item_blocks, context_prefix=context_prefix)
+                elif isinstance(block, MathBlock):
+                    occ = counts.get(("math_block", block.latex), 0)
+                    counts[("math_block", block.latex)] = occ + 1
+                    elements.append({
+                        "content_type": "math_block",
+                        "element_id": block.latex,
+                        "occ": occ,
+                        "node": block,
+                    })
+                elif isinstance(block, Table):
+                    num_cols = len(block.rows[0].cells) if block.rows else 0
+                    first_row_texts = []
+                    if block.rows:
+                        for cell in block.rows[0].cells:
+                            for b in cell.blocks:
+                                if isinstance(b, Paragraph):
+                                    for inl in b.inlines:
+                                        if isinstance(inl, Text) and inl.text:
+                                            first_row_texts.append(inl.text.strip())
+                    first_row_sig = "-".join(first_row_texts)[:30]
+                    tbl_sig = f"tbl:cols:{num_cols}|r0:{first_row_sig}"
+                    occ = counts.get(("table", tbl_sig), 0)
+                    counts[("table", tbl_sig)] = occ + 1
+                    elements.append({
+                        "content_type": "table",
+                        "element_id": tbl_sig,
+                        "occ": occ,
+                        "node": block,
+                    })
+                    for row in block.rows:
+                        for cell in row.cells:
+                            _extract_blocks(cell.blocks, context_prefix="cell")
+
+        _extract_blocks(doc.blocks, context_prefix="text")
         return elements, counts
 
     base_elems, base_counts = extract_doc_elements(base_doc)

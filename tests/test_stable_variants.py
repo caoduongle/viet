@@ -722,6 +722,176 @@ def test_large_document_performance_benchmark(tmp_path):
     assert median_time > 0
 
 
+def test_namespace_isolation_text_vs_cell(tmp_path):
+    """T010: Cùng một từ, cùng occurrence nhưng khác content_type (text vs cell)
+    phải sinh ra khóa RNG và biến thể độc lập 100%, không trùng luồng chọn biến thể."""
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.model.rng import ScopedRNG, SeedContext
+
+    master_seed = 42
+    # Khởi tạo Writer 1 ở ngữ cảnh text
+    w_text = Writer(bank, seed=master_seed, stable_variants=True)
+    ctx_text = SeedContext(content_type="text", element_id="chữ", occurrence=0, sub_index=0)
+    w_text.token("chữ", context=ctx_text)
+
+    # Khởi tạo Writer 2 ở ngữ cảnh cell
+    w_cell = Writer(bank, seed=master_seed, stable_variants=True)
+    ctx_cell = SeedContext(content_type="cell", element_id="chữ", occurrence=0, sub_index=0)
+    w_cell.token("chữ", context=ctx_cell)
+
+    # Khóa dẫn xuất thực tế từ ScopedRNG phải khác nhau
+    rng_text = ScopedRNG(master_seed, "text", "chữ", 0, "variant", "ch", 0)
+    rng_cell = ScopedRNG(master_seed, "cell", "chữ", 0, "variant", "ch", 0)
+    assert rng_text.seed != rng_cell.seed, "Hạt giống dẫn xuất giữa text và cell phải khác nhau"
+
+    # Chuỗi pick trên Writer giữa text và cell phải phân tách
+    w_text_pick = Writer(bank, seed=master_seed, stable_variants=True)
+    w_text_pick._current_ctx_type = "text"
+    w_text_pick._current_tok = "chữ"
+    w_text_pick._current_k = 0
+    pick_text = [w_text_pick.pick([0, 1, 2, 3, 4, 5, 6, 7], "variant_tag") for _ in range(5)]
+
+    w_cell_pick = Writer(bank, seed=master_seed, stable_variants=True)
+    w_cell_pick._current_ctx_type = "cell"
+    w_cell_pick._current_tok = "chữ"
+    w_cell_pick._current_k = 0
+    pick_cell = [w_cell_pick.pick([0, 1, 2, 3, 4, 5, 6, 7], "variant_tag") for _ in range(5)]
+    assert pick_text != pick_cell, "Chuỗi pick giữa text và cell phải độc lập và không đồng nhất"
+
+
+def test_namespace_isolation_jitter_and_dgap(tmp_path):
+    """T011: Cô lập không gian tên cho jitter và dgap theo ctx_type."""
+    from chuviettay.model.rng import ScopedRNG, SeedContext
+
+    bank = create_multivariant_bank(tmp_path)
+    master_seed = 42
+
+    # Kiểm tra jitter ScopedRNG giữa text và cell
+    rng_jitter_text = ScopedRNG(master_seed, "text", "abc", 0, "jitter", 0)
+    rng_jitter_cell = ScopedRNG(master_seed, "cell", "abc", 0, "jitter", 0)
+    assert rng_jitter_text.seed != rng_jitter_cell.seed, "Jitter RNG seed phải phân biệt giữa text và cell"
+
+    # Kiểm tra dgap ScopedRNG giữa text và cell
+    rng_dgap_text = ScopedRNG(master_seed, "text", "123", 0, "dgap", 1)
+    rng_dgap_cell = ScopedRNG(master_seed, "cell", "123", 0, "dgap", 1)
+    assert rng_dgap_text.seed != rng_dgap_cell.seed, "Dgap RNG seed phải phân biệt giữa text và cell"
+
+    # Writer thực tế tính dgap phân tách giữa text và cell
+    w_text = Writer(bank, seed=master_seed, stable_variants=True)
+    ctx_text = SeedContext(content_type="text", element_id="123", occurrence=0)
+    _, _, _ = w_text.number("123", context=ctx_text)
+
+    w_cell = Writer(bank, seed=master_seed, stable_variants=True)
+    ctx_cell = SeedContext(content_type="cell", element_id="123", occurrence=0)
+    _, _, _ = w_cell.number("123", context=ctx_cell)
+
+
+def test_listblock_prepend_invariance(tmp_path):
+    """T016: Chèn mục mới vào đầu ListBlock (và danh sách con lồng nhau)
+    bảo toàn hình thái nét chữ của các mục cũ với dung sai <= 0.02 pt."""
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.document.ir import Document, ListBlock, Paragraph, Text, align_document_seeds
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    # List gốc có 2 mục (bao gồm cả mục lồng nhau)
+    sublist = ListBlock(items=[[Paragraph(inlines=[Text("nhánh nhỏ con")])]])
+    base_list = ListBlock(
+        items=[
+            [Paragraph(inlines=[Text("mục danh sách một")]), sublist],
+            [Paragraph(inlines=[Text("mục danh sách hai")])],
+        ]
+    )
+    base_doc = Document(blocks=[base_list])
+
+    opts = WriteOptions(stable_variants=True, seed=999, jitter=0.2)
+    engine_base = DocumentLayoutEngine(bank, opts)
+    out_base = str(tmp_path / "base_list.xopp")
+    engine_base.render(base_doc, out_base)
+
+    # Chèn mục mới ở đầu danh sách
+    prepended_item = [Paragraph(inlines=[Text("mục mới chèn vào đầu")])]
+    edited_list = ListBlock(
+        items=[
+            prepended_item,
+            [Paragraph(inlines=[Text("mục danh sách một")]), copy.deepcopy(sublist)],
+            [Paragraph(inlines=[Text("mục danh sách hai")])],
+        ]
+    )
+    edited_doc = Document(blocks=[edited_list])
+    aligned_doc = align_document_seeds(base_doc, edited_doc)
+
+    engine_edited = DocumentLayoutEngine(bank, opts)
+    out_edited = str(tmp_path / "edited_list.xopp")
+    engine_edited.render(aligned_doc, out_edited)
+
+    strokes_base = extract_xopp_strokes(out_base)
+    strokes_edited = extract_xopp_strokes(out_edited)
+
+    # Đo số nét của phần chèn thêm
+    doc_prepended = Document(blocks=[ListBlock(items=[prepended_item])])
+    out_prepended = str(tmp_path / "prepended.xopp")
+    engine_base.render(doc_prepended, out_prepended)
+    strokes_prepended = extract_xopp_strokes(out_prepended)
+
+    # Các nét của phần cũ trong edited_doc phải trùng khớp hình dạng với strokes_base
+    strokes_old_in_edited = strokes_edited[len(strokes_prepended):]
+    assert_stroke_shapes_invariant(
+        strokes_base,
+        strokes_old_in_edited,
+        tolerance=0.02,
+        msg_prefix="Nét danh sách cũ sau khi chèn mục mới phía trước",
+    )
+
+
+def test_chunked_token_occurrence_sync(tmp_path):
+    """T017: Đồng bộ hóa việc đánh số token_occurrences khi token dài bị chia thành nhiều chunk.
+    Các từ tiếp theo không bị trôi lệch occurrence và bảo toàn hình thái nét."""
+    bank = create_multivariant_bank(tmp_path)
+    from chuviettay.document.ir import Document, Paragraph, Text, align_document_seeds
+    from chuviettay.layout.engine import DocumentLayoutEngine
+
+    opts = WriteOptions(stable_variants=True, seed=777, jitter=0.2)
+
+    # Tài liệu gốc chỉ có các từ tiếp theo
+    base_doc = Document(blocks=[Paragraph(inlines=[Text("từ kế tiếp kết thúc")])])
+    engine_base = DocumentLayoutEngine(bank, opts)
+    out_base = str(tmp_path / "base_chunk.xopp")
+    engine_base.render(base_doc, out_base)
+
+    # Tài liệu chỉnh sửa chèn thêm một token rất dài ở đầu, vượt quá chiều rộng dòng buộc phải chunking
+    long_tok = "siêudàivượtngưỡngdòngkếtxuấtchuviettayviệtnam"
+    edited_doc = Document(blocks=[Paragraph(inlines=[Text(f"{long_tok} từ kế tiếp kết thúc")])])
+    aligned_doc = align_document_seeds(base_doc, edited_doc)
+
+    # Xác nhận trong aligned_doc, các từ "từ", "kế", "tiếp", "kết", "thúc" có token_occurrences trùng khớp base_doc
+    edited_text_node = aligned_doc.blocks[0].inlines[0]
+    assert len(edited_text_node.token_occurrences) == 6
+    assert edited_text_node.token_occurrences[1:] == [0, 0, 0, 0, 0]
+
+    engine_edited = DocumentLayoutEngine(bank, opts)
+    out_edited = str(tmp_path / "edited_chunk.xopp")
+    engine_edited.render(aligned_doc, out_edited)
+
+    strokes_base = extract_xopp_strokes(out_base)
+    strokes_edited = extract_xopp_strokes(out_edited)
+
+    # Render riêng long_tok để biết số nét của nó
+    doc_long = Document(blocks=[Paragraph(inlines=[Text(long_tok)])])
+    out_long = str(tmp_path / "long.xopp")
+    engine_base.render(doc_long, out_long)
+    strokes_long = extract_xopp_strokes(out_long)
+
+    # Nét của các từ phía sau trong edited_doc phải bảo toàn hình thái nét
+    strokes_tail_in_edited = strokes_edited[len(strokes_long):]
+    assert_stroke_shapes_invariant(
+        strokes_base,
+        strokes_tail_in_edited,
+        tolerance=0.02,
+        msg_prefix="Nét từ phía sau token bị chia chunk",
+    )
+
+
+
 
 
 

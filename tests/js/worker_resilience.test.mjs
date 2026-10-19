@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { MockIDBDatabase } from "./helpers/mock_idb.mjs";
 import * as storage from "../../webapp/js/storage.js";
+import { TeachController } from "../../webapp/js/teach.js";
 import {
   sendWorkerMessage,
   setWorkerInstance,
@@ -11,6 +12,7 @@ import {
   getWorkerGeneration,
   getIsRecovering,
   getIsUiInitialized,
+  getIsDomListenersAttached,
   resetUiInitializedForTesting,
   onWorkerReady,
 } from "../../webapp/js/app.js";
@@ -214,7 +216,7 @@ test("T015: recoverWorker khởi tạo lại Worker, cô lập generation và n�
   });
 });
 
-function setupMockDocument() {
+function setupMockDocument(extraIds = []) {
   const knownIds = new Set([
     "btn-worker-retry",
     "splash-screen",
@@ -223,6 +225,7 @@ function setupMockDocument() {
     "status-text",
     "quota-warning-banner",
     "backup-reminder-toast",
+    ...extraIds,
   ]);
   const elements = new Map();
   const getOrCreate = (id) => {
@@ -388,6 +391,140 @@ test("T006: recoverWorker khi onWorkerReady ném lỗi (load_bank thất bại) 
     assert.notEqual(dom.btnRetry.style.display, "none", "Nút Thử lại phải còn hiển thị khi nạp kho mẫu thất bại");
     assert.equal(dom.btnRetry.disabled, false, "Nút Thử lại phải re-enabled sau khi nạp kho mẫu thất bại");
   } finally {
+    dom.cleanup();
+  }
+});
+
+test("T005: recoverWorker tách biệt timeout READY: Worker gửi READY sớm nhưng nạp kho kéo dài thì readyTimer không terminate Worker", async () => {
+  resetUiInitializedForTesting();
+  storage.setDBInstance(new MockIDBDatabase());
+  await storage.setSetting("active_profile_id", "large_profile");
+  await storage.saveProfile({
+    id: "large_profile",
+    name: "Kho lớn",
+    data: [1, 2, 3],
+    updated_at: 1000,
+  });
+
+  const dom = setupMockDocument();
+  try {
+    let workerInstance = null;
+    let loadBankCalled = false;
+    class DelayedLoadBankWorker extends MockWorker {
+      constructor() {
+        super();
+        workerInstance = this;
+      }
+      postMessage(msg) {
+        super.postMessage(msg);
+        if (msg.method === "load_bank") {
+          loadBankCalled = true;
+          // Giả lập nạp kho mất 100ms (lớn hơn timeout READY là 40ms)
+          setTimeout(() => {
+            this.simulateResponse(msg.id, true, { ok: true });
+          }, 100);
+        }
+      }
+    }
+
+    // timeoutMs = 40ms chỉ áp dụng cho bước chờ READY
+    const recoveryPromise = recoverWorker(DelayedLoadBankWorker, 40);
+
+    // Gửi READY gần như ngay lập tức (10ms)
+    setTimeout(() => {
+      workerInstance.simulateReady();
+    }, 10);
+
+    const result = await recoveryPromise;
+    assert.equal(loadBankCalled, true, "onWorkerReady phải được gọi và gửi load_bank");
+    assert.equal(workerInstance.terminated, false, "Worker không được bị terminate khi load_bank chạy lâu");
+    assert.equal(result, true, "recoverWorker phải trả về true khi load_bank thành công");
+    assert.equal(getIsUiInitialized(), true, "isUiInitialized phải là true");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("T006: recoverWorker cô lập workerGeneration: phản hồi muộn từ generation cũ bị bỏ qua trong onWorkerReady", async () => {
+  resetUiInitializedForTesting();
+  storage.setDBInstance(new MockIDBDatabase());
+  await storage.setSetting("active_profile_id", "profile_gen");
+  await storage.saveProfile({
+    id: "profile_gen",
+    name: "Kho gen",
+    data: [1, 2, 3],
+    updated_at: 1000,
+  });
+
+  let createdWorkers = [];
+  class TrackingWorker extends MockWorker {
+    constructor() {
+      super();
+      createdWorkers.push(this);
+    }
+    postMessage(msg) {
+      super.postMessage(msg);
+      if (msg.method === "load_bank") {
+        queueMicrotask(() => {
+          this.simulateResponse(msg.id, true, { ok: true });
+        });
+      }
+    }
+  }
+
+  // Khởi động phiên 1
+  const p1 = recoverWorker(TrackingWorker, 5000);
+  const w1 = createdWorkers[0];
+  const gen1 = getWorkerGeneration();
+
+  // w1 báo lỗi khởi động khiến phiên 1 kết thúc với false
+  w1.simulateErrorType("Failed to boot");
+  const res1 = await p1;
+  assert.equal(res1, false);
+
+  // Người dùng thử lại kích hoạt khôi phục phiên 2
+  const p2 = recoverWorker(TrackingWorker, 5000);
+  const w2 = createdWorkers[1];
+  const gen2 = getWorkerGeneration();
+  assert.ok(gen2 > gen1, "workerGeneration phải tăng sau lần gọi thứ 2");
+
+  // Giờ w1 gửi READY muộn: phải bị bỏ qua và không ảnh hưởng phiên 2
+  w1.simulateReady();
+
+  // w2 gửi READY chuẩn: phải hoàn tất thành công
+  w2.simulateReady();
+  const res2 = await p2;
+  assert.equal(res2, true);
+  assert.equal(w1.terminated, true, "w1 cũ phải bị terminate");
+});
+
+test("T021: onWorkerReady rollback isDomListenersAttached về false khi TeachController.init ném lỗi và thử lại thành công", async () => {
+  resetUiInitializedForTesting();
+  assert.equal(getIsDomListenersAttached(), false);
+
+  const dom = setupMockDocument(["tab-teach"]);
+  const originalInit = TeachController.prototype.init;
+  let shouldThrow = true;
+  TeachController.prototype.init = async function () {
+    if (shouldThrow) {
+      throw new Error("TeachController init hardware failure");
+    }
+  };
+
+  try {
+    // 1. Thử gọi onWorkerReady, TeachController.init ném lỗi
+    await assert.rejects(onWorkerReady(), /TeachController init hardware failure/);
+
+    // 2. Kiểm tra cờ isDomListenersAttached được rollback về false
+    assert.equal(getIsDomListenersAttached(), false, "isDomListenersAttached phải được rollback về false khi init gặp lỗi");
+
+    // 3. Khôi phục trạng thái bình thường và thử lại
+    shouldThrow = false;
+    await onWorkerReady();
+    assert.equal(getIsDomListenersAttached(), true, "isDomListenersAttached phải là true khi khởi tạo thành công");
+    assert.equal(getIsUiInitialized(), true, "isUiInitialized phải là true");
+  } finally {
+    TeachController.prototype.init = originalInit;
     dom.cleanup();
   }
 });

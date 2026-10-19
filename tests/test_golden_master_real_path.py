@@ -153,7 +153,7 @@ def test_real_path_stable_variants(tiny_bank_path, tmp_path):
     result = ctl.write_text("xin ba bà chào Xin 12 1,2 xin. (xin) zzz bá", WriteOptions(seed=7, stable_variants=True, missing_grid=True), out)
 
     actual_xopp_sha = sha(out)
-    expected_xopp_sha = "0d073400f397ff5350b2f3f2561bca93500434c85ba1651e1d7215ec8cef5a8a"
+    expected_xopp_sha = "ebed1bb05df5cc06457baab029d7c64081fe0e743cac6444b1cdb7f67960c66d"
     assert actual_xopp_sha == expected_xopp_sha, (
         f"stable_variants: file .xopp khác bản gốc cố định. Mã băm mới: {actual_xopp_sha}"
     )

@@ -143,3 +143,22 @@ def test_canonical_key_encoding_vectors():
     assert encode_canonical_key(((1, 2),)) != encode_canonical_key((1, 2))
     assert derive_seed(42, ((1, 2),)) != derive_seed(42, (1, 2))
 
+
+def test_canonical_key_encoding_unsupported_types():
+    """T003: encode_canonical_key bắt buộc từ chối các kiểu dữ liệu không xác định
+    (như dict, set, object...) bằng TypeError thay vì âm thầm ép kiểu chuỗi.
+    """
+    from chuviettay.model.rng import encode_canonical_key, derive_seed
+
+    with pytest.raises(TypeError, match="Unsupported key type for canonical encoding: dict"):
+        encode_canonical_key({"key": "val"})
+
+    with pytest.raises(TypeError, match="Unsupported key type for canonical encoding: set"):
+        encode_canonical_key({"item1", "item2"})
+
+    with pytest.raises(TypeError, match="Unsupported key type for canonical encoding: object"):
+        encode_canonical_key(object())
+
+    with pytest.raises(TypeError, match="Unsupported key type for canonical encoding: dict"):
+        derive_seed(42, "token", {"nested": 1})
+
