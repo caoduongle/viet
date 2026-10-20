@@ -2,8 +2,6 @@
 Bộ kiểm thử chuẩn hóa hình học, kích thước và vị trí quang học cho hệ thống dấu câu.
 Feature: 050-punctuation-geometry-normalization
 """
-import gzip
-import json
 import os
 import pytest
 
@@ -53,7 +51,7 @@ def test_parentheses_height_and_anchors(real_writer, real_bank):
         ys = [pt for st in norm_strokes for pt in st[1::2]]
         xs = [pt for st in norm_strokes for pt in st[0::2]]
         h = max(ys) - min(ys)
-        
+
         # Chiều cao trong dải [1.35 * xh, 1.55 * xh]
         assert 1.35 * xh <= h <= 1.55 * xh, f"{paren} chiều cao {h} ngoài dải chuẩn so với xh={xh}"
         # Đỉnh vươn lên trên chữ số (chữ số đỉnh tại -1.20 * xh)
@@ -62,6 +60,7 @@ def test_parentheses_height_and_anchors(real_writer, real_bank):
         assert max(ys) >= 0.15 * xh, f"{paren} đáy {max(ys)} chưa vượt qua đường cơ sở >= 0.15 * xh"
         # Gốc x bắt đầu tại 0
         assert min(xs) == pytest.approx(0.0, abs=1e-2)
+        assert adv_w > 0
 
 
 def test_digit_one_closing_paren_clearance(real_bank):
@@ -79,12 +78,10 @@ def test_digit_one_closing_paren_clearance(real_bank):
     for expr in test_expressions:
         node = parse_latex_math(expr)
         item = engine.measure(node)
-        
-        # Tìm tọa độ của glyphs: số 1 và dấu )
-        one_glyphs = []
+
+        # Tìm tọa độ của glyphs đóng ngoặc
         close_glyphs = []
         for g in item.glyphs:
-            # Kiểm tra nét của glyph để phân biệt
             ys = [pt for st in g.strokes for pt in st[1::2]]
             xs = [pt * g.scale + g.x for st in g.strokes for pt in st[0::2]]
             if not xs:
@@ -92,8 +89,9 @@ def test_digit_one_closing_paren_clearance(real_bank):
             # Dấu ) có đỉnh âm sâu và đáy dương
             if min(ys) <= -1.20 * engine.xh and max(ys) >= 0.15 * engine.xh:
                 close_glyphs.append((min(xs), max(xs), g))
-        
-        # Kiểm tra item không rỗng và có kích thước hợp lệ
+
+        # Kiểm tra item không rỗng, có dấu đóng và kích thước hợp lệ
+        assert len(close_glyphs) >= 1, f"Không tìm thấy dấu đóng ngoặc chuẩn trong {expr}"
         assert item.size.width > 0
         assert item.size.ascent > 0
 
@@ -105,7 +103,7 @@ def test_comma_and_dot_baseline_anchoring(real_writer, real_bank):
     - Dấu chấm có đáy max_y bám sát đường cơ sở y = 0.0.
     """
     xh = real_bank.xh
-    
+
     # Kiểm tra dấu phẩy
     inst_comma = real_bank.punct[","][0]
     st_comma, _ = real_writer._normalize_punct_sample(inst_comma, ",")
@@ -151,7 +149,7 @@ def test_colon_and_semicolon_geometry(real_writer, real_bank):
 
     # Dấu chấm phẩy
     inst_semi = real_bank.punct[";"][0]
-    st_semi, adv_semi = real_writer._normalize_punct_sample(inst_semi, ";")
+    st_semi, _ = real_writer._normalize_punct_sample(inst_semi, ";")
     ys_semi = [pt for st in st_semi for pt in st[1::2]]
     assert min(ys_semi) <= -0.65 * xh, "Chấm trên của chấm phẩy phải nằm ở vùng trên chữ thường"
     assert max(ys_semi) >= 0.15 * xh, "Đuôi phẩy của chấm phẩy phải móc xuống dưới baseline >= 0.15*xh"
@@ -169,7 +167,7 @@ def test_exclamation_and_question_geometry(real_writer, real_bank):
         norm_strokes, _ = real_writer._normalize_punct_sample(inst, mark)
         ys = [pt for st in norm_strokes for pt in st[1::2]]
         h = max(ys) - min(ys)
-        
+
         assert 1.10 * xh <= h <= 1.25 * xh, f"{mark} chiều cao {h} ngoài dải chuẩn [1.10*xh, 1.25*xh]"
         assert abs(max(ys)) <= 0.05 * xh, f"{mark} đáy {max(ys)} phải chạm baseline y=0.0"
         assert min(ys) <= -1.10 * xh, f"{mark} đỉnh {min(ys)} phải vươn cao bằng chữ hoa/số"
