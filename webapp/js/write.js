@@ -27,6 +27,12 @@ let isRendering = false;
 let hasPendingRequest = false;
 let pendingParams = null;
 
+// Trạng thái đồng bộ kho mẫu (052-write-preview-bank-sync)
+let isBankHydrated = false;       // True khi kho mẫu từ IndexedDB (hoặc profile rỗng ban đầu) đã sẵn sàng
+let isBankDirty = false;          // True khi kho mẫu thay đổi/nạp mới kể từ lần render gần nhất
+let hasInitialRenderDone = false; // True khi đã thực hiện ít nhất 1 lần kết xuất xem trước
+let lastRenderedBankTs = 0;       // Timestamp của kho mẫu được sử dụng trong lượt kết xuất gần nhất
+
 // Quản lý thu phóng (Zoom State: 50% - 300%)
 let currentZoom = 1.0;
 let isFitMode = false;
@@ -118,8 +124,8 @@ export function initWriteTab(options = {}) {
   // 9. Các nút Xuất file
   setupExportButtons(opts);
 
-  // Kích hoạt render lần đầu nếu đã có sẵn chữ
-  if (textarea.value.trim()) {
+  // Kích hoạt render lần đầu nếu đã có sẵn chữ VÀ kho mẫu đã nạp xong (tránh render kho rỗng)
+  if (textarea.value.trim() && isBankHydrated) {
     triggerPreviewImmediate();
   }
 }
@@ -151,6 +157,66 @@ export function triggerPreviewImmediate() {
 }
 
 /**
+ * Thông báo kho mẫu đã được nạp/cập nhật (052-write-preview-bank-sync).
+ * @param {Object} [details]
+ * @param {string} [details.reason] - 'hydrated' | 'loaded' | 'taught' | 'sync'
+ * @param {boolean} [details.immediate] - Kích hoạt render ngay nếu tab Viết đang mở
+ */
+export function notifyBankUpdated(details = {}) {
+  isBankHydrated = true;
+  isBankDirty = true;
+  const shouldRenderNow = details?.immediate ?? true;
+
+  if (shouldRenderNow && typeof document !== "undefined") {
+    const textarea = document.getElementById("editor-text");
+    const writePanel = document.getElementById("tab-write");
+    const isWriteActive = !writePanel || writePanel.classList.contains("active");
+    if (textarea && textarea.value.trim() && isWriteActive) {
+      triggerPreviewImmediate();
+    }
+  }
+}
+
+/**
+ * Đánh dấu kho mẫu bị thay đổi trong nền cần kết xuất lại khi chuyển về tab Viết.
+ */
+export function markBankDirty() {
+  isBankDirty = true;
+}
+
+/**
+ * Lấy trạng thái đồng bộ hiện hành của Tab Viết.
+ */
+export function getWritePreviewSyncState() {
+  const textarea = typeof document !== "undefined" ? document.getElementById("editor-text") : null;
+  return {
+    hasText: Boolean(textarea && textarea.value.trim()),
+    isRendering,
+    hasRendered: hasInitialRenderDone,
+    isBankHydrated,
+    isBankDirty,
+    lastRenderedBankTs,
+    missingBoxesCount: currentMissingBoxes ? currentMissingBoxes.length : 0,
+  };
+}
+
+/**
+ * Reset trạng thái đồng bộ phục vụ kiểm thử đơn vị.
+ */
+export function resetWriteSyncStateForTesting() {
+  isBankHydrated = false;
+  isBankDirty = false;
+  hasInitialRenderDone = false;
+  lastRenderedBankTs = 0;
+  isRendering = false;
+  hasPendingRequest = false;
+  pendingParams = null;
+  currentDoc = null;
+  currentXoppBase64 = "";
+  currentMissingBoxes = [];
+}
+
+/**
  * Thực hiện yêu cầu render với mô hình "Một request chờ" (One Pending Request).
  */
 async function requestRender(params) {
@@ -177,6 +243,10 @@ async function requestRender(params) {
       updatePaginationControls();
       renderCurrentPage();
       updateInfoPanel(res);
+
+      hasInitialRenderDone = true;
+      isBankDirty = false;
+      lastRenderedBankTs = Date.now();
 
       if (res.seed_used !== undefined && res.seed_used !== null) {
         const badgeSeed = document.getElementById("badge-seed-used");
@@ -212,6 +282,11 @@ function clearPreview() {
   if (placeholder) placeholder.style.display = "block";
   const indicator = document.getElementById("page-indicator");
   if (indicator) indicator.textContent = "Trang 0 / 0";
+  const warningsBox = document.getElementById("editor-warnings");
+  if (warningsBox) warningsBox.style.display = "none";
+  const missingBox = document.getElementById("missing-tokens-box");
+  if (missingBox) missingBox.style.display = "none";
+  currentMissingBoxes = [];
   currentDoc = null;
   currentXoppBase64 = "";
 }
@@ -255,7 +330,7 @@ function applyPaperZoom(zoom, isFit = false) {
   }
 
   const selectZoom = document.getElementById("select-zoom");
-  if (selectZoom) {
+  if (selectZoom && selectZoom.options) {
     const roundedStr = currentZoom.toFixed(2);
     for (const opt of selectZoom.options) {
       if (opt.value === roundedStr || Math.abs(parseFloat(opt.value) - currentZoom) < 0.05) {
@@ -373,6 +448,7 @@ function navigateToTeach(word) {
 }
 
 function showWarning(msg) {
+  if (typeof document === "undefined") return;
   const warningsBox = document.getElementById("editor-warnings");
   if (warningsBox) {
     warningsBox.innerHTML = `<div>⚠️ ${escapeHtml(msg)}</div>`;

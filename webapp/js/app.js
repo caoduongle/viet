@@ -6,7 +6,7 @@
 import * as storage from "./storage.js";
 import { t } from "./i18n.js";
 import { initBankTab, loadBankFromBytes, refreshBankView, exportCurrentBank } from "./bank.js";
-import { initWriteTab } from "./write.js";
+import { initWriteTab, triggerPreviewImmediate, notifyBankUpdated, getWritePreviewSyncState } from "./write.js";
 import { TeachController } from "./teach.js";
 import { initTheme } from "./theme.js";
 
@@ -358,6 +358,7 @@ export async function notifySampleTaught(label) {
   }
 
   scheduleAutoSave();
+  notifyBankUpdated({ reason: "taught", immediate: false });
 }
 if (typeof window !== "undefined") {
   window.__notifySampleTaught = notifySampleTaught;
@@ -599,6 +600,7 @@ export async function onWorkerReady(generation = workerGeneration) {
               if (typeof window !== "undefined" && window.__teachController) {
                 await window.__teachController.refresh();
               }
+              notifyBankUpdated({ reason: "sync", immediate: true });
             }
             setStatus("status_ready");
           }
@@ -649,6 +651,7 @@ export async function onWorkerReady(generation = workerGeneration) {
       if (isFirstInit && typeof document !== "undefined") {
         showWelcomeModal();
       }
+      notifyBankUpdated({ reason: "hydrated", immediate: true });
     } else {
       const activeId = await storage.getSetting("active_profile_id", profiles[0].id);
       if (generation !== undefined && generation !== workerGeneration) return;
@@ -667,6 +670,9 @@ export async function onWorkerReady(generation = workerGeneration) {
         if (typeof window !== "undefined" && window.__teachController) {
           await window.__teachController.refresh();
         }
+        notifyBankUpdated({ reason: "hydrated", immediate: true });
+      } else {
+        notifyBankUpdated({ reason: "hydrated", immediate: true });
       }
     }
 
@@ -879,6 +885,11 @@ export function switchTab(targetTab) {
     window.__teachController.canvas.resize();
   } else if (targetTab === "bank") {
     refreshBankView();
+  } else if (targetTab === "write") {
+    const syncState = getWritePreviewSyncState();
+    if (syncState.hasText && syncState.isBankHydrated && (syncState.isBankDirty || !syncState.hasRendered)) {
+      triggerPreviewImmediate();
+    }
   }
 }
 

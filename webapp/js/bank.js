@@ -12,6 +12,7 @@
 
 import * as storage from "./storage.js";
 import { switchTab } from "./app.js";
+import { notifyBankUpdated } from "./write.js";
 import { escapeHtml } from "./html-utils.js";
 import { decompressXoppBase64, parseXoppXml, renderPageSvgElement } from "./paper.js";
 
@@ -421,6 +422,7 @@ async function handleDeleteSelected() {
     }
 
     await refreshBankView();
+    notifyBankUpdated({ reason: "deleted", immediate: false });
   } catch (err) {
     alert("Lỗi khi xoá hàng loạt: " + err.message);
   }
@@ -652,9 +654,11 @@ async function executeDeleteVariants(label, category, indices) {
       currentDetailCategory = "letters";
       modalSelectedIndices.clear();
       await refreshBankView();
+      notifyBankUpdated({ reason: "deleted", immediate: false });
       alert(`Đã xoá toàn bộ biến thể và gỡ nhãn "${label}" khỏi kho mẫu.`);
     } else {
       await refreshBankView();
+      notifyBankUpdated({ reason: "deleted", immediate: false });
       await loadAndRenderModalSamples(label, category);
     }
   } catch (err) {
@@ -803,6 +807,7 @@ async function handleDeleteLabel() {
 
     alert(`Đã xoá nhãn "${label}" thành công.`);
     await refreshBankView();
+    notifyBankUpdated({ reason: "deleted", immediate: false });
   } catch (err) {
     alert(`Lỗi khi xoá: ${err.message}`);
   }
@@ -884,6 +889,7 @@ export async function loadBankFromBytes(gzBytes, profileName = "Kho mẫu cá nh
     storage.setLocalSyncedTimestamp(saved.updated_at || Date.now());
     await storage.setSetting("active_profile_id", profileId);
     await refreshBankView();
+    notifyBankUpdated({ reason: "loaded", immediate: false });
     return true;
   }
   throw new Error(res.error || "Không thể nạp kho mẫu");
