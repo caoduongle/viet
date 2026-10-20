@@ -806,3 +806,156 @@ def get_vector_glyph_fallback(token: str, xh: float = 7.94) -> dict[str, Any] | 
 
 
 
+
+
+# ----------------------------------------------------------------------
+# Chuẩn hóa Hình học, Kích thước và Vị trí Quang học Dấu câu (Feature 050)
+# ----------------------------------------------------------------------
+
+PUNCT_CAT_PARENS = "parens"
+PUNCT_CAT_COMMA = "comma"
+PUNCT_CAT_DOT = "dot"
+PUNCT_CAT_COLON = "colon"
+PUNCT_CAT_SEMICOLON = "semicolon"
+PUNCT_CAT_EXCL_QUEST = "excl_quest"
+PUNCT_CAT_QUOTES = "quotes"
+PUNCT_CAT_HYPHEN_DASH = "hyphen_dash"
+PUNCT_CAT_OTHER = "other"
+
+PUNCT_CATEGORY_MAP = {
+    "(": PUNCT_CAT_PARENS, ")": PUNCT_CAT_PARENS,
+    "[": PUNCT_CAT_PARENS, "]": PUNCT_CAT_PARENS,
+    "{": PUNCT_CAT_PARENS, "}": PUNCT_CAT_PARENS,
+    ",": PUNCT_CAT_COMMA,
+    ".": PUNCT_CAT_DOT,
+    ":": PUNCT_CAT_COLON,
+    ";": PUNCT_CAT_SEMICOLON,
+    "!": PUNCT_CAT_EXCL_QUEST, "?": PUNCT_CAT_EXCL_QUEST,
+    "'": PUNCT_CAT_QUOTES, '"': PUNCT_CAT_QUOTES,
+    "“": PUNCT_CAT_QUOTES, "”": PUNCT_CAT_QUOTES,
+    "‘": PUNCT_CAT_QUOTES, "’": PUNCT_CAT_QUOTES,
+    "-": PUNCT_CAT_HYPHEN_DASH, "–": PUNCT_CAT_HYPHEN_DASH, "—": PUNCT_CAT_HYPHEN_DASH,
+}
+
+
+def classify_punct_category(char: str | None) -> str:
+    """Phân loại ký tự dấu câu thành nhóm hình học ngữ nghĩa."""
+    if not char:
+        return PUNCT_CAT_OTHER
+    ch = unicodedata.normalize("NFC", char)
+    return PUNCT_CATEGORY_MAP.get(ch, PUNCT_CAT_OTHER)
+
+
+def normalize_punct_geometry(
+    raw_s: list[list[float]],
+    raw_w: float,
+    char: str | None = None,
+    xh: float = 7.94,
+) -> tuple[list[list[float]], float]:
+    """Chuẩn hóa mẫu dấu câu theo nhóm hình học ngữ nghĩa:
+    1. Shift x về 0.0
+    2. Co giãn và neo tọa độ y so với baseline (y = 0.0) và xh
+    3. Bảo toàn 100% mẫu chuẩn trong tiny_bank (Invariance Guard)
+    4. Phòng vệ chống chia cho 0 với mẫu suy biến.
+    """
+    if not raw_s:
+        return [], float(raw_w if raw_w > 0 else 0.3 * xh)
+    all_pts_x = [pt for st in raw_s for pt in st[0::2]]
+    all_pts_y = [pt for st in raw_s for pt in st[1::2]]
+    if not all_pts_x or not all_pts_y:
+        return [], float(raw_w if raw_w > 0 else 0.3 * xh)
+
+    raw_min_x = min(all_pts_x)
+    raw_max_x = max(all_pts_x)
+    raw_min_y = min(all_pts_y)
+    raw_max_y = max(all_pts_y)
+    raw_h = raw_max_y - raw_min_y
+    raw_glyph_w = raw_max_x - raw_min_x
+
+    # Xử lý mẫu suy biến (1 điểm hoặc chiều cao = 0)
+    if raw_h < 1e-3:
+        norm_s = [[round(pt - raw_min_x, 2) if i % 2 == 0 else round(pt, 2) for i, pt in enumerate(st)] for st in raw_s]
+        return norm_s, round(max(raw_glyph_w, float(raw_w) if raw_w > 0 else 0.2 * xh), 2)
+
+    cat = classify_punct_category(char)
+    scale_y = 1.0
+    scale_x = 1.0
+    dy = 0.0
+
+    if cat == PUNCT_CAT_DOT:
+        # Invariance Guard cho tiny_bank
+        is_tiny_bank = (raw_h <= 0.22 * xh and -0.20 * xh <= raw_min_y <= 0.05 * xh and -0.05 * xh <= raw_max_y <= 0.15 * xh)
+        if not is_tiny_bank:
+            if raw_h > 0.22 * xh:
+                scale_y = (0.14 * xh) / raw_h
+                scale_x = min(scale_y, 1.0)
+            dy = 0.0 - (raw_max_y * scale_y)
+
+    elif cat == PUNCT_CAT_COMMA:
+        # Invariance Guard cho tiny_bank
+        is_tiny_bank = (0.18 * xh <= raw_h <= 0.50 * xh and abs(raw_min_y) <= 0.05 * xh and raw_max_y > 0.05 * xh)
+        if not is_tiny_bank:
+            if raw_h < 0.20 * xh or raw_h > 0.50 * xh:
+                scale_y = (0.38 * xh) / raw_h
+            dy = (0.24 * xh) - (raw_max_y * scale_y)
+
+    elif cat == PUNCT_CAT_PARENS:
+        target_h = 1.45 * xh
+        if raw_h < 1.35 * xh or raw_h > 1.55 * xh:
+            scale_y = target_h / raw_h
+        # Giữ tỷ lệ dáng tự nhiên nhưng khống chế trần bề rộng 0.50 * xh
+        max_allowed_w = 0.50 * xh
+        scale_x = min(scale_y, max_allowed_w / max(raw_glyph_w, 1e-3))
+        scale_x = max(scale_x, 0.85)
+        dy = (0.20 * xh) - (raw_max_y * scale_y)
+
+    elif cat == PUNCT_CAT_COLON:
+        # Giữ gọn trong dải [-0.75 * xh, -0.05 * xh]
+        if raw_max_y > 0.0 or raw_min_y < -0.90 * xh or raw_min_y > -0.55 * xh or raw_h < 0.50 * xh:
+            scale_y = (0.70 * xh) / raw_h
+            dy = (-0.05 * xh) - (raw_max_y * scale_y)
+            scale_x = min(scale_y, 1.0)
+
+    elif cat == PUNCT_CAT_SEMICOLON:
+        # Chấm trên ở -0.75 * xh, đuôi phẩy ở +0.24 * xh
+        if raw_max_y < 0.10 * xh or raw_min_y > -0.50 * xh or raw_h < 0.75 * xh:
+            scale_y = (0.99 * xh) / raw_h
+            dy = (0.24 * xh) - (raw_max_y * scale_y)
+            scale_x = min(scale_y, (0.32 * xh) / max(raw_glyph_w, 1e-3))
+
+    elif cat == PUNCT_CAT_EXCL_QUEST:
+        # Chiều cao 1.18 * xh, đáy ở y = 0.0
+        if raw_h < 1.10 * xh or raw_h > 1.25 * xh or raw_max_y < -0.05 * xh or raw_max_y > 0.15 * xh:
+            scale_y = (1.18 * xh) / raw_h
+            dy = 0.0 - (raw_max_y * scale_y)
+            scale_x = min(scale_y, (0.45 * xh) / max(raw_glyph_w, 1e-3))
+
+    elif cat == PUNCT_CAT_QUOTES:
+        # Vùng đỉnh chữ [-1.20 * xh, -0.85 * xh]
+        if raw_max_y > -0.70 * xh:
+            dy = (-0.85 * xh) - raw_max_y
+
+    elif cat == PUNCT_CAT_HYPHEN_DASH:
+        # Căn giữa dòng tại y = -0.45 * xh
+        raw_mid_y = (raw_min_y + raw_max_y) / 2.0
+        if abs(raw_mid_y - (-0.45 * xh)) > 0.15 * xh:
+            dy = (-0.45 * xh) - raw_mid_y
+
+    # Áp dụng phép biến đổi
+    norm_strokes = [
+        [
+            round((pt - raw_min_x) * scale_x, 2) if i % 2 == 0
+            else round(pt * scale_y + dy, 2)
+            for i, pt in enumerate(st)
+        ]
+        for st in raw_s
+    ]
+
+    new_glyph_w = raw_glyph_w * scale_x
+    w_field = float(raw_w) * scale_x if raw_w > 0 else 0.0
+    effective_w = max(new_glyph_w, w_field)
+
+    if cat == PUNCT_CAT_PARENS and effective_w < 0.35 * xh:
+        effective_w = 0.35 * xh
+
+    return norm_strokes, round(effective_w, 2)

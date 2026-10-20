@@ -197,15 +197,13 @@ class Writer:
                 _, adv_w = self._normalize_digit_sample(fb, char)
                 self._char_width_cache[char] = adv_w
                 return adv_w
-        elif char in ",." and getattr(b, "punct", None) and (char in b.punct or "," in b.punct or "." in b.punct):
-            lib = b.punct.get(char) or b.punct.get(",") or b.punct.get(".")
+        elif getattr(b, "punct", None) and (char in b.punct or (char in ",." and ("," in b.punct or "." in b.punct))):
+            lib = b.punct.get(char) or (b.punct.get(",") if char in ",." else None) or (b.punct.get(".") if char in ",." else None)
             if lib:
                 sample = lib[0]
-                _, adv_w = self._normalize_punct_sample(sample)
+                _, adv_w = self._normalize_punct_sample(sample, char)
                 self._char_width_cache[char] = adv_w
                 return adv_w
-        elif getattr(b, "punct", None) and char in b.punct and b.punct[char]:
-            sample = b.punct[char][0]
         elif getattr(b, "symbols", None) and char in b.symbols and b.symbols[char]:
             sample = b.symbols[char][0]
 
@@ -661,24 +659,17 @@ class Writer:
         adv_w = bbox_w if bbox_w > 1e-3 else (raw_w * scale_x)
         return norm_strokes, adv_w
 
-    def _normalize_punct_sample(self, inst: dict) -> tuple[list[Stroke], float]:
-        """Chuẩn hóa mẫu dấu câu về gốc x = 0.0, trả về (danh sách nét đã dịch, độ rộng thực tế)."""
+    def _normalize_punct_sample(
+        self,
+        inst: dict,
+        char: str | None = None,
+    ) -> tuple[list[Stroke], float]:
+        """Chuẩn hóa mẫu dấu câu theo nhóm hình học ngữ nghĩa của ký tự."""
+        from chuviettay.model.text_utils import normalize_punct_geometry
         raw_s = inst.get("s", [])
-        if not raw_s:
-            return [], float(inst.get("w", 0.3))
-        xs = [pt for st in raw_s for pt in st[0::2]]
-        if not xs:
-            return [], float(inst.get("w", 0.3))
-        min_x = min(xs)
-        max_x = max(xs)
-        norm_strokes = [shift(st, -min_x, 0.0) for st in raw_s]
-        glyph_w = max_x - min_x
-        w_field = inst.get("w")
-        if w_field is not None and float(w_field) > glyph_w:
-            effective_w = float(w_field)
-        else:
-            effective_w = glyph_w
-        return norm_strokes, effective_w
+        raw_w = float(inst.get("w", 0.0))
+        xh = getattr(self.b, "xh", 7.94) or 7.94
+        return normalize_punct_geometry(raw_s, raw_w, char=char, xh=xh)
 
 
     def number(
@@ -727,7 +718,7 @@ class Writer:
                         continue
                 else:
                     g = self.pick(lib, "p" + ch)
-                p_st, p_w = self._normalize_punct_sample(g)
+                p_st, p_w = self._normalize_punct_sample(g, ch)
                 p_min_x = min((pt for st_ in p_st for pt in st_[0::2]), default=0.0)
                 p_max_x = max((pt for st_ in p_st for pt in st_[0::2]), default=p_w)
                 p_gap = 0.08 * xh if not first else 0.0
@@ -858,7 +849,7 @@ class Writer:
         if len(tok) == 1:
             if getattr(b, "punct", None) and tok in b.punct:
                 inst = self.pick(b.punct[tok], "p" + tok)
-                p_st, p_w = self._normalize_punct_sample(inst)
+                p_st, p_w = self._normalize_punct_sample(inst, tok)
                 return p_st, p_w + 0.15 * xh, []
             sample = self.get_letter_sample(tok)
             if sample:
@@ -866,7 +857,7 @@ class Writer:
                 return list(sample["s"]), w_tok, []
         if getattr(b, "punct", None) and tok in b.punct:
             inst = self.pick(b.punct[tok], "p" + tok)
-            p_st, p_w = self._normalize_punct_sample(inst)
+            p_st, p_w = self._normalize_punct_sample(inst, tok)
             return p_st, p_w + 0.15 * xh, []
         if getattr(b, "symbols", None) and tok in b.symbols:
             inst = self.pick(b.symbols[tok], "sym:" + tok)
@@ -879,7 +870,7 @@ class Writer:
         for ch in lead:
             if getattr(b, "punct", None) and ch in b.punct:
                 inst = self.pick(b.punct[ch], "p" + ch)
-                p_st, p_w = self._normalize_punct_sample(inst)
+                p_st, p_w = self._normalize_punct_sample(inst, ch)
                 strokes += [shift(st, x, 0) for st in p_st]
                 x += p_w + 0.15 * xh
             elif getattr(b, "symbols", None) and ch in b.symbols:
@@ -927,11 +918,13 @@ class Writer:
                     lib = [fb]
             if lib:
                 g = self.pick(lib, "p" + ch)
-                p_st, p_w = self._normalize_punct_sample(g)
+                p_st, p_w = self._normalize_punct_sample(g, ch)
                 p_min_x = min((pt for s_ in p_st for pt in s_[0::2]), default=0.0)
                 if first_trail and placed_core_strokes:
                     core_max_x = max((pt for s_ in placed_core_strokes for pt in s_[0::2]), default=x)
                     clearance_gap = max(0.8 * pen_w, 0.18 * xh)
+                    if ch in (")", "]", "}") and core.endswith("1"):
+                        clearance_gap = max(1.0 * pen_w, 0.18 * xh)
                     x = max(x, core_max_x) + clearance_gap
                 elif not first_trail:
                     x += 0.10 * xh
@@ -952,7 +945,7 @@ class Writer:
             else:
                 miss.append(ch)
 
-        if not core and not lead and trail == tok and (
+        if not core and not lead and trail == tok and (miss or not strokes) and (
             tok not in getattr(b, "letters", {})
             and tok not in getattr(b, "punct", {})
             and tok not in getattr(b, "digits", {})

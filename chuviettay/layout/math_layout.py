@@ -255,8 +255,24 @@ class MathLayoutEngine:
         for idx, it in enumerate(measured):
             it_min_x, it_max_x = self._get_item_ink_bounds_x(it)
             # Sàn khoảng hở quang học hình học thực tế chống dính nét giữa hai glyph liền kề
+            curr_node = node.items[idx]
+            prev_node = node.items[idx - 1] if idx > 0 else None
+            is_close_or_punct = (
+                isinstance(curr_node, SymbolNode) and curr_node.symbol in (")", "]", "}", ",", ";", ":")
+            )
+            prev_is_digit_1 = (
+                prev_node is not None and (
+                    (isinstance(prev_node, TextNode) and prev_node.text.endswith("1")) or
+                    (isinstance(prev_node, SymbolNode) and prev_node.symbol == "1")
+                )
+            )
+            if prev_is_digit_1 or is_close_or_punct:
+                step_clearance = max(0.18 * self.xh * eff, 1.2 * pen_w)
+            else:
+                step_clearance = min_clearance
+
             if prev_ink_max_x is not None and (it.glyphs or it.strokes):
-                needed_x = prev_ink_max_x + min_clearance - min(0.0, it_min_x)
+                needed_x = prev_ink_max_x + step_clearance - min(0.0, it_min_x)
                 if x < needed_x:
                     x = needed_x
             canvas.put(it, x, 0.0)
@@ -625,11 +641,17 @@ class MathLayoutEngine:
         canvas = _Canvas()
         x = 0.0
         canvas.put(left, x, 0.0)
-        x += left.size.width + (pad if node.left else 0.0)
-        canvas.put(body, x, 0.0)
-        x += body.size.width + (pad if node.right else 0.0)
-        canvas.put(right, x, 0.0)
-        x += right.size.width
+        x_body = left.size.width + (pad if node.left else 0.0)
+        canvas.put(body, x_body, 0.0)
+
+        # Tính vị trí đặt dấu đóng right dựa trên biên nét mực thực tế của body
+        b_min_x, b_max_x = self._get_item_ink_bounds_x(body)
+        body_ink_end = x_body + b_max_x
+        pen_w = self._pen(eff)
+        min_right_clearance = max(0.18 * self.xh * eff, 1.2 * pen_w)
+        x_right = max(x_body + body.size.width + (pad if node.right else 0.0), body_ink_end + min_right_clearance)
+        canvas.put(right, x_right, 0.0)
+        x = x_right + right.size.width
         ascent = max(left.size.ascent, body.size.ascent, right.size.ascent)
         descent = max(left.size.descent, body.size.descent, right.size.descent)
         return canvas.build(x, ascent, descent)
