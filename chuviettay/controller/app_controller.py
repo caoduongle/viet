@@ -602,6 +602,34 @@ class AppController:
         """Xoá ký tự khỏi danh mục tương ứng (letters, digits, punct, symbols, marks)."""
         return self.drop_chars([char])
 
+    def drop_label_samples(
+        self,
+        label: str,
+        indices: list[int],
+        category: str = "words",
+    ) -> dict[str, Any]:
+        """Xoá các biến thể mẫu nét cụ thể của nhãn theo danh sách chỉ số (0-based indices).
+
+        Nếu có biến thể bị xoá, thực hiện lưu kho xuống đĩa (save) và ghi log.
+        """
+        bank = self._require_bank()
+        target_label = label
+        if category == "marks":
+            target_label = xopp.HW3_TONE_MAP.get(label.lower(), label)
+
+        res = bank.drop_samples(target_label, indices, category=category)
+        if res.get("removed_count", 0) > 0 or res.get("label_deleted", False):
+            bank.save()
+            _log.info(
+                "Xoá %d biến thể của nhãn %s (%s), còn lại %d mẫu (xoá nhãn: %s)",
+                res.get("removed_count", 0),
+                label,
+                category,
+                res.get("remaining_count", 0),
+                res.get("label_deleted", False),
+            )
+        return res
+
     def drop_chars(self, chars: list[str]) -> DropResult:
         """Xoá hàng loạt danh sách ký tự/nhãn bất kỳ khỏi kho mẫu, tự động phân loại từng ký tự,
         thực thi trong 1 giao dịch lock, rebuild và lưu đĩa 1 lần duy nhất."""

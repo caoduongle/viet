@@ -22,6 +22,9 @@ let currentCategoryFilter = "all";
 let currentSearchQuery = "";
 let currentDetailLabel = null;
 let currentDetailCategory = "letters";
+let modalSelectedIndices = new Set();
+let isDeletingVariants = false;
+let currentModalTotalSamples = 0;
 const selectedLabels = new Set(); // Nhãn các ký tự được chọn để thao tác hàng loạt
 
 function bindBankEvent(el, evt, fn, options = {}) {
@@ -140,6 +143,17 @@ function setupDetailModal(options = {}) {
 
   if (btnDelete) {
     bindBankEvent(btnDelete, "click", handleDeleteLabel, options);
+  }
+
+  const chkModalSelectAll = document.getElementById("chk-modal-select-all");
+  const btnDeleteSelected = document.getElementById("btn-label-delete-selected");
+
+  if (chkModalSelectAll) {
+    bindBankEvent(chkModalSelectAll, "change", handleToggleModalSelectAll, options);
+  }
+
+  if (btnDeleteSelected) {
+    bindBankEvent(btnDeleteSelected, "click", handleDeleteSelectedVariants, options);
   }
 }
 
@@ -430,26 +444,79 @@ async function loadThumbnailsLazy(items) {
 // -------------------------------------------------------------
 // Xem chi tiết nhãn & Thư viện biến thể (T061)
 // -------------------------------------------------------------
-async function openLabelDetail(label, category, count) {
-  currentDetailLabel = label;
-  currentDetailCategory = category;
+function updateModalBatchBar(totalCount = currentModalTotalSamples) {
+  currentModalTotalSamples = totalCount;
+  const count = modalSelectedIndices.size;
+  const chkSelectAll = document.getElementById("chk-modal-select-all");
+  const btnDeleteSelected = document.getElementById("btn-label-delete-selected");
+  const countEl = document.getElementById("modal-selected-count");
 
-  const modal = document.getElementById("modal-label-detail");
-  const title = document.getElementById("modal-label-title");
-  const coverage = document.getElementById("modal-label-coverage");
-  const countEl = document.getElementById("modal-label-sample-count");
+  if (countEl) countEl.textContent = String(count);
+
+  if (btnDeleteSelected) {
+    btnDeleteSelected.style.display = count > 0 ? "inline-flex" : "none";
+  }
+
+  if (chkSelectAll) {
+    if (totalCount > 0 && count === totalCount) {
+      chkSelectAll.checked = true;
+      chkSelectAll.indeterminate = false;
+    } else if (count > 0 && count < totalCount) {
+      chkSelectAll.checked = false;
+      chkSelectAll.indeterminate = true;
+    } else {
+      chkSelectAll.checked = false;
+      chkSelectAll.indeterminate = false;
+    }
+  }
+}
+
+function handleToggleModalSelectAll(e) {
+  const shouldSelectAll = e.target.checked;
   const samplesGrid = document.getElementById("modal-label-samples-grid");
+  if (!samplesGrid) return;
+
+  const cards = samplesGrid.querySelectorAll(".sample-item-card");
+  modalSelectedIndices.clear();
+
+  cards.forEach((card, idx) => {
+    const chk = card.querySelector(".sample-item-checkbox");
+    if (shouldSelectAll) {
+      modalSelectedIndices.add(idx);
+      card.classList.add("selected");
+      if (chk) chk.checked = true;
+    } else {
+      card.classList.remove("selected");
+      if (chk) chk.checked = false;
+    }
+  });
+
+  updateModalBatchBar(cards.length);
+}
+
+function toggleSampleCardSelection(idx, card, chk) {
+  if (modalSelectedIndices.has(idx)) {
+    modalSelectedIndices.delete(idx);
+    card.classList.remove("selected");
+    if (chk) chk.checked = false;
+  } else {
+    modalSelectedIndices.add(idx);
+    card.classList.add("selected");
+    if (chk) chk.checked = true;
+  }
+  updateModalBatchBar();
+}
+
+async function loadAndRenderModalSamples(label, category) {
+  const samplesGrid = document.getElementById("modal-label-samples-grid");
+  const countEl = document.getElementById("modal-label-sample-count");
+  const coverage = document.getElementById("modal-label-coverage");
   const randomBox = document.getElementById("modal-random-preview-box");
+  if (!samplesGrid) return;
 
-  if (!modal) return;
-  modal.style.display = "flex";
+  modalSelectedIndices.clear();
+  updateModalBatchBar(0);
   if (randomBox) randomBox.style.display = "none";
-
-  title.textContent = `Nhãn: "${label}"`;
-  const isLow = count < 2;
-  coverage.textContent = isLow ? "⚠️ Độ phủ thấp (< 2 mẫu): Nên dạy thêm để nét chữ tự nhiên hơn." : "✓ Độ phủ tốt: Đã có đủ biến thể ngẫu nhiên.";
-  coverage.style.color = isLow ? "#ca8a04" : "#16a34a";
-  countEl.textContent = String(count);
 
   samplesGrid.innerHTML = `<div style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); padding: 1rem;">Đang tải các mẫu nét...</div>`;
 
@@ -457,29 +524,161 @@ async function openLabelDetail(label, category, count) {
     const res = await sendWorkerFn("list_label_samples", { label, category });
     if (!res.ok || !Array.isArray(res.data) || res.data.length === 0) {
       samplesGrid.innerHTML = `<div style="grid-column: 1 / -1; color: var(--text-secondary); text-align: center;">Chưa có dữ liệu mẫu nét cho nhãn này.</div>`;
+      if (countEl) countEl.textContent = "0";
+      if (coverage) {
+        coverage.textContent = "⚠️ Độ phủ thấp (< 2 mẫu): Nên dạy thêm để nét chữ tự nhiên hơn.";
+        coverage.style.color = "#ca8a04";
+      }
       return;
     }
 
+    const samples = res.data;
+    const count = samples.length;
+    currentModalTotalSamples = count;
+    if (countEl) countEl.textContent = String(count);
+    if (coverage) {
+      const isLow = count < 2;
+      coverage.textContent = isLow ? "⚠️ Độ phủ thấp (< 2 mẫu): Nên dạy thêm để nét chữ tự nhiên hơn." : "✓ Độ phủ tốt: Đã có đủ biến thể ngẫu nhiên.";
+      coverage.style.color = isLow ? "#ca8a04" : "#16a34a";
+    }
+
     samplesGrid.innerHTML = "";
-    res.data.forEach((sample, idx) => {
+    samples.forEach((sample, idx) => {
       const itemCard = document.createElement("div");
       itemCard.className = "sample-item-card";
+      itemCard.dataset.index = String(idx);
 
       const svgHtml = sample.s ? createSvgFromStrokes(sample.s, 140, 56, { showBaseline: true }) : "";
       const widthVal = sample.w ? `${escapeHtml(sample.w)} pt` : "";
 
       itemCard.innerHTML = `
+        <input type="checkbox" class="sample-item-checkbox" title="Chọn biến thể này">
+        <button class="sample-item-delete-btn" title="Xoá biến thể này">🗑</button>
         <div class="sample-item-thumb">${svgHtml}</div>
         <div style="font-size: 0.8rem; color: var(--text-secondary); display: flex; justify-content: space-between; width: 100%;">
           <span>Mẫu #${idx + 1}</span>
           <span>${widthVal}</span>
         </div>
       `;
+
+      const chk = itemCard.querySelector(".sample-item-checkbox");
+      const btnDel = itemCard.querySelector(".sample-item-delete-btn");
+
+      if (chk) {
+        chk.addEventListener("click", (e) => {
+          e.stopPropagation();
+          toggleSampleCardSelection(idx, itemCard, chk);
+        });
+      }
+
+      if (btnDel) {
+        btnDel.addEventListener("click", (e) => {
+          e.stopPropagation();
+          handleQuickDeleteVariant(idx);
+        });
+      }
+
+      itemCard.addEventListener("click", (e) => {
+        if (e.target === chk || e.target === btnDel) return;
+        toggleSampleCardSelection(idx, itemCard, chk);
+      });
+
       samplesGrid.appendChild(itemCard);
     });
+
+    updateModalBatchBar(count);
   } catch (err) {
     samplesGrid.innerHTML = `<div style="grid-column: 1 / -1; color: #dc2626;">Lỗi tải mẫu: ${escapeHtml(err.message)}</div>`;
   }
+}
+
+async function handleQuickDeleteVariant(idx) {
+  if (isDeletingVariants || !currentDetailLabel || !sendWorkerFn) return;
+
+  const label = currentDetailLabel;
+  const category = currentDetailCategory;
+  const isLast = currentModalTotalSamples <= 1;
+
+  const confirmMsg = isLast
+    ? `Bạn có chắc chắn muốn xoá biến thể cuối cùng của nhãn "${label}" không?\n(Hành động này sẽ xóa nhãn khỏi kho mẫu)`
+    : `Bạn có chắc chắn muốn xoá Mẫu #${idx + 1} của nhãn "${label}" không?\n(Lưu ý: Hành động này không thể hoàn tác)`;
+
+  if (!confirm(confirmMsg)) return;
+
+  await executeDeleteVariants(label, category, [idx]);
+}
+
+async function handleDeleteSelectedVariants() {
+  if (isDeletingVariants || !currentDetailLabel || !sendWorkerFn) return;
+  const count = modalSelectedIndices.size;
+  if (count === 0) return;
+
+  const label = currentDetailLabel;
+  const category = currentDetailCategory;
+  const isAll = count >= currentModalTotalSamples;
+
+  const confirmMsg = isAll
+    ? `Bạn có chắc chắn muốn xoá toàn bộ ${count} biến thể của nhãn "${label}" không?\n(Hành động này sẽ xóa nhãn khỏi kho mẫu)`
+    : `Bạn có chắc chắn muốn xoá ${count} biến thể đã chọn của nhãn "${label}" không?\n(Lưu ý: Hành động này không thể hoàn tác)`;
+
+  if (!confirm(confirmMsg)) return;
+
+  const indices = Array.from(modalSelectedIndices);
+  await executeDeleteVariants(label, category, indices);
+}
+
+async function executeDeleteVariants(label, category, indices) {
+  isDeletingVariants = true;
+  const btnDeleteSelected = document.getElementById("btn-label-delete-selected");
+  if (btnDeleteSelected) btnDeleteSelected.disabled = true;
+
+  try {
+    const res = await sendWorkerFn("drop_label_samples", { label, indices, category });
+    if (!res || !res.ok) {
+      throw new Error((res && res.error) || "Không thể xoá biến thể mẫu.");
+    }
+
+    const data = res.data || {};
+    try {
+      await storage.syncAndSaveActiveProfile(sendWorkerFn);
+    } catch (saveErr) {
+      console.warn("Lỗi đồng bộ sau khi xoá biến thể:", saveErr);
+    }
+
+    if (data.label_deleted) {
+      const modal = document.getElementById("modal-label-detail");
+      if (modal) modal.style.display = "none";
+      currentDetailLabel = null;
+      currentDetailCategory = "letters";
+      modalSelectedIndices.clear();
+      await refreshBankView();
+      alert(`Đã xoá toàn bộ biến thể và gỡ nhãn "${label}" khỏi kho mẫu.`);
+    } else {
+      await refreshBankView();
+      await loadAndRenderModalSamples(label, category);
+    }
+  } catch (err) {
+    alert(`Lỗi khi xoá biến thể: ${err.message}`);
+  } finally {
+    isDeletingVariants = false;
+    if (btnDeleteSelected) btnDeleteSelected.disabled = false;
+  }
+}
+
+async function openLabelDetail(label, category, count) {
+  currentDetailLabel = label;
+  currentDetailCategory = category;
+
+  const modal = document.getElementById("modal-label-detail");
+  const title = document.getElementById("modal-label-title");
+  const randomBox = document.getElementById("modal-random-preview-box");
+
+  if (!modal) return;
+  modal.style.display = "flex";
+  if (randomBox) randomBox.style.display = "none";
+
+  title.textContent = `Nhãn: "${label}"`;
+  await loadAndRenderModalSamples(label, category);
 }
 
 async function handleRandomPreview() {

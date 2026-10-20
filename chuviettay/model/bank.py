@@ -821,6 +821,136 @@ class Bank:
 
             return removed_map
 
+    def drop_samples(
+        self,
+        label: str,
+        indices: list[int],
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        """Xoá các biến thể mẫu nét cụ thể của nhãn theo danh sách chỉ số (0-based indices).
+
+        Nếu sau khi xoá không còn mẫu nào, nhãn sẽ tự động được dọn dẹp sạch sẽ và ghi nhận tombstone.
+        Trả về dict: {"label": label, "category": cat, "removed_count": N, "remaining_count": M, "label_deleted": bool}
+        """
+        with self._lock:
+            # 1. Xác định phân loại mục tiêu
+            if category is not None:
+                cat = category
+                target_dict = getattr(self, cat, None)
+                if cat == "marks":
+                    target_dict = self.marks
+            else:
+                if label in self.words:
+                    cat = "words"
+                    target_dict = self.words
+                elif label in self.symbols:
+                    cat = "symbols"
+                    target_dict = self.symbols
+                elif label in self.digits:
+                    cat = "digits"
+                    target_dict = self.digits
+                elif label in self.punct:
+                    cat = "punct"
+                    target_dict = self.punct
+                elif label in getattr(self, "letters", {}):
+                    cat = "letters"
+                    target_dict = self.letters
+                elif label in self.marks:
+                    cat = "marks"
+                    target_dict = self.marks
+                else:
+                    return {
+                        "label": label,
+                        "category": category or "unknown",
+                        "removed_count": 0,
+                        "remaining_count": 0,
+                        "label_deleted": False,
+                    }
+
+            if target_dict is None or label not in target_dict:
+                return {
+                    "label": label,
+                    "category": cat,
+                    "removed_count": 0,
+                    "remaining_count": 0,
+                    "label_deleted": False,
+                }
+
+            samples = target_dict[label]
+            if not isinstance(samples, list) or len(samples) == 0:
+                self.drop(label, category=cat)
+                return {
+                    "label": label,
+                    "category": cat,
+                    "removed_count": 0,
+                    "remaining_count": 0,
+                    "label_deleted": True,
+                }
+
+            # 2. Lọc và chuẩn hóa danh sách chỉ số hợp lệ
+            valid_indices = []
+            for i in indices:
+                if isinstance(i, int) and not isinstance(i, bool):
+                    if 0 <= i < len(samples):
+                        valid_indices.append(i)
+
+            sorted_indices = sorted(set(valid_indices), reverse=True)
+            if not sorted_indices:
+                return {
+                    "label": label,
+                    "category": cat,
+                    "removed_count": 0,
+                    "remaining_count": len(samples),
+                    "label_deleted": False,
+                }
+
+            # 3. Nếu toàn bộ mẫu nét bị chọn xoá -> uỷ quyền hoàn toàn cho self.drop()
+            if len(sorted_indices) == len(samples):
+                count = self.drop(label, category=cat)
+                return {
+                    "label": label,
+                    "category": cat,
+                    "removed_count": count,
+                    "remaining_count": 0,
+                    "label_deleted": True,
+                }
+
+            # 4. Xoá từng phần tử theo thứ tự giảm dần
+            removed_samples = []
+            for idx in sorted_indices:
+                popped = samples.pop(idx)
+                removed_samples.append(popped)
+
+            removed_count = len(removed_samples)
+            remaining_count = len(samples)
+
+            self._mutation_seq += 1
+            self._generation += 1
+            self.d["generation"] = self._generation
+            self._dirty = True
+
+            # 5. Xử lý chuyên biệt cho từng phân loại khi xoá một phần
+            if cat == "words":
+                self.rebuild()
+            elif cat == "marks":
+                d_marks = self.d.get("marks", {}).get(label, [])
+                for rm in removed_samples:
+                    if rm in d_marks:
+                        d_marks.remove(rm)
+                raw_m = self._raw_marks.get(label, [])
+                for rm in removed_samples:
+                    if rm in raw_m:
+                        raw_m.remove(rm)
+                self._refresh_tone_marks(label)
+
+            return {
+                "label": label,
+                "category": cat,
+                "removed_count": removed_count,
+                "remaining_count": remaining_count,
+                "label_deleted": False,
+            }
+
     def drop_word(self, word: str) -> int:
         """Xoá toàn bộ mẫu của `word` khỏi kho words và ghi nhận tombstone 'words:{word}'."""
         return self.drop(word, category="words")

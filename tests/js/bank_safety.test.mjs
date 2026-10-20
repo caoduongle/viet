@@ -38,3 +38,27 @@ test("bank.js: tuân thủ hợp đồng bảo mật DOM (escapeHtml) và dựng
   assert.ok(!bankJs.includes("${item.label}"), "Không được nội suy trực tiếp item.label chưa escape vào innerHTML");
   assert.ok(!bankJs.includes("Lỗi tải mẫu: ${err.message}"), "Không được nội suy trực tiếp err.message chưa escape vào innerHTML");
 });
+
+test("bank.js & index.html: tuân thủ hợp đồng giao diện và bảo mật tính năng xóa biến thể (051)", () => {
+  const bankJs = fs.readFileSync(path.join(repoRoot, "webapp/js/bank.js"), "utf-8");
+  const indexHtml = fs.readFileSync(path.join(repoRoot, "webapp/index.html"), "utf-8");
+
+  // Kiểm tra phần tử DOM trong index.html
+  assert.ok(indexHtml.includes('id="modal-samples-batch-bar"'));
+  assert.ok(indexHtml.includes('id="chk-modal-select-all"'));
+  assert.ok(indexHtml.includes('id="btn-label-delete-selected"'));
+  assert.ok(indexHtml.includes('id="modal-selected-count"'));
+
+  // Kiểm tra cấu trúc thẻ và nút trong bank.js
+  assert.ok(bankJs.includes('class="sample-item-checkbox"'));
+  assert.ok(bankJs.includes('class="sample-item-delete-btn"'));
+  assert.ok(bankJs.includes("drop_label_samples"));
+  assert.ok(bankJs.includes("handleDeleteSelectedVariants"));
+  assert.ok(bankJs.includes("handleQuickDeleteVariant"));
+  assert.ok(bankJs.includes("updateModalBatchBar"));
+  assert.ok(bankJs.includes("loadAndRenderModalSamples"));
+
+  // Bảo mật DOM: kiểm tra thoát chuỗi
+  assert.ok(bankJs.includes("escapeHtml(sample.w)"));
+  assert.ok(!bankJs.includes("${sample.w} pt"), "Không được nội suy trực tiếp sample.w chưa escape");
+});

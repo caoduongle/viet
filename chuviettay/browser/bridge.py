@@ -482,6 +482,19 @@ class BrowserBridge:
         except Exception as e:
             return _err_res(e)
 
+    def drop_label_samples(
+        self,
+        label: str,
+        indices: list[int],
+        category: str = "words",
+    ) -> dict[str, Any]:
+        """Xoá các biến thể mẫu nét cụ thể của một nhãn."""
+        try:
+            res = self._ctl.drop_label_samples(label, indices, category=category)
+            return {"ok": True, "data": _clean_json(res)}
+        except Exception as e:
+            return _err_res(e)
+
     def flush_save(self) -> dict[str, Any]:
         """Ép lưu các thay đổi đang hoãn xuống đĩa."""
         try:

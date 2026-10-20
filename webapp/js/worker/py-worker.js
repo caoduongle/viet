@@ -258,6 +258,17 @@ _chars_list = json.loads(_drop_chars_json)
 _batch_drop_res = _bridge.drop_chars(_chars_list)
 `);
       result = pyodide.globals.get("_batch_drop_res").toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "drop_label_samples") {
+      const { label, indices, category } = params || {};
+      pyodide.globals.set("_drop_samples_lbl", label || "");
+      pyodide.globals.set("_drop_indices_json", JSON.stringify(indices || []));
+      pyodide.globals.set("_drop_samples_cat", category || "words");
+      pyodide.runPython(`
+import json
+_samples_indices = json.loads(_drop_indices_json)
+_drop_samples_res = _bridge.drop_label_samples(_drop_samples_lbl, _samples_indices, category=_drop_samples_cat)
+`);
+      result = pyodide.globals.get("_drop_samples_res").toJs({ dict_converter: Object.fromEntries });
     } else if (method === "get_latex_symbols") {
       result = pyodide.runPython(`_bridge.get_latex_symbols()`).toJs({ dict_converter: Object.fromEntries });
     } else if (method === "import_docx") {

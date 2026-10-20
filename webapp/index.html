@@ -364,7 +364,18 @@
           <div id="modal-random-preview-content" style="display: flex; gap: 0.75rem; flex-wrap: wrap;"></div>
         </div>
 
-        <div style="font-weight: 500; font-size: 0.9rem; margin-bottom: 0.5rem;">Danh sách các biến thể mẫu nét (<span id="modal-label-sample-count">0</span>):</div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; gap: 0.5rem;">
+          <div style="font-weight: 500; font-size: 0.9rem;">Danh sách các biến thể mẫu nét (<span id="modal-label-sample-count">0</span>):</div>
+          <div id="modal-samples-batch-bar" style="display: flex; align-items: center; gap: 0.75rem;">
+            <label style="font-size: 0.85rem; display: flex; align-items: center; gap: 0.35rem; cursor: pointer; user-select: none;">
+              <input type="checkbox" id="chk-modal-select-all">
+              <span>Chọn tất cả</span>
+            </label>
+            <button id="btn-label-delete-selected" class="btn btn-outline" style="font-size: 0.8rem; color: #dc2626; border-color: #fca5a5; display: none; align-items: center; gap: 0.25rem;">
+              🗑 Xoá (<span id="modal-selected-count">0</span>) biến thể
+            </button>
+          </div>
+        </div>
         <div id="modal-label-samples-grid" class="label-samples-grid">
           <!-- Các thumbnail biến thể nét sẽ được render tại đây -->
         </div>
