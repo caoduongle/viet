@@ -185,11 +185,18 @@ class Writer:
             _, adv_w = self._normalize_digit_sample(sample, char)
             self._char_width_cache[char] = adv_w
             return adv_w
-        elif char in "-%" and getattr(b, "punct", None) and char in b.punct and b.punct[char]:
-            sample = b.punct[char][0]
-            _, adv_w = self._normalize_digit_sample(sample, char)
-            self._char_width_cache[char] = adv_w
-            return adv_w
+        elif char in "-%":
+            if getattr(b, "punct", None) and char in b.punct and b.punct[char]:
+                sample = b.punct[char][0]
+                _, adv_w = self._normalize_digit_sample(sample, char)
+                self._char_width_cache[char] = adv_w
+                return adv_w
+            from chuviettay.model.text_utils import get_vector_glyph_fallback
+            fb = get_vector_glyph_fallback(char, xh=xh)
+            if fb:
+                _, adv_w = self._normalize_digit_sample(fb, char)
+                self._char_width_cache[char] = adv_w
+                return adv_w
         elif char in ",." and getattr(b, "punct", None) and (char in b.punct or "," in b.punct or "." in b.punct):
             lib = b.punct.get(char) or b.punct.get(",") or b.punct.get(".")
             if lib:
@@ -633,9 +640,15 @@ class Writer:
             if ch in ",.":
                 lib = b.punct.get(ch) or b.punct.get(",") or b.punct.get(".")
                 if not lib:
-                    missing.append(ch)
-                    continue
-                g = self.pick(lib, "p" + ch)
+                    from chuviettay.model.text_utils import get_vector_glyph_fallback
+                    fb = get_vector_glyph_fallback(ch, xh=xh)
+                    if fb:
+                        g = fb
+                    else:
+                        missing.append(ch)
+                        continue
+                else:
+                    g = self.pick(lib, "p" + ch)
                 p_st, p_w = self._normalize_punct_sample(g)
                 # Dấu phẩy/chấm nằm ngay sau chữ số trước với khoảng hở nhỏ
                 p_gap = 0.08 * xh if not first else 0.0
@@ -653,9 +666,15 @@ class Writer:
             elif not lib and getattr(b, "words", None) and ch in b.words:
                 lib = b.words[ch]
             if not lib:
-                missing.append(ch)
-                continue
-            g = self.pick(lib, "d" + ch)
+                from chuviettay.model.text_utils import get_vector_glyph_fallback
+                fb = get_vector_glyph_fallback(ch, xh=xh)
+                if fb:
+                    g = fb
+                else:
+                    missing.append(ch)
+                    continue
+            else:
+                g = self.pick(lib, "d" + ch)
             is_hyphen = (ch == "-" or (d_idx > 0 and s[d_idx - 1] == "-"))
             gap = self._resolve_dgap(first, is_hyphen=is_hyphen, digit_idx=d_idx)
             d_st, d_w = self._normalize_digit_sample(g, ch)

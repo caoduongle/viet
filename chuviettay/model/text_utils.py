@@ -681,9 +681,39 @@ def get_vector_glyph_fallback(token: str, xh: float = 7.94) -> dict[str, Any] | 
 
     if t == "-":
         w = round(0.5 * xh, 2)
-        y = round(-0.5 * xh, 2)
+        y = round(-0.45 * xh, 2)
         s = [[0.0, y, w, y]]
         return {"s": s, "w": w, "h": 0.5, "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == "%":
+        w = round(0.8 * xh, 2)
+        slash = [round(0.65 * xh, 2), round(-1.20 * xh, 2), round(0.15 * xh, 2), 0.0]
+        top_dot = [
+            round(0.20 * xh, 2), round(-1.05 * xh, 2),
+            round(0.35 * xh, 2), round(-1.05 * xh, 2),
+            round(0.35 * xh, 2), round(-0.85 * xh, 2),
+            round(0.20 * xh, 2), round(-0.85 * xh, 2),
+            round(0.20 * xh, 2), round(-1.05 * xh, 2),
+        ]
+        bot_dot = [
+            round(0.45 * xh, 2), round(-0.35 * xh, 2),
+            round(0.60 * xh, 2), round(-0.35 * xh, 2),
+            round(0.60 * xh, 2), round(-0.15 * xh, 2),
+            round(0.45 * xh, 2), round(-0.15 * xh, 2),
+            round(0.45 * xh, 2), round(-0.35 * xh, 2),
+        ]
+        s = [slash, top_dot, bot_dot]
+        return {"s": s, "w": w, "h": round(1.20 * xh, 2), "lsb": 0.1, "rsb": 0.1, "adv": w + 0.2, "cat": "symbol", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == ",":
+        w = round(0.25 * xh, 2)
+        s = [[round(0.15 * xh, 2), 0.0, round(0.10 * xh, 2), round(0.20 * xh, 2)]]
+        return {"s": s, "w": w, "h": round(0.20 * xh, 2), "lsb": 0.05, "rsb": 0.05, "adv": w + 0.1, "cat": "punct", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == ".":
+        w = round(0.20 * xh, 2)
+        s = [[round(0.05 * xh, 2), 0.0, round(0.15 * xh, 2), 0.0]]
+        return {"s": s, "w": w, "h": 0.1, "lsb": 0.05, "rsb": 0.05, "adv": w + 0.1, "cat": "punct", "lc": "OPEN", "rc": "OPEN"}
 
     if t in ("--", "–"):
         w = round(1.0 * xh, 2)
