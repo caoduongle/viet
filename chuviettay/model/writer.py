@@ -225,7 +225,12 @@ class Writer:
         self._char_width_cache[char] = w
         return w
 
-    def measure_text_width(self, text: str, scale: float = 1.0) -> float:
+    def measure_text_width(
+        self,
+        text: str,
+        scale: float = 1.0,
+        context: SeedContext | None = None,
+    ) -> float:
         """Đo độ rộng hình học thuần túy của một chuỗi ký tự mà KHÔNG làm đột biến
         Writer.counts, Writer.last hay Writer.assembled."""
         import unicodedata
@@ -286,7 +291,7 @@ class Writer:
                 )
                 try:
                     k_idx = self._token_counts.get(nfc_text, 0)
-                    _, rend_w, _ = self.number(nfc_text, k=k_idx)
+                    _, rend_w, _ = self.number(nfc_text, k=k_idx, context=context)
                     return rend_w * scale
                 finally:
                     self._token_counts = saved_counts
@@ -723,10 +728,19 @@ class Writer:
                 else:
                     g = self.pick(lib, "p" + ch)
                 p_st, p_w = self._normalize_punct_sample(g)
-                # Dấu phẩy/chấm nằm ngay sau chữ số trước với khoảng hở nhỏ
+                p_min_x = min((pt for st_ in p_st for pt in st_[0::2]), default=0.0)
+                p_max_x = max((pt for st_ in p_st for pt in st_[0::2]), default=p_w)
                 p_gap = 0.08 * xh if not first else 0.0
-                out += [shift(st, x + p_gap, 0) for st in p_st]
-                x += p_gap + p_w + 0.10 * xh
+                if not first and out:
+                    prev_ink_max_x = max((pt for s_ in out for pt in s_[0::2]), default=x)
+                    min_clearance_before = 0.08 * xh
+                    if (x + p_gap + p_min_x) < prev_ink_max_x + min_clearance_before:
+                        p_gap = (prev_ink_max_x + min_clearance_before) - (x + p_min_x)
+                placed_p_x = x + p_gap
+                out += [shift(st, placed_p_x, 0) for st in p_st]
+                comma_placed_max_x = placed_p_x + p_max_x
+                min_clearance_after = 0.10 * xh
+                x = max(placed_p_x + p_w + 0.10 * xh, comma_placed_max_x + min_clearance_after)
                 first = True
                 continue
             lib = b.digits.get(ch)
@@ -906,17 +920,24 @@ class Writer:
         first_trail = True
         for ch in trail:
             lib = b.punct.get(ch)
+            if not lib and ch in (":", ";"):
+                from chuviettay.model.text_utils import get_vector_glyph_fallback
+                fb = get_vector_glyph_fallback(ch, xh=xh)
+                if fb:
+                    lib = [fb]
             if lib:
                 g = self.pick(lib, "p" + ch)
                 p_st, p_w = self._normalize_punct_sample(g)
+                p_min_x = min((pt for s_ in p_st for pt in s_[0::2]), default=0.0)
                 if first_trail and placed_core_strokes:
                     core_max_x = max((pt for s_ in placed_core_strokes for pt in s_[0::2]), default=x)
                     clearance_gap = max(0.8 * pen_w, 0.18 * xh)
                     x = max(x, core_max_x) + clearance_gap
                 elif not first_trail:
                     x += 0.10 * xh
-                strokes += [shift(st, x, 0) for st in p_st]
-                x += p_w + 0.12 * xh
+                place_x = x - p_min_x if p_min_x < 0 else x
+                strokes += [shift(st, place_x, 0) for st in p_st]
+                x = place_x + p_w + 0.12 * xh
                 first_trail = False
             elif getattr(b, "symbols", None) and ch in b.symbols:
                 inst = self.pick(b.symbols[ch], "sym:" + ch)

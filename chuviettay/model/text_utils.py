@@ -784,6 +784,24 @@ def get_vector_glyph_fallback(token: str, xh: float = 7.94) -> dict[str, Any] | 
         s = [[0.0, top_y, 0.3 * xh, mid_y, 0.0, bot_y]]
         return {"s": s, "w": w, "h": round(1.4 * xh, 2), "lsb": 0.2, "rsb": 0.2, "adv": w + 0.4, "cat": "punct", "lc": "OPEN", "rc": "OPEN"}
 
+    if t == ":":
+        w = round(0.20 * xh, 2)
+        top_y = round(-0.60 * xh, 2)
+        bot_y = round(-0.05 * xh, 2)
+        s = [
+            [round(0.05 * xh, 2), top_y, round(0.15 * xh, 2), top_y],
+            [round(0.05 * xh, 2), bot_y, round(0.15 * xh, 2), bot_y],
+        ]
+        return {"s": s, "w": w, "h": round(0.70 * xh, 2), "lsb": 0.08, "rsb": 0.08, "adv": w + 0.16, "cat": "punct", "lc": "OPEN", "rc": "OPEN"}
+
+    if t == ";":
+        w = round(0.25 * xh, 2)
+        top_y = round(-0.60 * xh, 2)
+        top_dot = [round(0.08 * xh, 2), top_y, round(0.18 * xh, 2), top_y]
+        bot_comma = [round(0.18 * xh, 2), 0.0, round(0.10 * xh, 2), round(0.20 * xh, 2)]
+        s = [top_dot, bot_comma]
+        return {"s": s, "w": w, "h": round(0.90 * xh, 2), "lsb": 0.08, "rsb": 0.08, "adv": w + 0.16, "cat": "punct", "lc": "OPEN", "rc": "OPEN"}
+
     return None
 
 

@@ -53,7 +53,7 @@ _SPACING_ROWS = {
 _CLASS_ORDER = ("ord", "op", "bin", "rel", "open", "close", "punct", "inner")
 _MU = {1: 1.0 / 6.0, 2: 2.0 / 9.0, 3: 5.0 / 18.0}
 _TIGHT = 0.09           # khe hở nhỏ giữa hai ký tự liền kề (em) - chữ viết tay cần chút thở
-_HUG = 0.02             # sát ngoặc mở/đóng
+_HUG = 0.08             # khoảng hở quang học ngoặc mở/đóng chống dính nét
 _ALIAS_REPORTED = frozenset("ℝℕℤℚℂℙℍℓℏ")   # thay bằng chữ thường: vẫn báo là chưa có mẫu riêng
 _VAR_NARROW_ACCENTS = frozenset({"hat", "tilde", "dot", "ddot", "dddot", "acute", "grave", "check",
                                  "breve", "mathring", "vec", "bar"})
@@ -248,8 +248,22 @@ class MathLayoutEngine:
 
         canvas = _Canvas()
         x = 0.0
+        pen_w = self._pen(eff)
+        min_clearance = max(0.12 * self.xh * eff, 0.85 * pen_w)
+        prev_ink_max_x = None
+
         for idx, it in enumerate(measured):
+            it_min_x, it_max_x = self._get_item_ink_bounds_x(it)
+            # Sàn khoảng hở quang học hình học thực tế chống dính nét giữa hai glyph liền kề
+            if prev_ink_max_x is not None and (it.glyphs or it.strokes):
+                needed_x = prev_ink_max_x + min_clearance - min(0.0, it_min_x)
+                if x < needed_x:
+                    x = needed_x
             canvas.put(it, x, 0.0)
+            if it.glyphs or it.strokes:
+                prev_ink_max_x = x + it_max_x
+            else:
+                prev_ink_max_x = x + it.size.width
             x += it.size.width
             if idx < len(measured) - 1:
                 x += gaps[idx]
@@ -349,6 +363,20 @@ class MathLayoutEngine:
         if ys:
             return min(ys), max(ys)
         return -item.size.ascent, item.size.descent
+
+    def _get_item_ink_bounds_x(self, item: MathLayoutItem) -> tuple[float, float]:
+        """Trả về (min_x, max_x) quang học thực tế của nét vẽ trong item.
+        Nếu không có nét, lùi về (0.0, item.size.width)."""
+        xs: list[float] = []
+        for g in item.glyphs:
+            sc = g.scale
+            for st in g.strokes:
+                xs.extend(pt * sc + g.x for pt in st[0::2])
+        for s in item.strokes:
+            xs.extend(pt[0] for pt in s.points)
+        if xs:
+            return min(xs), max(xs)
+        return 0.0, item.size.width
 
     # ------------------------------------------------------------------ ký hiệu
     def _glyph_item(self, strokes, w: float, eff: float, min_ascent: float) -> MathLayoutItem:
@@ -592,7 +620,7 @@ class MathLayoutEngine:
         stretch = 2.0 * half > 1.75 * self.xh * eff
         left = self._delimiter_item(node.left, half, axis, scale, eff, stretch)
         right = self._delimiter_item(node.right, half, axis, scale, eff, stretch)
-        pad = 1.0 * eff
+        pad = max(1.2 * eff, 0.14 * self.xh * eff)
 
         canvas = _Canvas()
         x = 0.0

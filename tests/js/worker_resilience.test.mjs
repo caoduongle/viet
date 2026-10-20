@@ -976,5 +976,167 @@ test("US3 - T011: initQuotaAndBackupReminders có tính lũy đẳng và gắn l
   }
 });
 
+// -------------------------------------------------------------
+// USER STORY 1 & 2: Feature 049 Late Error Guard Regression Tests
+// -------------------------------------------------------------
+test("US1 - T007: onerror muộn từ Worker thế hệ cũ bị bỏ qua không làm hủy yêu cầu của Worker thế hệ mới", async () => {
+  resetUiInitializedForTesting();
+  const mockDb = new MockIDBDatabase();
+  storage.setDBInstance(mockDb);
+  const dom = setupMockDocument();
+
+  try {
+    let createdWorkers = [];
+    class MultiGenWorker extends MockWorker {
+      constructor() {
+        super();
+        createdWorkers.push(this);
+      }
+      postMessage(msg) {
+        super.postMessage(msg);
+        if (msg.method === "load_bank") {
+          queueMicrotask(() => {
+            this.simulateResponse(msg.id, true, { ok: true, stats: {} });
+          });
+        }
+      }
+    }
+
+    // 1. Khởi chạy phục hồi Worker A (thế hệ 1)
+    const p1 = recoverWorker(MultiGenWorker, 5000);
+    const w1 = createdWorkers[0];
+
+    // 2. Kích hoạt phục hồi cưỡng chế Worker B (thế hệ 2)
+    const p2 = recoverWorker(MultiGenWorker, 5000, { force: true });
+    const w2 = createdWorkers[1];
+
+    // Worker B gửi READY và hoàn tất khởi tạo
+    w2.simulateReady();
+    const res2 = await p2;
+    assert.equal(res2, true, "Worker B phải phục hồi thành công");
+    assert.equal(dom.get("btn-worker-retry").style.display, "none", "Nút Thử lại phải ẩn khi Worker B sẵn sàng");
+
+    // 3. Gửi một yêu cầu công việc mới trên Worker B
+    const pendingTaskOnB = sendWorkerMessage("render_task_on_B", { text: "hello" }, 5000);
+    assert.equal(getPendingRequestsCount(), 1);
+
+    // 4. Kích hoạt sự kiện onerror muộn trên Worker A cũ
+    assert.doesNotThrow(() => {
+      w1.simulateError("Late fatal runtime crash from Worker A");
+    });
+
+    // 5. Xác nhận yêu cầu trên Worker B KHÔNG bị reject, UI không chuyển sang lỗi
+    assert.equal(getPendingRequestsCount(), 1, "Hàng đợi pendingRequests của Worker B không bị hủy");
+    assert.equal(dom.get("btn-worker-retry").style.display, "none", "Nút Thử lại không được hiện lên");
+
+    // Worker B phản hồi kết quả hợp lệ
+    const reqMsg = w2.messagesSent.find((m) => m.method === "render_task_on_B");
+    assert.ok(reqMsg, "Worker B phải nhận được render_task_on_B");
+    w2.simulateResponse(reqMsg.id, true, { rendered: true });
+
+    const result = await pendingTaskOnB;
+    assert.deepEqual(result, { rendered: true }, "Yêu cầu trên Worker B phải hoàn tất thành công");
+    assert.equal(getPendingRequestsCount(), 0);
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("US1 - T008: onmessageerror muộn từ Worker thế hệ cũ bị bỏ qua không ảnh hưởng Worker mới", async () => {
+  resetUiInitializedForTesting();
+  const mockDb = new MockIDBDatabase();
+  storage.setDBInstance(mockDb);
+  const dom = setupMockDocument();
+
+  try {
+    let createdWorkers = [];
+    class MultiGenWorker extends MockWorker {
+      constructor() {
+        super();
+        createdWorkers.push(this);
+      }
+      postMessage(msg) {
+        super.postMessage(msg);
+        if (msg.method === "load_bank") {
+          queueMicrotask(() => {
+            this.simulateResponse(msg.id, true, { ok: true, stats: {} });
+          });
+        }
+      }
+    }
+
+    const p1 = recoverWorker(MultiGenWorker, 5000);
+    const w1 = createdWorkers[0];
+
+    const p2 = recoverWorker(MultiGenWorker, 5000, { force: true });
+    const w2 = createdWorkers[1];
+
+    w2.simulateReady();
+    await p2;
+
+    const taskOnB = sendWorkerMessage("task_b", {}, 5000);
+    assert.equal(getPendingRequestsCount(), 1);
+
+    // w1 phát sinh onmessageerror muộn
+    assert.doesNotThrow(() => {
+      w1.simulateMessageError(new Error("Deserialization failed on old worker"));
+    });
+
+    // Worker B vẫn hoạt động bình thường
+    assert.equal(getPendingRequestsCount(), 1);
+    const taskMsg = w2.messagesSent.find((m) => m.method === "task_b");
+    w2.simulateResponse(taskMsg.id, true, { ok: 1 });
+
+    const res = await taskOnB;
+    assert.deepEqual(res, { ok: 1 });
+    assert.equal(getPendingRequestsCount(), 0);
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("US1 - T009: onerror và onmessageerror trên Worker hiện hành vẫn kích hoạt xử lý lỗi và reject pending", async () => {
+  resetUiInitializedForTesting();
+  const mockDb = new MockIDBDatabase();
+  storage.setDBInstance(mockDb);
+  const dom = setupMockDocument();
+
+  try {
+    let currentWorker = null;
+    class ActiveWorker extends MockWorker {
+      constructor() {
+        super();
+        currentWorker = this;
+      }
+      postMessage(msg) {
+        super.postMessage(msg);
+        if (msg.method === "load_bank") {
+          queueMicrotask(() => {
+            this.simulateResponse(msg.id, true, { ok: true, stats: {} });
+          });
+        }
+      }
+    }
+
+    const p = recoverWorker(ActiveWorker, 5000);
+    currentWorker.simulateReady();
+    await p;
+
+    // Gửi yêu cầu trên Worker hiện hành
+    const pendingTask = sendWorkerMessage("active_task", {}, 5000);
+    assert.equal(getPendingRequestsCount(), 1);
+
+    // Kích hoạt lỗi onerror trên Worker hiện hành
+    currentWorker.simulateError("Crash on current worker");
+
+    // Yêu cầu phải bị reject với lỗi Worker
+    await assert.rejects(pendingTask, /Crash on current worker/);
+    assert.equal(getPendingRequestsCount(), 0);
+    assert.notEqual(dom.get("btn-worker-retry").style.display, "none", "Nút Thử lại phải hiện khi worker hiện hành lỗi");
+  } finally {
+    dom.cleanup();
+  }
+});
+
 
 

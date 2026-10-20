@@ -478,6 +478,12 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
   };
 
   targetWorker.onerror = (e) => {
+    if (generation !== workerGeneration) {
+      if (boundSession && !boundSession.isResolved) {
+        boundSession.resolve(false);
+      }
+      return;
+    }
     const currentSession = boundSession || activeRecoverySession;
     if (currentSession && currentSession.generation === generation) {
       if (currentSession.timer) {
@@ -492,6 +498,12 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
   };
 
   targetWorker.onmessageerror = () => {
+    if (generation !== workerGeneration) {
+      if (boundSession && !boundSession.isResolved) {
+        boundSession.resolve(false);
+      }
+      return;
+    }
     const currentSession = boundSession || activeRecoverySession;
     if (currentSession && currentSession.generation === generation) {
       if (currentSession.timer) {

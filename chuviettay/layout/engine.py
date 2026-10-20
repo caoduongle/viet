@@ -330,7 +330,21 @@ class DocumentLayoutEngine:
                 norm = normalize_text(inline.text or "")
                 inline_tok_idx = 0
                 for tok in norm.split():
-                    est_w = self.wr.measure_text_width(tok) * self.S * scale_mult
+                    if getattr(inline, "token_occurrences", None) is not None and inline_tok_idx < len(inline.token_occurrences):
+                        tok_occ = inline.token_occurrences[inline_tok_idx]
+                    else:
+                        tok_occ = self._doc_token_counts.get((context_prefix, tok), 0)
+                        self._doc_token_counts[(context_prefix, tok)] = tok_occ + 1
+                    inline_tok_idx += 1
+
+                    from chuviettay.model.rng import SeedContext
+                    meas_ctx = SeedContext(
+                        content_type=context_prefix,
+                        element_id=tok,
+                        occurrence=tok_occ,
+                        sub_index=0,
+                    )
+                    est_w = self.wr.measure_text_width(tok, context=meas_ctx) * self.S * scale_mult
                     if max_item_width is not None and max_item_width > 0 and est_w > max_item_width:
                         chunks = _partition_long_token_linear(
                             tok,
@@ -343,15 +357,7 @@ class DocumentLayoutEngine:
                     else:
                         chunks = [tok]
 
-                    if getattr(inline, "token_occurrences", None) is not None and inline_tok_idx < len(inline.token_occurrences):
-                        tok_occ = inline.token_occurrences[inline_tok_idx]
-                    else:
-                        tok_occ = self._doc_token_counts.get((context_prefix, tok), 0)
-                        self._doc_token_counts[(context_prefix, tok)] = tok_occ + 1
-                    inline_tok_idx += 1
-
                     for chunk_idx, chunk in enumerate(chunks):
-                        from chuviettay.model.rng import SeedContext
                         ctx = SeedContext(
                             content_type=context_prefix,
                             element_id=chunk,
@@ -813,7 +819,14 @@ class DocumentLayoutEngine:
                         table_id = f"{tbl_sig}#{tbl_occ}"
 
                     def measure_word_bounds(word: str) -> float:
-                        return self.wr.measure_text_width(word) * self.S
+                        from chuviettay.model.rng import SeedContext
+                        cell_ctx = SeedContext(
+                            content_type="cell",
+                            element_id=word,
+                            occurrence=0,
+                            sub_index=0,
+                        )
+                        return self.wr.measure_text_width(word, context=cell_ctx) * self.S
 
                     table_engine = TableLayoutEngine(
                         self.width,
