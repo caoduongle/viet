@@ -19,6 +19,8 @@ export class TeachController {
     this.worker = workerClient;
     this.options = options;
     this.onSampleSaved = options.onSampleSaved || null;
+    this.signal = options.signal || null;
+    this._cleanups = [];
     this.canvas = null;
 
     // Trạng thái hàng đợi & phiên
@@ -32,7 +34,36 @@ export class TeachController {
     this.sampleCounts = new Map();
   }
 
-  async init() {
+  _addListener(target, type, fn, opts = {}) {
+    if (!target) return;
+    const mergedOpts = this.signal ? { signal: this.signal, ...opts } : opts;
+    target.addEventListener(type, fn, mergedOpts);
+    this._cleanups.push(() => {
+      try {
+        target.removeEventListener(type, fn, mergedOpts);
+      } catch (_) {}
+    });
+  }
+
+  destroy() {
+    for (const c of this._cleanups) {
+      try { c(); } catch (_) {}
+    }
+    this._cleanups = [];
+    if (this.canvas && typeof this.canvas.destroy === "function") {
+      this.canvas.destroy();
+    }
+    this.canvas = null;
+  }
+
+  async init(options = {}) {
+    if (options && options.signal) {
+      this.signal = options.signal;
+    }
+    this.destroy();
+    if (this.signal) {
+      this.signal.addEventListener("abort", () => this.destroy(), { once: true });
+    }
     this._cacheDom();
     this._initCanvas();
     this._bindEvents();
@@ -88,6 +119,7 @@ export class TeachController {
     if (!this.dom.canvasEl) return;
     this.canvas = new TeachCanvas(this.dom.canvasEl, {
       onChange: (count) => this._onStrokeChange(count),
+      signal: this.signal,
     });
   }
 
@@ -104,8 +136,8 @@ export class TeachController {
 
   _bindEvents() {
     // 1. Thêm từ vào hàng đợi
-    this.dom.btnAdd.addEventListener("click", () => this.addWordFromInput());
-    this.dom.inputAdd.addEventListener("keydown", (e) => {
+    this._addListener(this.dom.btnAdd, "click", () => this.addWordFromInput());
+    this._addListener(this.dom.inputAdd, "keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
         this.addWordFromInput();
@@ -114,56 +146,56 @@ export class TeachController {
 
     // 2. Nạp hàng đợi tự động & Lưới ô
     if (this.dom.btnChars) {
-      this.dom.btnChars.addEventListener("click", () => this.openCharGroupsModal());
+      this._addListener(this.dom.btnChars, "click", () => this.openCharGroupsModal());
     }
     if (this.dom.btnEssentials) {
-      this.dom.btnEssentials.addEventListener("click", () => this.openCharGroupsModal());
+      this._addListener(this.dom.btnEssentials, "click", () => this.openCharGroupsModal());
     }
     if (this.dom.btnSeed) {
-      this.dom.btnSeed.addEventListener("click", () => this.addSeedWords());
+      this._addListener(this.dom.btnSeed, "click", () => this.addSeedWords());
     }
     if (this.dom.btnExportCharGrid) {
-      this.dom.btnExportCharGrid.addEventListener("click", () => this.openCharGroupsModal());
+      this._addListener(this.dom.btnExportCharGrid, "click", () => this.openCharGroupsModal());
     }
     if (this.dom.btnImportGrid && this.dom.inputGridFile) {
-      this.dom.btnImportGrid.addEventListener("click", () => this.dom.inputGridFile.click());
-      this.dom.inputGridFile.addEventListener("change", (e) => this.handleImportGridFile(e));
+      this._addListener(this.dom.btnImportGrid, "click", () => this.dom.inputGridFile.click());
+      this._addListener(this.dom.inputGridFile, "change", (e) => this.handleImportGridFile(e));
     }
     this._bindCharGroupsModalEvents();
 
-    this.dom.btnClearQueue.addEventListener("click", () => this.clearQueue());
-    this.dom.btnCalibrate.addEventListener("click", () => this.startCalibration());
-    this.dom.btnSkip.addEventListener("click", () => this.skipWord());
+    this._addListener(this.dom.btnClearQueue, "click", () => this.clearQueue());
+    this._addListener(this.dom.btnCalibrate, "click", () => this.startCalibration());
+    this._addListener(this.dom.btnSkip, "click", () => this.skipWord());
 
     // 3. Công cụ vẽ
-    this.dom.toolPen.addEventListener("click", () => {
+    this._addListener(this.dom.toolPen, "click", () => {
       this.canvas.setTool("pen");
       this.dom.toolPen.classList.add("active");
       this.dom.toolEraser.classList.remove("active");
     });
 
-    this.dom.toolEraser.addEventListener("click", () => {
+    this._addListener(this.dom.toolEraser, "click", () => {
       this.canvas.setTool("eraser");
       this.dom.toolEraser.classList.add("active");
       this.dom.toolPen.classList.remove("active");
     });
 
-    this.dom.selectPenWidth.addEventListener("change", (e) => {
+    this._addListener(this.dom.selectPenWidth, "change", (e) => {
       this.canvas.setPenWidth(parseFloat(e.target.value));
     });
 
-    this.dom.chkGhost.addEventListener("change", (e) => {
+    this._addListener(this.dom.chkGhost, "change", (e) => {
       this.canvas.toggleGhost(e.target.checked);
     });
 
     // 4. Các nút thao tác
-    this.dom.btnUndo.addEventListener("click", () => this.canvas.undo());
-    this.dom.btnRedo.addEventListener("click", () => this.canvas.redo());
-    this.dom.btnClear.addEventListener("click", () => this.canvas.clear());
-    this.dom.btnSave.addEventListener("click", () => this.saveWord());
+    this._addListener(this.dom.btnUndo, "click", () => this.canvas.undo());
+    this._addListener(this.dom.btnRedo, "click", () => this.canvas.redo());
+    this._addListener(this.dom.btnClear, "click", () => this.canvas.clear());
+    this._addListener(this.dom.btnSave, "click", () => this.saveWord());
 
     // 5. Phím tắt toàn cục khi đang ở tab Dạy
-    document.addEventListener("keydown", (e) => {
+    this._addListener(document, "keydown", (e) => {
       if (!this.dom.section.classList.contains("active")) return;
 
       // Tránh phím tắt khi đang nhập liệu trong ô input
@@ -269,24 +301,24 @@ export class TeachController {
     if (!this.dom.modalCharGroups) return;
 
     if (this.dom.btnCloseCharGroups) {
-      this.dom.btnCloseCharGroups.addEventListener("click", () => this.closeCharGroupsModal());
+      this._addListener(this.dom.btnCloseCharGroups, "click", () => this.closeCharGroupsModal());
     }
-    this.dom.modalCharGroups.addEventListener("click", (e) => {
+    this._addListener(this.dom.modalCharGroups, "click", (e) => {
       if (e.target === this.dom.modalCharGroups) {
         this.closeCharGroupsModal();
       }
     });
 
     if (this.dom.selectCharGroup) {
-      this.dom.selectCharGroup.addEventListener("change", () => this._updateCharGroupDesc());
+      this._addListener(this.dom.selectCharGroup, "change", () => this._updateCharGroupDesc());
     }
 
     if (this.dom.btnCharGroupsAddQueue) {
-      this.dom.btnCharGroupsAddQueue.addEventListener("click", () => this.addCharGroupToQueue());
+      this._addListener(this.dom.btnCharGroupsAddQueue, "click", () => this.addCharGroupToQueue());
     }
 
     if (this.dom.btnCharGroupsExport) {
-      this.dom.btnCharGroupsExport.addEventListener("click", () => this.exportCharGroupGrid());
+      this._addListener(this.dom.btnCharGroupsExport, "click", () => this.exportCharGroupGrid());
     }
   }
 

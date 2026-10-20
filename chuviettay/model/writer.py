@@ -273,6 +273,42 @@ class Writer:
                     trail_w = sum(self.get_char_advance_width(c) for c in trail) + (len(trail) * letter_gap if trail else 0.0)
                     return (lead_w + float(core_sample["w"]) + trail_w) * scale
         if NUMRE.match(nfc_text):
+            if self.stable_variants:
+                saved_counts = dict(self._token_counts)
+                saved_last = dict(self.last)
+                saved_token_last = dict(self._token_last)
+                saved_ctx = (
+                    getattr(self, "_current_ctx_type", "text"),
+                    getattr(self, "_current_tok", ""),
+                    getattr(self, "_current_k", 0),
+                    getattr(self, "_char_idx", 0),
+                    getattr(self, "_current_context", None),
+                )
+                try:
+                    k_idx = self._token_counts.get(nfc_text, 0)
+                    _, rend_w, _ = self.number(nfc_text, k=k_idx)
+                    return rend_w * scale
+                finally:
+                    self._token_counts = saved_counts
+                    self.last = saved_last
+                    self._token_last = saved_token_last
+                    (
+                        self._current_ctx_type,
+                        self._current_tok,
+                        self._current_k,
+                        self._char_idx,
+                        self._current_context,
+                    ) = saved_ctx
+            elif self.rnd:
+                saved_state = self.rnd.getstate()
+                saved_last = dict(self.last)
+                try:
+                    _, rend_w, _ = self.number(nfc_text)
+                    return rend_w * scale
+                finally:
+                    self.rnd.setstate(saved_state)
+                    self.last = saved_last
+
             tot = 0.0
             first = True
             raw_gaps = getattr(self.b, "d", {}).get("dgaps") if getattr(self.b, "d", None) else None
@@ -552,6 +588,13 @@ class Writer:
         xh = eff_xh
 
         if ch == "-":
+            raw_bw = raw_max_x - raw_min_x
+            if raw_bw <= 1e-3:
+                from chuviettay.model.text_utils import get_vector_glyph_fallback
+                fb = get_vector_glyph_fallback("-", xh=xh)
+                if fb:
+                    return fb.get("s", []), max(raw_w, float(fb.get("w", 0.50 * xh)))
+                return raw_s, max(raw_w, 0.50 * xh)
             dx = -raw_min_x
             mid_y = (raw_min_y + raw_max_y) / 2.0
             dy = -0.45 * xh - mid_y
@@ -563,14 +606,44 @@ class Writer:
             adv_w = bbox_w if bbox_w > 1e-3 else raw_w
             return norm_strokes, adv_w
 
-        dx = -raw_min_x
-        dy = -raw_max_y
         sample_h = raw_max_y - raw_min_y
+        raw_bw = raw_max_x - raw_min_x
         target_h = 1.20 * xh
 
-        if sample_h > 1e-3 and (sample_h < 1.14 * xh or sample_h > 1.26 * xh):
-            scale_y = clamp(target_h / sample_h, 0.10, 15.0)
-            scale_x = clamp(scale_y ** 0.5, 0.40, 2.50)
+        if sample_h <= 1e-3 or raw_bw <= 1e-3:
+            from chuviettay.model.text_utils import get_vector_glyph_fallback
+            fb = get_vector_glyph_fallback(ch, xh=xh)
+            if fb:
+                return fb.get("s", []), max(raw_w, float(fb.get("w", 0.60 * xh)))
+            if sample_h <= 1e-3:
+                w_fb = round(max(raw_bw, 0.60 * xh), 2)
+                h_fb = round(target_h, 2)
+                fallback_stroke = [0.0, 0.0, 0.0, -h_fb, w_fb, -h_fb, w_fb, 0.0]
+                return [fallback_stroke], max(raw_w, w_fb)
+            dx = -raw_min_x
+            dy = -raw_max_y
+            scale_y = target_h / sample_h
+            norm_strokes = [
+                [round(pt + dx, 2) if i % 2 == 0 else round((pt + dy) * scale_y, 2) for i, pt in enumerate(st)]
+                for st in raw_s
+            ]
+            adv_w = max(raw_w, 0.50 * xh)
+            return norm_strokes, adv_w
+
+        dx = -raw_min_x
+        dy = -raw_max_y
+
+        if sample_h < 1.14 * xh or sample_h > 1.26 * xh:
+            raw_scale_y = target_h / sample_h
+            if 0.10 <= raw_scale_y <= 15.0:
+                scale_y = raw_scale_y
+                scale_x = clamp(scale_y ** 0.5, 0.40, 2.50)
+            else:
+                # Chính sách dự phòng cho mẫu quá dị biệt (ngoài ngưỡng [0.10, 15.0], vd 0.01*xh hoặc 20*xh):
+                # Chuẩn hóa trực tiếp khung bao về chiều cao chuẩn 1.20 * xh và khóa bề rộng trong dải an toàn
+                scale_y = raw_scale_y
+                safe_w = clamp(raw_bw * clamp(raw_scale_y ** 0.5, 0.40, 2.50), 0.40 * xh, 0.90 * xh)
+                scale_x = safe_w / raw_bw
         else:
             scale_x, scale_y = 1.0, 1.0
 

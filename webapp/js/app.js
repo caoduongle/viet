@@ -38,6 +38,10 @@ export function getIsDomListenersAttached() {
   return isDomListenersAttached;
 }
 
+export function getRecoveryPromise() {
+  return recoveryPromise;
+}
+
 export function resetUiInitializedForTesting() {
   isUiInitialized = false;
   isDomListenersAttached = false;
@@ -57,6 +61,12 @@ export function resetUiInitializedForTesting() {
       uiAbortController.abort();
     } catch (_) {}
     uiAbortController = null;
+  }
+  if (typeof window !== "undefined" && window.__teachController) {
+    try {
+      window.__teachController.destroy();
+    } catch (_) {}
+    window.__teachController = null;
   }
 }
 
@@ -154,9 +164,29 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000, options = {
   } catch (_) {}
 
   // Nếu có phiên phục hồi cũ đang dở dang, giải quyết và dọn dẹp ngay
-  if (activeRecoverySession && !activeRecoverySession.isResolved) {
-    activeRecoverySession.resolve(false);
+  if (activeRecoverySession) {
+    if (activeRecoverySession.timer) {
+      clearTimeout(activeRecoverySession.timer);
+      activeRecoverySession.timer = null;
+    }
+    if (!activeRecoverySession.isResolved) {
+      activeRecoverySession.resolve(false);
+    }
+    activeRecoverySession = null;
   }
+  if (uiAbortController) {
+    try {
+      uiAbortController.abort();
+    } catch (_) {}
+    uiAbortController = null;
+  }
+  if (typeof window !== "undefined" && window.__teachController) {
+    try {
+      window.__teachController.destroy();
+    } catch (_) {}
+    window.__teachController = null;
+  }
+  isDomListenersAttached = false;
 
   recoveryPromise = (async () => {
     let success = false;
@@ -164,6 +194,7 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000, options = {
     try {
       // 1. Chấm dứt Worker cũ và cô lập generation
       workerGeneration++;
+      const activeGen = workerGeneration;
       if (worker && typeof worker.terminate === "function") {
         try {
           worker.terminate();
@@ -178,51 +209,49 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000, options = {
       }
       pendingRequests.clear();
 
-      // 3. Khởi tạo Worker mới và chờ tín hiệu READY
+      // 3. Khởi tạo session hiện hành và Worker mới
+      const readyPromise = new Promise((resolve) => {
+        session = {
+          generation: activeGen,
+          isResolved: false,
+          timer: null,
+          resolve: (val) => {
+            if (session && !session.isResolved) {
+              session.isResolved = true;
+              if (session.timer) {
+                clearTimeout(session.timer);
+                session.timer = null;
+              }
+              resolve(val);
+            }
+          },
+        };
+      });
+      activeRecoverySession = session;
+
       const TargetWorkerClass = WorkerClass || (typeof Worker !== "undefined" ? Worker : null);
       if (TargetWorkerClass) {
-        const activeGen = workerGeneration;
-        const readyPromise = new Promise((resolve) => {
-          session = {
-            generation: activeGen,
-            isResolved: false,
-            timer: null,
-            resolve: (val) => {
-              if (session && !session.isResolved) {
-                session.isResolved = true;
-                if (session.timer) {
-                  clearTimeout(session.timer);
-                  session.timer = null;
-                }
-                resolve(val);
-              }
-            },
-          };
-
-          // Timer bảo vệ bước bắt tay ban đầu
-          session.timer = setTimeout(() => {
-            if (session && !session.isResolved) {
-              if (worker && typeof worker.terminate === "function") {
-                try {
-                  worker.terminate();
-                } catch (_) {}
-              }
-              worker = null;
-              workerGeneration++;
-              handleWorkerFatalError(`Khởi tạo bộ xử lý nền quá thời gian chờ (${timeoutMs}ms)`);
-              session.resolve(false);
+        // Timer bảo vệ bước bắt tay ban đầu
+        session.timer = setTimeout(() => {
+          if (session && !session.isResolved && activeRecoverySession === session) {
+            if (worker && typeof worker.terminate === "function") {
+              try {
+                worker.terminate();
+              } catch (_) {}
             }
-          }, timeoutMs);
+            worker = null;
+            workerGeneration++;
+            handleWorkerFatalError(`Khởi tạo bộ xử lý nền quá thời gian chờ (${timeoutMs}ms)`);
+            session.resolve(false);
+          }
+        }, timeoutMs);
 
-          clearHandshakeTimer = () => {
-            if (session && session.timer) {
-              clearTimeout(session.timer);
-              session.timer = null;
-            }
-          };
-        });
-
-        activeRecoverySession = session;
+        clearHandshakeTimer = () => {
+          if (session && session.timer) {
+            clearTimeout(session.timer);
+            session.timer = null;
+          }
+        };
 
         try {
           worker = new TargetWorkerClass("js/worker/py-worker.js", { type: "module" });
@@ -256,18 +285,18 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000, options = {
       }
       if (activeRecoverySession === session) {
         activeRecoverySession = null;
-      }
-      clearHandshakeTimer = null;
-      if (btnRetry) {
-        btnRetry.disabled = false;
-        if (success) {
-          btnRetry.style.display = "none";
-        } else {
-          btnRetry.style.display = "inline-block";
+        clearHandshakeTimer = null;
+        if (btnRetry) {
+          btnRetry.disabled = false;
+          if (success) {
+            btnRetry.style.display = "none";
+          } else {
+            btnRetry.style.display = "inline-block";
+          }
         }
+        isRecovering = false;
+        recoveryPromise = null;
       }
-      isRecovering = false;
-      recoveryPromise = null;
     }
   })();
 
@@ -366,7 +395,29 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
         // Bộ đếm thời gian bảo vệ giai đoạn khởi tạo UI sau READY
         const initTimeout = Math.max(timeoutMs * 3, 250);
         currentSession.timer = setTimeout(() => {
-          if (currentSession && !currentSession.isResolved) {
+          if (currentSession && !currentSession.isResolved && activeRecoverySession === currentSession) {
+            if (targetWorker && typeof targetWorker.terminate === "function") {
+              try {
+                targetWorker.terminate();
+              } catch (_) {}
+            }
+            if (worker === targetWorker) {
+              worker = null;
+            }
+            workerGeneration++;
+            if (uiAbortController) {
+              try {
+                uiAbortController.abort();
+              } catch (_) {}
+              uiAbortController = null;
+            }
+            if (typeof window !== "undefined" && window.__teachController) {
+              try {
+                window.__teachController.destroy();
+              } catch (_) {}
+              window.__teachController = null;
+            }
+            isDomListenersAttached = false;
             handleWorkerFatalError(`Khởi tạo giao diện sau phục hồi quá thời gian chờ (${initTimeout}ms)`);
             currentSession.resolve(false);
           }
@@ -375,7 +426,7 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
 
       onWorkerReady(generation).then(() => {
         const currentSession = boundSession || activeRecoverySession;
-        if (currentSession && !currentSession.isResolved) {
+        if (currentSession && currentSession.generation === generation && !currentSession.isResolved) {
           if (generation === workerGeneration) {
             currentSession.resolve(true);
           } else {
@@ -384,10 +435,13 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
         }
       }).catch((err) => {
         const currentSession = boundSession || activeRecoverySession;
-        if (currentSession && !currentSession.isResolved) {
+        if (currentSession && currentSession.generation === generation && !currentSession.isResolved) {
           console.error("Lỗi khi nạp lại kho sau khi phục hồi:", err);
           handleWorkerFatalError(err.message || "Lỗi khởi tạo lại kho mẫu");
           currentSession.resolve(false);
+        } else if (generation === workerGeneration) {
+          console.error("Lỗi khi nạp kho mẫu:", err);
+          handleWorkerFatalError(err.message || "Lỗi khởi tạo kho mẫu");
         }
       });
     } else if (data.type === "ERROR") {
@@ -493,17 +547,23 @@ export async function onWorkerReady(generation = workerGeneration) {
         initBankTab(sendWorkerMessage, { signal });
         initWriteTab({ signal });
         if (document.getElementById("tab-teach")) {
+          if (typeof window !== "undefined" && window.__teachController) {
+            try {
+              window.__teachController.destroy();
+            } catch (_) {}
+            window.__teachController = null;
+          }
           const teachController = new TeachController(
             { request: sendWorkerMessage },
-            { onSampleSaved: notifySampleTaught }
+            { onSampleSaved: notifySampleTaught, signal }
           );
-          await teachController.init();
+          await teachController.init({ signal });
           if (generation !== undefined && generation !== workerGeneration) return;
           if (typeof window !== "undefined") {
             window.__teachController = teachController;
           }
         }
-        initQuotaAndBackupReminders();
+        initQuotaAndBackupReminders({ signal });
         initGuideModal();
       }
 
@@ -556,46 +616,69 @@ export async function onWorkerReady(generation = workerGeneration) {
         } catch (_) {}
         uiAbortController = null;
       }
+      if (typeof window !== "undefined" && window.__teachController) {
+        try {
+          window.__teachController.destroy();
+        } catch (_) {}
+        window.__teachController = null;
+      }
       throw err;
     }
   }
 
   if (generation !== undefined && generation !== workerGeneration) return;
 
-  // Nạp lại / Khởi tạo hồ sơ trong IndexedDB
-  const profiles = await storage.listProfiles();
-  if (generation !== undefined && generation !== workerGeneration) return;
+  try {
+    // Nạp lại / Khởi tạo hồ sơ trong IndexedDB
+    const profiles = await storage.listProfiles();
+    if (generation !== undefined && generation !== workerGeneration) return;
 
-  if (!profiles || profiles.length === 0) {
-    if (isFirstInit && typeof document !== "undefined") {
-      showWelcomeModal();
-    }
-  } else {
-    const activeId = await storage.getSetting("active_profile_id", profiles[0].id);
-    if (generation !== undefined && generation !== workerGeneration) return;
-    const profile = await storage.getProfile(activeId);
-    if (generation !== undefined && generation !== workerGeneration) return;
-    if (profile && profile.data) {
-      storage.setLocalSyncedTimestamp(profile.updated_at || Date.now());
-      await sendWorkerMessage("load_bank", {
-        gzBytes: Array.from(new Uint8Array(profile.data)),
-        createIfMissing: false,
-      });
+    if (!profiles || profiles.length === 0) {
+      if (isFirstInit && typeof document !== "undefined") {
+        showWelcomeModal();
+      }
+    } else {
+      const activeId = await storage.getSetting("active_profile_id", profiles[0].id);
       if (generation !== undefined && generation !== workerGeneration) return;
-      if (typeof document !== "undefined" && document.getElementById("bank-summary")) {
-        await refreshBankView();
-      }
-      if (typeof window !== "undefined" && window.__teachController) {
-        await window.__teachController.refresh();
+      const profile = await storage.getProfile(activeId);
+      if (generation !== undefined && generation !== workerGeneration) return;
+      if (profile && profile.data) {
+        storage.setLocalSyncedTimestamp(profile.updated_at || Date.now());
+        await sendWorkerMessage("load_bank", {
+          gzBytes: Array.from(new Uint8Array(profile.data)),
+          createIfMissing: false,
+        });
+        if (generation !== undefined && generation !== workerGeneration) return;
+        if (typeof document !== "undefined" && document.getElementById("bank-summary")) {
+          await refreshBankView();
+        }
+        if (typeof window !== "undefined" && window.__teachController) {
+          await window.__teachController.refresh();
+        }
       }
     }
-  }
 
-  if (generation !== undefined && generation !== workerGeneration) return;
+    if (generation !== undefined && generation !== workerGeneration) return;
 
-  // Kiểm tra hạn ngạch bộ nhớ
-  if (typeof document !== "undefined") {
-    await checkQuotaStatus();
+    // Kiểm tra hạn ngạch bộ nhớ
+    if (typeof document !== "undefined") {
+      await checkQuotaStatus();
+    }
+  } catch (err) {
+    isDomListenersAttached = false;
+    if (uiAbortController) {
+      try {
+        uiAbortController.abort();
+      } catch (_) {}
+      uiAbortController = null;
+    }
+    if (typeof window !== "undefined" && window.__teachController) {
+      try {
+        window.__teachController.destroy();
+      } catch (_) {}
+      window.__teachController = null;
+    }
+    throw err;
   }
 
   if (generation !== undefined && generation !== workerGeneration) return;
@@ -616,30 +699,49 @@ export async function onWorkerReady(generation = workerGeneration) {
   isRecovering = false;
 }
 
-function initQuotaAndBackupReminders() {
+export function initQuotaAndBackupReminders(options = {}) {
+  const signal = options.signal || null;
   const btnQuotaBackup = document.getElementById("btn-quota-backup");
-  if (btnQuotaBackup) {
+  if (btnQuotaBackup && !btnQuotaBackup.__hasQuotaListener) {
+    btnQuotaBackup.__hasQuotaListener = true;
     btnQuotaBackup.addEventListener("click", () => {
       exportCurrentBank();
-    });
+    }, signal ? { signal } : {});
+    if (signal) {
+      signal.addEventListener("abort", () => {
+        delete btnQuotaBackup.__hasQuotaListener;
+      }, { once: true });
+    }
   }
 
   const btnToastDismiss = document.getElementById("btn-toast-dismiss");
   const btnToastBackup = document.getElementById("btn-toast-backup");
   const toastEl = document.getElementById("backup-reminder-toast");
 
-  if (btnToastDismiss && toastEl) {
+  if (btnToastDismiss && toastEl && !btnToastDismiss.__hasToastDismissListener) {
+    btnToastDismiss.__hasToastDismissListener = true;
     btnToastDismiss.addEventListener("click", () => {
       reminderDismissed = true;
       toastEl.style.display = "none";
-    });
+    }, signal ? { signal } : {});
+    if (signal) {
+      signal.addEventListener("abort", () => {
+        delete btnToastDismiss.__hasToastDismissListener;
+      }, { once: true });
+    }
   }
 
-  if (btnToastBackup && toastEl) {
+  if (btnToastBackup && toastEl && !btnToastBackup.__hasToastBackupListener) {
+    btnToastBackup.__hasToastBackupListener = true;
     btnToastBackup.addEventListener("click", () => {
       exportCurrentBank();
       toastEl.style.display = "none";
-    });
+    }, signal ? { signal } : {});
+    if (signal) {
+      signal.addEventListener("abort", () => {
+        delete btnToastBackup.__hasToastBackupListener;
+      }, { once: true });
+    }
   }
 }
 

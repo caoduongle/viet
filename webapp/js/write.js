@@ -546,6 +546,8 @@ async function handleFileImport(file, textarea) {
 // -------------------------------------------------------------
 // Điều hướng trang và Zoom
 // -------------------------------------------------------------
+let activePreviewResizeObserver = null;
+
 function setupPreviewNavigation(options = {}) {
   const btnPrev = document.getElementById("btn-page-prev");
   const btnNext = document.getElementById("btn-page-next");
@@ -597,12 +599,30 @@ function setupPreviewNavigation(options = {}) {
   // Tự động căn lại độ rộng khi ở chế độ Fit và kích thước viewport thay đổi
   const stage = document.getElementById("preview-stage");
   if (stage && typeof ResizeObserver !== "undefined") {
+    if (activePreviewResizeObserver) {
+      try {
+        activePreviewResizeObserver.disconnect();
+      } catch (_) {}
+      activePreviewResizeObserver = null;
+    }
     const resizeObserver = new ResizeObserver(() => {
       if (isFitMode && currentDoc && currentDoc.pages.length) {
         applyPaperZoom(calculateFitZoom(), true);
       }
     });
     resizeObserver.observe(stage);
+    activePreviewResizeObserver = resizeObserver;
+
+    if (options && options.signal) {
+      options.signal.addEventListener("abort", () => {
+        try {
+          resizeObserver.disconnect();
+        } catch (_) {}
+        if (activePreviewResizeObserver === resizeObserver) {
+          activePreviewResizeObserver = null;
+        }
+      }, { once: true });
+    }
   } else {
     bindWriteEvent(window, "resize", () => {
       if (isFitMode && currentDoc && currentDoc.pages.length) {

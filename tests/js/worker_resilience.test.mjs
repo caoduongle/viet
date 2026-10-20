@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { MockIDBDatabase } from "./helpers/mock_idb.mjs";
 import * as storage from "../../webapp/js/storage.js";
+import { initBankTab } from "../../webapp/js/bank.js";
+import { initWriteTab } from "../../webapp/js/write.js";
 import { TeachController } from "../../webapp/js/teach.js";
 import {
   sendWorkerMessage,
@@ -11,10 +13,12 @@ import {
   recoverWorker,
   getWorkerGeneration,
   getIsRecovering,
+  getRecoveryPromise,
   getIsUiInitialized,
   getIsDomListenersAttached,
   resetUiInitializedForTesting,
   onWorkerReady,
+  initQuotaAndBackupReminders,
 } from "../../webapp/js/app.js";
 
 test.beforeEach(() => {
@@ -225,43 +229,227 @@ function setupMockDocument(extraIds = []) {
     "status-text",
     "quota-warning-banner",
     "backup-reminder-toast",
+    "btn-export-bank",
+    "btn-import-bank",
+    "input-import-bank",
+    "btn-export-check",
+    "btn-bank-import-grid",
+    "btn-rename-profile",
+    "input-search-bank",
+    "bank-category-filters",
+    "chk-bank-select-all",
+    "btn-bank-delete-selected",
+    "modal-label-detail",
+    "btn-close-label-detail",
+    "btn-label-teach-more",
+    "btn-label-preview-random",
+    "btn-label-delete",
+    "editor-text",
+    "select-format",
+    "btn-export-xopp",
+    "btn-export-png",
+    "btn-export-svg",
+    "btn-export-zip",
+    "btn-print-pdf",
+    "preview-stage",
+    "btn-page-prev",
+    "btn-page-next",
+    "btn-zoom-in",
+    "btn-zoom-out",
+    "btn-zoom-fit",
+    "select-zoom",
+    "btn-quota-backup",
+    "btn-toast-dismiss",
+    "btn-toast-backup",
+    "guide-modal",
+    "btn-header-guide",
+    "btn-close-guide-x",
+    "btn-close-guide",
     ...extraIds,
   ]);
+  if (extraIds.includes("tab-teach")) {
+    const teachIds = [
+      "tab-teach",
+      "input-teach-add",
+      "btn-teach-add",
+      "btn-teach-chars",
+      "btn-teach-essentials",
+      "btn-teach-seed",
+      "btn-import-grid",
+      "input-grid-file",
+      "btn-export-char-grid",
+      "btn-teach-clear-queue",
+      "btn-teach-calibrate",
+      "modal-char-groups",
+      "btn-close-char-groups",
+      "select-char-group",
+      "char-group-desc",
+      "btn-char-groups-add-queue",
+      "btn-char-groups-export",
+      "teach-queue-count",
+      "teach-queue-list",
+      "btn-teach-skip",
+      "teach-target-word",
+      "teach-sample-count",
+      "teach-scale-info",
+      "teach-canvas",
+      "btn-teach-tool-pen",
+      "btn-teach-tool-eraser",
+      "select-teach-pen-width",
+      "chk-teach-ghost",
+      "btn-teach-undo",
+      "btn-teach-redo",
+      "btn-teach-clear",
+      "btn-teach-save",
+    ];
+    for (const tid of teachIds) knownIds.add(tid);
+  }
   const elements = new Map();
   const getOrCreate = (id) => {
     if (!knownIds.has(id)) {
       return null;
     }
     if (!elements.has(id)) {
+      const listeners = new Map();
       elements.set(id, {
         id,
         style: { display: "none" },
         disabled: false,
         textContent: "",
         className: "",
-        addEventListener: () => {},
+        value: "",
+        listeners,
+        classList: {
+          contains: () => true,
+          add: () => {},
+          remove: () => {},
+        },
+        getContext() {
+          return {
+            resetTransform: () => {},
+            scale: () => {},
+            clearRect: () => {},
+            beginPath: () => {},
+            moveTo: () => {},
+            lineTo: () => {},
+            stroke: () => {},
+            save: () => {},
+            restore: () => {},
+            arc: () => {},
+            fill: () => {},
+            setLineDash: () => {},
+            fillText: () => {},
+            measureText: () => ({ width: 10 }),
+          };
+        },
+        getBoundingClientRect() {
+          return { left: 0, top: 0, width: 300, height: 150 };
+        },
+        addEventListener(event, fn, options = {}) {
+          if (!listeners.has(event)) {
+            listeners.set(event, []);
+          }
+          listeners.get(event).push(fn);
+          if (options && options.signal) {
+            options.signal.addEventListener("abort", () => {
+              const list = listeners.get(event) || [];
+              const idx = list.indexOf(fn);
+              if (idx !== -1) list.splice(idx, 1);
+            }, { once: true });
+          }
+        },
+        removeEventListener(event, fn) {
+          const list = listeners.get(event) || [];
+          const idx = list.indexOf(fn);
+          if (idx !== -1) list.splice(idx, 1);
+        },
+        dispatchEvent(event) {
+          const type = typeof event === "string" ? event : event.type;
+          const list = listeners.get(type) || [];
+          for (const fn of [...list]) {
+            fn({ target: this, type });
+          }
+        },
       });
     }
     return elements.get(id);
   };
+
+  const docListeners = new Map();
   globalThis.document = {
+    documentElement: {
+      getAttribute: () => "light",
+    },
     getElementById: (id) => getOrCreate(id),
-    addEventListener: () => {},
+    querySelectorAll: () => [],
+    querySelector: () => null,
+    addEventListener(event, fn, options = {}) {
+      if (!docListeners.has(event)) {
+        docListeners.set(event, []);
+      }
+      docListeners.get(event).push(fn);
+      if (options && options.signal) {
+        options.signal.addEventListener("abort", () => {
+          this.removeEventListener(event, fn);
+        }, { once: true });
+      }
+    },
+    removeEventListener(event, fn) {
+      const list = docListeners.get(event) || [];
+      const idx = list.indexOf(fn);
+      if (idx !== -1) list.splice(idx, 1);
+    },
+    getListeners(event) {
+      return docListeners.get(event) || [];
+    },
   };
+
   const hadWindow = typeof globalThis.window !== "undefined";
   if (!hadWindow) {
     globalThis.window = {
       addEventListener: () => {},
       removeEventListener: () => {},
+      print: () => {},
     };
   }
+
+  const hadResizeObserver = typeof globalThis.ResizeObserver !== "undefined";
+  let activeMockResizeObservers = [];
+  if (!hadResizeObserver) {
+    class MockResizeObserver {
+      constructor(callback) {
+        this.callback = callback;
+        this.observed = [];
+        this.disconnected = false;
+        activeMockResizeObservers.push(this);
+      }
+      observe(el) {
+        this.observed.push(el);
+      }
+      unobserve(el) {
+        const idx = this.observed.indexOf(el);
+        if (idx !== -1) this.observed.splice(idx, 1);
+      }
+      disconnect() {
+        this.disconnected = true;
+        this.observed = [];
+      }
+    }
+    MockResizeObserver.instances = activeMockResizeObservers;
+    globalThis.ResizeObserver = MockResizeObserver;
+  }
+
   return {
+    get: (id) => getOrCreate(id),
     btnRetry: getOrCreate("btn-worker-retry"),
     splash: getOrCreate("splash-screen"),
     cleanup: () => {
       delete globalThis.document;
       if (!hadWindow) {
         delete globalThis.window;
+      }
+      if (!hadResizeObserver) {
+        delete globalThis.ResizeObserver;
       }
     },
   };
@@ -528,4 +716,265 @@ test("T021: onWorkerReady rollback isDomListenersAttached về false khi TeachCo
     dom.cleanup();
   }
 });
+
+// -------------------------------------------------------------
+// USER STORY 1 & 2: Feature 046 & 048 Regression Tests
+// -------------------------------------------------------------
+test("US1 - T006: recoverWorker giải quyết dứt điểm promise cũ khi thế hệ thay đổi giữa chừng", async () => {
+  resetUiInitializedForTesting();
+  const mockDb = new MockIDBDatabase();
+  storage.setDBInstance(mockDb);
+  const dom = setupMockDocument();
+
+  try {
+    let createdWorkers = [];
+    class MultiGenWorker extends MockWorker {
+      constructor() {
+        super();
+        createdWorkers.push(this);
+      }
+      postMessage(msg) {
+        super.postMessage(msg);
+        if (msg.method === "load_bank") {
+          queueMicrotask(() => {
+            this.simulateResponse(msg.id, true, { ok: true, stats: {} });
+          });
+        }
+      }
+    }
+
+    // Khởi chạy phục hồi gen 1
+    const p1 = recoverWorker(MultiGenWorker, 5000);
+    assert.equal(getIsRecovering(), true);
+    assert.equal(createdWorkers.length, 1);
+    const w1 = createdWorkers[0];
+
+    // Ngay lập tức người dùng hoặc hệ thống kích hoạt phục hồi gen 2 với force: true
+    const p2 = recoverWorker(MultiGenWorker, 5000, { force: true });
+    assert.equal(createdWorkers.length, 2);
+    const w2 = createdWorkers[1];
+
+    // Giờ w1 gửi READY (muộn)
+    w1.simulateReady();
+
+    // p1 phải kết thúc (resolve false) chứ không được treo vô hạn!
+    const res1 = await p1;
+    assert.equal(res1, false, "Phiên thế hệ cũ phải kết thúc với false");
+
+    // T005 [US1]: Khẳng định trạng thái trung gian - p1 đã kết thúc nhưng p2 vẫn đang chạy:
+    // isRecovering PHẢI là true, recoveryPromise PHẢI gắn với p2, và nút Thử lại PHẢI vẫn bị khóa!
+    assert.equal(getIsRecovering(), true, "isRecovering PHẢI tiếp tục là true vì phiên 2 vẫn đang chạy");
+    assert.equal(getRecoveryPromise(), p2, "recoveryPromise PHẢI vẫn tham chiếu tới phiên 2 đang chạy");
+    assert.equal(dom.get("btn-worker-retry").disabled, true, "Nút Thử lại PHẢI vẫn bị khóa vì phiên 2 chưa xong");
+
+    // w2 gửi READY hợp lệ
+    w2.simulateReady();
+    const res2 = await p2;
+    assert.equal(res2, true, "Phiên thế hệ mới nhất phải kết thúc với true");
+    assert.equal(getIsRecovering(), false, "isRecovering phải được giải phóng về false");
+    assert.equal(getRecoveryPromise(), null, "recoveryPromise phải được đặt lại về null khi phiên hiện hành xong");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("US1 - T008: recoverWorker timeout bảo vệ cả giai đoạn khởi tạo UI sau tín hiệu READY", async () => {
+  resetUiInitializedForTesting();
+  const mockDb = new MockIDBDatabase();
+  storage.setDBInstance(mockDb);
+  await storage.setSetting("active_profile_id", "hanging_prof");
+  await storage.saveProfile({
+    id: "hanging_prof",
+    name: "Treo",
+    data: [1, 2, 3],
+    updated_at: 1000,
+  });
+  const dom = setupMockDocument();
+
+  try {
+    let workerInstance = null;
+    class HangingInitWorker extends MockWorker {
+      constructor() {
+        super();
+        workerInstance = this;
+      }
+      postMessage(msg) {
+        super.postMessage(msg);
+        // Không phản hồi load_bank để treo onWorkerReady
+      }
+    }
+
+    const genBefore = getWorkerGeneration();
+    // Đặt timeout 60ms
+    const p = recoverWorker(HangingInitWorker, 60);
+
+    // Gửi READY sau 10ms
+    setTimeout(() => {
+      workerInstance.simulateReady();
+    }, 10);
+
+    // Promise phải kết thúc sau timeout bảo vệ khởi tạo UI, không bị treo vô hạn
+    const res = await p;
+    assert.equal(res, false, "recoverWorker phải trả về false khi onWorkerReady bị treo quá hạn");
+    assert.equal(getIsRecovering(), false, "isRecovering phải là false");
+    assert.equal(dom.get("btn-worker-retry").disabled, false, "Nút Thử lại phải mở khóa");
+
+    // T018 [US4]: Khẳng định Worker bị terminate, generation tăng lên và UI listeners bị thu hồi
+    assert.equal(workerInstance.terminated, true, "Worker phải bị terminate() vật lý khi timeout sau READY");
+    assert.ok(getWorkerGeneration() > genBefore, "workerGeneration phải tăng sau khi Worker bị hủy do timeout");
+    assert.equal(getIsDomListenersAttached(), false, "isDomListenersAttached phải được thu hồi về false sau timeout");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+// -------------------------------------------------------------
+// USER STORY 2: Idempotent UI Listeners (T010 - T013)
+// -------------------------------------------------------------
+test("US2 - T010: initBankTab và initWriteTab có tính idempotent, không nhân bản event listeners", () => {
+  const dom = setupMockDocument();
+  try {
+    const btnExport = dom.get("btn-export-bank");
+    let exportCallCount = 0;
+
+    // Giả lập mock sendWorkerMessage
+    const mockSendWorker = async () => ({ ok: true });
+
+    // Gọi initBankTab 3 lần liên tiếp
+    initBankTab(mockSendWorker);
+    initBankTab(mockSendWorker);
+    initBankTab(mockSendWorker);
+
+    // Kiểm tra số lượng listener gắn trên btn-export-bank
+    const clickListeners = btnExport.listeners.get("click") || [];
+    assert.equal(clickListeners.length, 1, "Chỉ được gắn đúng 1 click listener trên btn-export-bank sau 3 lần init");
+
+    // Tương tự với initWriteTab
+    const textarea = dom.get("editor-text");
+    initWriteTab();
+    initWriteTab();
+    initWriteTab();
+
+    const inputListeners = textarea.listeners.get("input") || [];
+    assert.equal(inputListeners.length, 1, "Chỉ được gắn đúng 1 input listener trên editor-text sau 3 lần init");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("US2 - T013: chu trình khởi tạo UI thất bại rồi thử lại qua AbortController không làm trùng lặp handler", () => {
+  const dom = setupMockDocument();
+  try {
+    const btnExport = dom.get("btn-export-bank");
+    const abortCtrl1 = new AbortController();
+
+    // Lần 1: khởi tạo với abortCtrl1
+    initBankTab(async () => ({ ok: true }), { signal: abortCtrl1.signal });
+    assert.equal((btnExport.listeners.get("click") || []).length, 1);
+
+    // Giả lập bước tiếp theo thất bại -> abortCtrl1 hủy
+    abortCtrl1.abort();
+    assert.equal((btnExport.listeners.get("click") || []).length, 0, "Listener phải bị dọn dẹp sau khi abort");
+
+    // Lần 2: khởi tạo lại thành công với abortCtrl2
+    const abortCtrl2 = new AbortController();
+    initBankTab(async () => ({ ok: true }), { signal: abortCtrl2.signal });
+    assert.equal((btnExport.listeners.get("click") || []).length, 1, "Listener mới được gắn chính xác 1 lần");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+// -------------------------------------------------------------
+// USER STORY 3: Full UI Event Listener & Observer Teardown (T011)
+// -------------------------------------------------------------
+test("US3 - T011: TeachController.destroy() và AbortSignal gỡ bỏ sạch sẽ document keydown listener", async () => {
+  const dom = setupMockDocument(["tab-teach", "teach-canvas"]);
+  try {
+    const abortCtrl = new AbortController();
+    const mockWorker = { request: async () => ({ ok: true, width: 300, height: 150 }) };
+    const controller = new TeachController(mockWorker, { signal: abortCtrl.signal });
+
+    await controller.init({ signal: abortCtrl.signal });
+
+    // Kiểm tra listener đã được gắn trên document
+    const listenersBefore = document.getListeners("keydown");
+    assert.equal(listenersBefore.length, 1, "document phải có 1 keydown listener từ TeachController");
+
+    // Khi abort() được gọi, listener trên document phải bị dọn dẹp
+    abortCtrl.abort();
+    const listenersAfter = document.getListeners("keydown");
+    assert.equal(listenersAfter.length, 0, "document keydown listener phải bị gỡ bỏ sau khi abort");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("US3 - T011: setupPreviewNavigation ngắt kết nối ResizeObserver khi gọi lại hoặc khi abort", () => {
+  const dom = setupMockDocument(["preview-stage"]);
+  try {
+    const abortCtrl1 = new AbortController();
+
+    // Lần 1: gọi initWriteTab
+    initWriteTab({ signal: abortCtrl1.signal });
+    const instances1 = globalThis.ResizeObserver?.instances || [];
+    assert.equal(instances1.length, 1, "Phải có 1 ResizeObserver được tạo");
+    assert.equal(instances1[0].disconnected, false, "Observer 1 phải đang active");
+
+    // Lần 2: gọi lại initWriteTab -> observer cũ phải bị disconnect
+    const abortCtrl2 = new AbortController();
+    initWriteTab({ signal: abortCtrl2.signal });
+    const instances2 = globalThis.ResizeObserver?.instances || [];
+    assert.equal(instances2.length, 2, "Phải có 2 ResizeObserver được tạo qua 2 lần init");
+    assert.equal(instances1[0].disconnected, true, "Observer 1 phải bị disconnect khi init lần 2");
+    assert.equal(instances2[1].disconnected, false, "Observer 2 phải đang active");
+
+    // Hủy abortCtrl2 -> observer 2 cũng phải bị disconnect
+    abortCtrl2.abort();
+    assert.equal(instances2[1].disconnected, true, "Observer 2 phải bị disconnect sau khi abort");
+  } finally {
+    dom.cleanup();
+  }
+});
+
+test("US3 - T011: initQuotaAndBackupReminders có tính lũy đẳng và gắn lại đúng sau khi abort", () => {
+  const dom = setupMockDocument([
+    "btn-quota-backup",
+    "btn-toast-dismiss",
+    "btn-toast-backup",
+    "backup-reminder-toast",
+  ]);
+  try {
+    const btnQuota = dom.get("btn-quota-backup");
+    const btnDismiss = dom.get("btn-toast-dismiss");
+    const btnBackup = dom.get("btn-toast-backup");
+
+    // Gọi liên tiếp 3 lần với cùng 1 signal -> chỉ có đúng 1 listener trên mỗi nút
+    const abortCtrl1 = new AbortController();
+    initQuotaAndBackupReminders({ signal: abortCtrl1.signal });
+    initQuotaAndBackupReminders({ signal: abortCtrl1.signal });
+    initQuotaAndBackupReminders({ signal: abortCtrl1.signal });
+
+    assert.equal((btnQuota.listeners.get("click") || []).length, 1);
+    assert.equal((btnDismiss.listeners.get("click") || []).length, 1);
+    assert.equal((btnBackup.listeners.get("click") || []).length, 1);
+
+    // Khi abort -> toàn bộ listener phải bị thu hồi và cờ đánh dấu được xóa
+    abortCtrl1.abort();
+    assert.equal((btnQuota.listeners.get("click") || []).length, 0);
+    assert.equal((btnDismiss.listeners.get("click") || []).length, 0);
+    assert.equal((btnBackup.listeners.get("click") || []).length, 0);
+
+    // Khởi tạo lại ở chu kỳ mới -> gắn lại chính xác 1 listener hoạt động trên mỗi nút
+    const abortCtrl2 = new AbortController();
+    initQuotaAndBackupReminders({ signal: abortCtrl2.signal });
+    assert.equal((btnQuota.listeners.get("click") || []).length, 1);
+    assert.equal((btnDismiss.listeners.get("click") || []).length, 1);
+    assert.equal((btnBackup.listeners.get("click") || []).length, 1);
+  } finally {
+    dom.cleanup();
+  }
+});
+
+
 

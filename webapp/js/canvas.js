@@ -53,12 +53,35 @@ export class TeachCanvas {
     this.isHw3Mode = false; // Chế độ 4 đường dóng hw3
 
     this.onChange = options.onChange || null;
+    this.signal = options.signal || null;
+    this._cleanups = [];
 
     this._bindEvents();
     if (typeof window !== "undefined") {
-      window.addEventListener("themechange", () => this.redraw());
+      this._addListener(window, "themechange", () => this.redraw());
+    }
+    if (this.signal) {
+      this.signal.addEventListener("abort", () => this.destroy(), { once: true });
     }
     this.resize();
+  }
+
+  _addListener(target, type, fn, opts = {}) {
+    if (!target) return;
+    const mergedOpts = this.signal ? { signal: this.signal, ...opts } : opts;
+    target.addEventListener(type, fn, mergedOpts);
+    this._cleanups.push(() => {
+      try {
+        target.removeEventListener(type, fn, mergedOpts);
+      } catch (_) {}
+    });
+  }
+
+  destroy() {
+    for (const c of this._cleanups) {
+      try { c(); } catch (_) {}
+    }
+    this._cleanups = [];
   }
 
   setSpec(spec) {
@@ -104,13 +127,13 @@ export class TeachCanvas {
   _bindEvents() {
     this.canvas.style.touchAction = "none";
 
-    this.canvas.addEventListener("pointerdown", (e) => this._onPointerDown(e));
-    this.canvas.addEventListener("pointermove", (e) => this._onPointerMove(e));
-    this.canvas.addEventListener("pointerup", (e) => this._onPointerUp(e));
-    this.canvas.addEventListener("pointercancel", (e) => this._onPointerCancel(e));
-    this.canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    this._addListener(this.canvas, "pointerdown", (e) => this._onPointerDown(e));
+    this._addListener(this.canvas, "pointermove", (e) => this._onPointerMove(e));
+    this._addListener(this.canvas, "pointerup", (e) => this._onPointerUp(e));
+    this._addListener(this.canvas, "pointercancel", (e) => this._onPointerCancel(e));
+    this._addListener(this.canvas, "contextmenu", (e) => e.preventDefault());
 
-    window.addEventListener("resize", () => this.resize());
+    this._addListener(window, "resize", () => this.resize());
   }
 
   _getLogicalCoords(e) {
@@ -324,7 +347,9 @@ export class TeachCanvas {
 
     ctx.clearRect(0, 0, w, h);
 
-    const isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    const isDark = typeof document !== "undefined" && document.documentElement && typeof document.documentElement.getAttribute === "function"
+      ? document.documentElement.getAttribute("data-theme") === "dark"
+      : false;
 
     // 1. Vẽ đường dóng chuẩn
     this._drawGuides(ctx, w, h, isDark);
