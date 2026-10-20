@@ -173,14 +173,15 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
         def _extract_blocks(blocks: list[Block], context_prefix: str = "text") -> None:
             for block in blocks:
                 if isinstance(block, (Paragraph, Heading)):
+                    blk_prefix = "heading" if isinstance(block, Heading) else context_prefix
                     for inline in block.inlines:
                         if isinstance(inline, Text):
                             norm = _normalize_text(inline.text or "")
                             for tok_idx, tok in enumerate(norm.split()):
-                                occ = counts.get((context_prefix, tok), 0)
-                                counts[(context_prefix, tok)] = occ + 1
+                                occ = counts.get((blk_prefix, tok), 0)
+                                counts[(blk_prefix, tok)] = occ + 1
                                 elements.append({
-                                    "content_type": context_prefix,
+                                    "content_type": blk_prefix,
                                     "element_id": tok,
                                     "occ": occ,
                                     "node": inline,
@@ -273,7 +274,7 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
     for idx, e in enumerate(edited_elems):
         occ = assigned_occs[idx]
         node = e["node"]
-        if e["content_type"] in ("text", "cell") and isinstance(node, Text):
+        if e["content_type"] in ("text", "cell", "heading") and isinstance(node, Text):
             nid = id(node)
             if nid not in text_token_maps:
                 text_token_maps[nid] = []

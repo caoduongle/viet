@@ -45,6 +45,19 @@ export function resetUiInitializedForTesting() {
   workerGeneration = 0;
   recoveryPromise = null;
   clearHandshakeTimer = null;
+  if (activeRecoverySession) {
+    if (!activeRecoverySession.isResolved) {
+      activeRecoverySession.resolve(false);
+    }
+    if (activeRecoverySession.timer) clearTimeout(activeRecoverySession.timer);
+    activeRecoverySession = null;
+  }
+  if (uiAbortController) {
+    try {
+      uiAbortController.abort();
+    } catch (_) {}
+    uiAbortController = null;
+  }
 }
 
 export function setWorkerInstance(w) {
@@ -121,11 +134,13 @@ export function sendWorkerMessage(method, params = {}, timeoutMs = 60000) {
   });
 }
 
-let workerReadyResolve = null;
+let activeRecoverySession = null;
+let uiAbortController = null;
 let clearHandshakeTimer = null;
 
-export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
-  if (isRecovering && recoveryPromise) {
+export function recoverWorker(WorkerClass = null, timeoutMs = 10000, options = {}) {
+  const force = typeof options === "boolean" ? options : Boolean(options?.force);
+  if (!force && isRecovering && recoveryPromise) {
     return recoveryPromise;
   }
   isRecovering = true;
@@ -138,9 +153,14 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
     setStatus("status_loading", false, true);
   } catch (_) {}
 
+  // Nếu có phiên phục hồi cũ đang dở dang, giải quyết và dọn dẹp ngay
+  if (activeRecoverySession && !activeRecoverySession.isResolved) {
+    activeRecoverySession.resolve(false);
+  }
+
   recoveryPromise = (async () => {
     let success = false;
-    let timer = null;
+    let session = null;
     try {
       // 1. Chấm dứt Worker cũ và cô lập generation
       workerGeneration++;
@@ -163,12 +183,25 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
       if (TargetWorkerClass) {
         const activeGen = workerGeneration;
         const readyPromise = new Promise((resolve) => {
-          workerReadyResolve = resolve;
-          timer = setTimeout(() => {
-            if (workerReadyResolve) {
-              const resFn = workerReadyResolve;
-              workerReadyResolve = null;
-              clearHandshakeTimer = null;
+          session = {
+            generation: activeGen,
+            isResolved: false,
+            timer: null,
+            resolve: (val) => {
+              if (session && !session.isResolved) {
+                session.isResolved = true;
+                if (session.timer) {
+                  clearTimeout(session.timer);
+                  session.timer = null;
+                }
+                resolve(val);
+              }
+            },
+          };
+
+          // Timer bảo vệ bước bắt tay ban đầu
+          session.timer = setTimeout(() => {
+            if (session && !session.isResolved) {
               if (worker && typeof worker.terminate === "function") {
                 try {
                   worker.terminate();
@@ -177,20 +210,23 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
               worker = null;
               workerGeneration++;
               handleWorkerFatalError(`Khởi tạo bộ xử lý nền quá thời gian chờ (${timeoutMs}ms)`);
-              resFn(false);
+              session.resolve(false);
             }
           }, timeoutMs);
+
           clearHandshakeTimer = () => {
-            if (timer) {
-              clearTimeout(timer);
-              timer = null;
+            if (session && session.timer) {
+              clearTimeout(session.timer);
+              session.timer = null;
             }
           };
         });
 
+        activeRecoverySession = session;
+
         try {
           worker = new TargetWorkerClass("js/worker/py-worker.js", { type: "module" });
-          attachWorkerHandlers(worker, activeGen);
+          attachWorkerHandlers(worker, activeGen, timeoutMs, session);
           const isReady = await readyPromise;
           success = isReady === true;
         } catch (err) {
@@ -209,11 +245,19 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
       handleWorkerFatalError(fatalErr.message || "Lỗi không xác định khi phục hồi");
       return false;
     } finally {
-      if (timer) clearTimeout(timer);
-      if (clearHandshakeTimer) {
-        clearHandshakeTimer();
-        clearHandshakeTimer = null;
+      if (session) {
+        if (session.timer) {
+          clearTimeout(session.timer);
+          session.timer = null;
+        }
+        if (!session.isResolved) {
+          session.resolve(false);
+        }
       }
+      if (activeRecoverySession === session) {
+        activeRecoverySession = null;
+      }
+      clearHandshakeTimer = null;
       if (btnRetry) {
         btnRetry.disabled = false;
         if (success) {
@@ -224,7 +268,6 @@ export function recoverWorker(WorkerClass = null, timeoutMs = 10000) {
       }
       isRecovering = false;
       recoveryPromise = null;
-      workerReadyResolve = null;
     }
   })();
 
@@ -294,9 +337,14 @@ if (typeof window !== "undefined") {
 // -------------------------------------------------------------
 // 2. Khởi tạo Worker
 // -------------------------------------------------------------
-export function attachWorkerHandlers(targetWorker, generation = workerGeneration) {
+export function attachWorkerHandlers(targetWorker, generation = workerGeneration, timeoutMs = 10000, session = null) {
+  const boundSession = session || (activeRecoverySession?.generation === generation ? activeRecoverySession : null);
+
   targetWorker.onmessage = (e) => {
     if (generation !== workerGeneration) {
+      if (boundSession && !boundSession.isResolved) {
+        boundSession.resolve(false);
+      }
       return;
     }
     const data = e.data;
@@ -309,33 +357,46 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
         if (status) status.textContent = message;
       }
     } else if (data.type === "READY") {
-      if (clearHandshakeTimer) {
-        clearHandshakeTimer();
-        clearHandshakeTimer = null;
-      }
-      onWorkerReady(generation).then(() => {
-        if (generation !== workerGeneration) {
-          return;
+      const currentSession = boundSession || activeRecoverySession;
+      if (currentSession && currentSession.generation === generation) {
+        if (currentSession.timer) {
+          clearTimeout(currentSession.timer);
+          currentSession.timer = null;
         }
-        if (workerReadyResolve) {
-          workerReadyResolve(true);
-          workerReadyResolve = null;
+        // Bộ đếm thời gian bảo vệ giai đoạn khởi tạo UI sau READY
+        const initTimeout = Math.max(timeoutMs * 3, 250);
+        currentSession.timer = setTimeout(() => {
+          if (currentSession && !currentSession.isResolved) {
+            handleWorkerFatalError(`Khởi tạo giao diện sau phục hồi quá thời gian chờ (${initTimeout}ms)`);
+            currentSession.resolve(false);
+          }
+        }, initTimeout);
+      }
+
+      onWorkerReady(generation).then(() => {
+        const currentSession = boundSession || activeRecoverySession;
+        if (currentSession && !currentSession.isResolved) {
+          if (generation === workerGeneration) {
+            currentSession.resolve(true);
+          } else {
+            currentSession.resolve(false);
+          }
         }
       }).catch((err) => {
-        if (generation !== workerGeneration) {
-          return;
-        }
-        console.error("Lỗi khi nạp lại kho sau khi phục hồi:", err);
-        handleWorkerFatalError(err.message || "Lỗi khởi tạo lại kho mẫu");
-        if (workerReadyResolve) {
-          workerReadyResolve(false);
-          workerReadyResolve = null;
+        const currentSession = boundSession || activeRecoverySession;
+        if (currentSession && !currentSession.isResolved) {
+          console.error("Lỗi khi nạp lại kho sau khi phục hồi:", err);
+          handleWorkerFatalError(err.message || "Lỗi khởi tạo lại kho mẫu");
+          currentSession.resolve(false);
         }
       });
     } else if (data.type === "ERROR") {
-      if (clearHandshakeTimer) {
-        clearHandshakeTimer();
-        clearHandshakeTimer = null;
+      const currentSession = boundSession || activeRecoverySession;
+      if (currentSession && currentSession.generation === generation) {
+        if (currentSession.timer) {
+          clearTimeout(currentSession.timer);
+          currentSession.timer = null;
+        }
       }
       console.error("Lỗi Worker:", data.payload);
       handleWorkerFatalError(data.payload?.message || "Lỗi khởi tạo Worker");
@@ -343,9 +404,8 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
         const status = document.getElementById("splash-status");
         if (status) status.textContent = `Lỗi khởi tạo: ${data.payload?.message || ""}`;
       }
-      if (workerReadyResolve) {
-        workerReadyResolve(false);
-        workerReadyResolve = null;
+      if (currentSession && currentSession.generation === generation) {
+        currentSession.resolve(false);
       }
     } else if (data.id) {
       const req = pendingRequests.get(data.id);
@@ -364,32 +424,30 @@ export function attachWorkerHandlers(targetWorker, generation = workerGeneration
   };
 
   targetWorker.onerror = (e) => {
-    if (generation !== workerGeneration) {
-      return;
-    }
-    if (clearHandshakeTimer) {
-      clearHandshakeTimer();
-      clearHandshakeTimer = null;
-    }
-    handleWorkerFatalError(e.message || "Lỗi runtime trong Web Worker");
-    if (workerReadyResolve) {
-      workerReadyResolve(false);
-      workerReadyResolve = null;
+    const currentSession = boundSession || activeRecoverySession;
+    if (currentSession && currentSession.generation === generation) {
+      if (currentSession.timer) {
+        clearTimeout(currentSession.timer);
+        currentSession.timer = null;
+      }
+      handleWorkerFatalError(e.message || "Lỗi runtime trong Web Worker");
+      currentSession.resolve(false);
+    } else if (generation === workerGeneration) {
+      handleWorkerFatalError(e.message || "Lỗi runtime trong Web Worker");
     }
   };
 
   targetWorker.onmessageerror = () => {
-    if (generation !== workerGeneration) {
-      return;
-    }
-    if (clearHandshakeTimer) {
-      clearHandshakeTimer();
-      clearHandshakeTimer = null;
-    }
-    handleWorkerFatalError("Lỗi giải mã thông điệp (message deserialization error)");
-    if (workerReadyResolve) {
-      workerReadyResolve(false);
-      workerReadyResolve = null;
+    const currentSession = boundSession || activeRecoverySession;
+    if (currentSession && currentSession.generation === generation) {
+      if (currentSession.timer) {
+        clearTimeout(currentSession.timer);
+        currentSession.timer = null;
+      }
+      handleWorkerFatalError("Lỗi giải mã thông điệp (message deserialization error)");
+      currentSession.resolve(false);
+    } else if (generation === workerGeneration) {
+      handleWorkerFatalError("Lỗi giải mã thông điệp (message deserialization error)");
     }
   };
 }
@@ -409,6 +467,15 @@ export async function onWorkerReady(generation = workerGeneration) {
   const isFirstInit = !isUiInitialized;
   // Khởi tạo các event listeners và controller giao diện một lần duy nhất
   if (!isDomListenersAttached) {
+    if (uiAbortController) {
+      try {
+        uiAbortController.abort();
+      } catch (_) {}
+      uiAbortController = null;
+    }
+    uiAbortController = new AbortController();
+    const signal = uiAbortController.signal;
+
     try {
       // Xin quyền lưu trữ bền vững (T037)
       if (typeof navigator !== "undefined" && navigator.storage && navigator.storage.persist) {
@@ -423,8 +490,8 @@ export async function onWorkerReady(generation = workerGeneration) {
 
       // Khởi tạo tab Kho mẫu, Tab Viết chữ & Tab Dạy mẫu khi có DOM
       if (typeof document !== "undefined") {
-        initBankTab(sendWorkerMessage);
-        initWriteTab();
+        initBankTab(sendWorkerMessage, { signal });
+        initWriteTab({ signal });
         if (document.getElementById("tab-teach")) {
           const teachController = new TeachController(
             { request: sendWorkerMessage },
@@ -472,17 +539,23 @@ export async function onWorkerReady(generation = workerGeneration) {
           if (document.visibilityState === "hidden") {
             triggerSyncSave();
           }
-        });
+        }, { signal });
       }
       if (typeof window !== "undefined") {
         window.addEventListener("pagehide", () => {
           triggerSyncSave();
-        });
+        }, { signal });
       }
 
       isDomListenersAttached = true;
     } catch (err) {
       isDomListenersAttached = false;
+      if (uiAbortController) {
+        try {
+          uiAbortController.abort();
+        } catch (_) {}
+        uiAbortController = null;
+      }
       throw err;
     }
   }

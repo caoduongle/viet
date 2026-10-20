@@ -52,55 +52,71 @@ const writeOptions = {
 
 let currentFormat = "md"; // "md" hoặc "txt"
 
+function bindWriteEvent(el, evt, fn, options = {}) {
+  if (!el) return;
+  const key = `__write_bound_${evt}_${fn.name || "anon"}`;
+  if (el[key]) return;
+  el.addEventListener(evt, fn, options);
+  el[key] = true;
+  if (options && options.signal) {
+    options.signal.addEventListener("abort", () => {
+      delete el[key];
+    });
+  }
+}
+
 /**
  * Khởi tạo toàn bộ sự kiện cho Tab Viết.
  */
-export function initWriteTab() {
+export function initWriteTab(options = {}) {
+  const opts = options || {};
   const textarea = document.getElementById("editor-text");
   const selectFormat = document.getElementById("select-format");
 
   if (!textarea) return;
 
   // 1. Lắng nghe IME (Bộ gõ tiếng Việt Telex / VNI)
-  textarea.addEventListener("compositionstart", () => {
+  bindWriteEvent(textarea, "compositionstart", () => {
     isComposing = true;
-  });
+  }, opts);
 
-  textarea.addEventListener("compositionend", () => {
+  bindWriteEvent(textarea, "compositionend", () => {
     isComposing = false;
     triggerPreviewWithDebounce();
-  });
+  }, opts);
 
   // 2. Debounce 250ms khi gõ
-  textarea.addEventListener("input", () => {
+  bindWriteEvent(textarea, "input", () => {
     if (!isComposing) {
       triggerPreviewWithDebounce();
     }
-  });
+  }, opts);
 
   // 3. Đổi định dạng Markdown / Text
-  selectFormat.addEventListener("change", (e) => {
-    currentFormat = e.target.value;
-    triggerPreviewImmediate();
-  });
+  if (selectFormat) {
+    bindWriteEvent(selectFormat, "change", (e) => {
+      currentFormat = e.target.value;
+      triggerPreviewImmediate();
+    }, opts);
+  }
 
   // 4. Các nút Toolbar Markdown
-  setupMarkdownToolbar(textarea);
+  setupMarkdownToolbar(textarea, opts);
 
   // 5. Kéo thả file (.txt, .md, .docx)
-  setupFileDropAndOpen(textarea);
+  setupFileDropAndOpen(textarea, opts);
 
   // 6. Điều hướng trang và Zoom
-  setupPreviewNavigation();
+  setupPreviewNavigation(opts);
 
   // 7. Modal Tùy chọn viết
-  setupOptionsModal();
+  setupOptionsModal(opts);
 
   // 8. Modal Ký hiệu LaTeX
-  setupLatexModal(textarea);
+  setupLatexModal(textarea, opts);
 
   // 9. Các nút Xuất file
-  setupExportButtons();
+  setupExportButtons(opts);
 
   // Kích hoạt render lần đầu nếu đã có sẵn chữ
   if (textarea.value.trim()) {
@@ -381,10 +397,10 @@ function insertAtCursor(textarea, prefix, suffix = "") {
   triggerPreviewImmediate();
 }
 
-function setupMarkdownToolbar(textarea) {
+function setupMarkdownToolbar(textarea, options = {}) {
   const btn = (id, fn) => {
     const el = document.getElementById(id);
-    if (el) el.addEventListener("click", fn);
+    if (el) bindWriteEvent(el, "click", fn, options);
   };
 
   btn("btn-md-h1", () => insertAtCursor(textarea, "\n# ", "\n"));
@@ -408,16 +424,16 @@ function setupMarkdownToolbar(textarea) {
     if (modalTable) modalTable.style.display = "none";
   };
 
-  if (btnCloseTable) btnCloseTable.addEventListener("click", closeTableModal);
-  if (btnCancelTable) btnCancelTable.addEventListener("click", closeTableModal);
+  if (btnCloseTable) bindWriteEvent(btnCloseTable, "click", closeTableModal, options);
+  if (btnCancelTable) bindWriteEvent(btnCancelTable, "click", closeTableModal, options);
   if (modalTable) {
-    modalTable.addEventListener("click", (e) => {
+    bindWriteEvent(modalTable, "click", (e) => {
       if (e.target === modalTable) closeTableModal();
-    });
+    }, options);
   }
 
   if (btnConfirmTable) {
-    btnConfirmTable.addEventListener("click", () => {
+    bindWriteEvent(btnConfirmTable, "click", () => {
       const rows = Math.max(1, parseInt(inputRows?.value, 10) || 3);
       const cols = Math.max(1, parseInt(inputCols?.value, 10) || 3);
       const hasHeader = inputHeader ? inputHeader.checked : true;
@@ -438,7 +454,7 @@ function setupMarkdownToolbar(textarea) {
       const template = "\n" + lines.join("\n") + "\n";
       insertAtCursor(textarea, template, "");
       closeTableModal();
-    });
+    }, options);
   }
 
   btn("btn-md-table", () => {
@@ -455,35 +471,35 @@ function setupMarkdownToolbar(textarea) {
 // -------------------------------------------------------------
 // Kéo thả & Mở file (.txt, .md, .docx)
 // -------------------------------------------------------------
-function setupFileDropAndOpen(textarea) {
+function setupFileDropAndOpen(textarea, options = {}) {
   const inputOpen = document.getElementById("input-open-file");
   const btnOpen = document.getElementById("btn-open-file");
 
   if (btnOpen && inputOpen) {
-    btnOpen.addEventListener("click", () => inputOpen.click());
-    inputOpen.addEventListener("change", (e) => {
+    bindWriteEvent(btnOpen, "click", () => inputOpen.click(), options);
+    bindWriteEvent(inputOpen, "change", (e) => {
       const file = e.target.files?.[0];
       if (file) handleFileImport(file, textarea);
       inputOpen.value = "";
-    });
+    }, options);
   }
 
   // Drag and drop vào textarea
-  textarea.addEventListener("dragover", (e) => {
+  bindWriteEvent(textarea, "dragover", (e) => {
     e.preventDefault();
     textarea.style.borderColor = "var(--primary)";
-  });
+  }, options);
 
-  textarea.addEventListener("dragleave", () => {
+  bindWriteEvent(textarea, "dragleave", () => {
     textarea.style.borderColor = "var(--border-color)";
-  });
+  }, options);
 
-  textarea.addEventListener("drop", (e) => {
+  bindWriteEvent(textarea, "drop", (e) => {
     e.preventDefault();
     textarea.style.borderColor = "var(--border-color)";
     const file = e.dataTransfer?.files?.[0];
     if (file) handleFileImport(file, textarea);
-  });
+  }, options);
 }
 
 async function handleFileImport(file, textarea) {
@@ -530,7 +546,7 @@ async function handleFileImport(file, textarea) {
 // -------------------------------------------------------------
 // Điều hướng trang và Zoom
 // -------------------------------------------------------------
-function setupPreviewNavigation() {
+function setupPreviewNavigation(options = {}) {
   const btnPrev = document.getElementById("btn-page-prev");
   const btnNext = document.getElementById("btn-page-next");
   const btnZoomIn = document.getElementById("btn-zoom-in");
@@ -539,43 +555,43 @@ function setupPreviewNavigation() {
   const selectZoom = document.getElementById("select-zoom");
 
   if (btnPrev) {
-    btnPrev.addEventListener("click", () => {
+    bindWriteEvent(btnPrev, "click", () => {
       if (currentPageIndex > 0) {
         currentPageIndex--;
         updatePaginationControls();
         renderCurrentPage();
       }
-    });
+    }, options);
   }
 
   if (btnNext) {
-    btnNext.addEventListener("click", () => {
+    bindWriteEvent(btnNext, "click", () => {
       if (currentDoc && currentPageIndex < currentDoc.pages.length - 1) {
         currentPageIndex++;
         updatePaginationControls();
         renderCurrentPage();
       }
-    });
+    }, options);
   }
 
   if (btnZoomIn) {
-    btnZoomIn.addEventListener("click", () => {
+    bindWriteEvent(btnZoomIn, "click", () => {
       const nextZoom = Math.min(MAX_ZOOM, Math.round((currentZoom + ZOOM_STEP) * 10) / 10);
       applyPaperZoom(nextZoom, false);
-    });
+    }, options);
   }
 
   if (btnZoomOut) {
-    btnZoomOut.addEventListener("click", () => {
+    bindWriteEvent(btnZoomOut, "click", () => {
       const nextZoom = Math.max(MIN_ZOOM, Math.round((currentZoom - ZOOM_STEP) * 10) / 10);
       applyPaperZoom(nextZoom, false);
-    });
+    }, options);
   }
 
   if (btnZoomFit) {
-    btnZoomFit.addEventListener("click", () => {
+    bindWriteEvent(btnZoomFit, "click", () => {
       applyPaperZoom(calculateFitZoom(), true);
-    });
+    }, options);
   }
 
   // Tự động căn lại độ rộng khi ở chế độ Fit và kích thước viewport thay đổi
@@ -588,16 +604,16 @@ function setupPreviewNavigation() {
     });
     resizeObserver.observe(stage);
   } else {
-    window.addEventListener("resize", () => {
+    bindWriteEvent(window, "resize", () => {
       if (isFitMode && currentDoc && currentDoc.pages.length) {
         applyPaperZoom(calculateFitZoom(), true);
       }
-    });
+    }, options);
   }
 
   // Fallback đồng bộ với select-zoom nếu có tương tác
   if (selectZoom) {
-    selectZoom.addEventListener("change", (e) => {
+    bindWriteEvent(selectZoom, "change", (e) => {
       const val = e.target.value;
       if (val === "fit") {
         applyPaperZoom(calculateFitZoom(), true);
@@ -607,7 +623,7 @@ function setupPreviewNavigation() {
           applyPaperZoom(parsed, false);
         }
       }
-    });
+    }, options);
   }
 }
 
@@ -632,7 +648,7 @@ export function parseSeed(inputVal, currentSeed) {
 // -------------------------------------------------------------
 // Modal Tuỳ chọn viết (T047)
 // -------------------------------------------------------------
-function setupOptionsModal() {
+function setupOptionsModal(options = {}) {
   const modal = document.getElementById("modal-write-options");
   const btnOpen = document.getElementById("btn-open-write-options");
   const btnClose = document.getElementById("btn-close-options");
@@ -642,25 +658,25 @@ function setupOptionsModal() {
 
   if (!modal || !btnOpen) return;
 
-  btnOpen.addEventListener("click", () => {
+  bindWriteEvent(btnOpen, "click", () => {
     modal.style.display = "flex";
-  });
+  }, options);
 
   const closeModal = () => {
     modal.style.display = "none";
   };
 
-  if (btnClose) btnClose.addEventListener("click", closeModal);
+  if (btnClose) bindWriteEvent(btnClose, "click", closeModal, options);
 
   // Sliders binding
   const bindRange = (rangeId, valId, prop) => {
     const r = document.getElementById(rangeId);
     const v = document.getElementById(valId);
     if (r && v) {
-      r.addEventListener("input", (e) => {
+      bindWriteEvent(r, "input", (e) => {
         v.textContent = e.target.value;
         writeOptions[prop] = parseFloat(e.target.value);
-      });
+      }, options);
     }
   };
 
@@ -672,9 +688,9 @@ function setupOptionsModal() {
   // Line height
   const optLine = document.getElementById("opt-line");
   if (optLine) {
-    optLine.addEventListener("change", (e) => {
+    bindWriteEvent(optLine, "change", (e) => {
       writeOptions.line = e.target.value ? parseFloat(e.target.value) : null;
-    });
+    }, options);
   }
 
   // Seed
@@ -690,12 +706,12 @@ function setupOptionsModal() {
       optSeed.parentElement.appendChild(optSeedError);
     }
 
-    optSeed.addEventListener("input", () => {
+    bindWriteEvent(optSeed, "input", () => {
       if (optSeedError) optSeedError.style.display = "none";
       optSeed.classList.remove("is-invalid");
-    });
+    }, options);
 
-    optSeed.addEventListener("change", (e) => {
+    bindWriteEvent(optSeed, "change", (e) => {
       const parsed = parseSeed(e.target.value, writeOptions.seed);
       writeOptions.seed = parsed.seed;
       optSeed.value = parsed.seed !== null && parsed.seed !== undefined ? parsed.seed : "";
@@ -709,11 +725,11 @@ function setupOptionsModal() {
         if (optSeedError) optSeedError.style.display = "none";
         optSeed.classList.remove("is-invalid");
       }
-    });
+    }, options);
   }
 
   if (btnRandomSeed) {
-    btnRandomSeed.addEventListener("click", () => {
+    bindWriteEvent(btnRandomSeed, "click", () => {
       const nextSeed = Math.floor(Math.random() * 100000);
       if (optSeed) {
         optSeed.value = nextSeed;
@@ -722,29 +738,29 @@ function setupOptionsModal() {
       if (optSeedError) optSeedError.style.display = "none";
       writeOptions.seed = nextSeed;
       triggerPreviewImmediate();
-    });
+    }, options);
   }
 
   // Color
   const optColor = document.getElementById("opt-color");
   const optColorHex = document.getElementById("opt-color-hex");
   if (optColor && optColorHex) {
-    optColor.addEventListener("input", (e) => {
+    bindWriteEvent(optColor, "input", (e) => {
       optColorHex.value = e.target.value + "ff";
       writeOptions.color = optColorHex.value;
-    });
-    optColorHex.addEventListener("change", (e) => {
+    }, options);
+    bindWriteEvent(optColorHex, "change", (e) => {
       writeOptions.color = e.target.value;
-    });
+    }, options);
   }
 
   // Paper, Orientation, Background
   const bindSelect = (id, prop) => {
     const el = document.getElementById(id);
     if (el) {
-      el.addEventListener("change", (e) => {
+      bindWriteEvent(el, "change", (e) => {
         writeOptions[prop] = e.target.value;
-      });
+      }, options);
     }
   };
 
@@ -754,14 +770,14 @@ function setupOptionsModal() {
   bindSelect("opt-paper-tone", "background_color");
 
   if (btnApply) {
-    btnApply.addEventListener("click", () => {
+    bindWriteEvent(btnApply, "click", () => {
       closeModal();
       triggerPreviewImmediate();
-    });
+    }, options);
   }
 
   if (btnReset) {
-    btnReset.addEventListener("click", () => {
+    bindWriteEvent(btnReset, "click", () => {
       writeOptions.scale = 1.0;
       writeOptions.line = null;
       writeOptions.space = 1.0;
@@ -793,14 +809,14 @@ function setupOptionsModal() {
       if (optTone) optTone.value = "#ffffffff";
 
       triggerPreviewImmediate();
-    });
+    }, options);
   }
 }
 
 // -------------------------------------------------------------
 // Modal Ký hiệu LaTeX (T046)
 // -------------------------------------------------------------
-async function setupLatexModal(textarea) {
+async function setupLatexModal(textarea, options = {}) {
   const modal = document.getElementById("modal-latex-symbols");
   const btnOpen = document.getElementById("btn-open-latex-symbols");
   const btnClose = document.getElementById("btn-close-symbols");
@@ -808,17 +824,17 @@ async function setupLatexModal(textarea) {
 
   if (!modal || !btnOpen) return;
 
-  btnOpen.addEventListener("click", async () => {
+  bindWriteEvent(btnOpen, "click", async () => {
     modal.style.display = "flex";
     if (container && container.children.length === 0) {
       await loadLatexSymbols(container, textarea, modal);
     }
-  });
+  }, options);
 
   if (btnClose) {
-    btnClose.addEventListener("click", () => {
+    bindWriteEvent(btnClose, "click", () => {
       modal.style.display = "none";
-    });
+    }, options);
   }
 }
 
@@ -875,7 +891,7 @@ export async function loadLatexSymbols(container, textarea, modal, fetchFn = nul
 // -------------------------------------------------------------
 // Xuất file (.xopp, PNG, SVG, ZIP, In/PDF) (T050)
 // -------------------------------------------------------------
-function setupExportButtons() {
+function setupExportButtons(options = {}) {
   const btnXopp = document.getElementById("btn-export-xopp");
   const btnPng = document.getElementById("btn-export-png");
   const btnSvg = document.getElementById("btn-export-svg");
@@ -884,42 +900,42 @@ function setupExportButtons() {
 
   // Xuất file .xopp gốc
   if (btnXopp) {
-    btnXopp.addEventListener("click", () => {
+    bindWriteEvent(btnXopp, "click", () => {
       if (!currentXoppBase64) {
         alert("Chưa có nội dung kết xuất để xuất file .xopp.");
         return;
       }
       exportXopp(currentXoppBase64, "chuviet.xopp");
-    });
+    }, options);
   }
 
   // Tải ảnh PNG trang hiện tại
   if (btnPng) {
-    btnPng.addEventListener("click", () => {
+    bindWriteEvent(btnPng, "click", () => {
       const svgEl = document.querySelector("#paper-svg-wrapper svg");
       if (!svgEl) {
         alert("Chưa có trang giấy để xuất ảnh.");
         return;
       }
       exportPng(svgEl, `trang_${currentPageIndex + 1}.png`, 2.0, false);
-    });
+    }, options);
   }
 
   // Tải ảnh SVG trang hiện tại
   if (btnSvg) {
-    btnSvg.addEventListener("click", () => {
+    bindWriteEvent(btnSvg, "click", () => {
       const svgEl = document.querySelector("#paper-svg-wrapper svg");
       if (!svgEl) {
         alert("Chưa có trang giấy để xuất file SVG.");
         return;
       }
       exportSvg(svgEl, `trang_${currentPageIndex + 1}.svg`);
-    });
+    }, options);
   }
 
   // Tải toàn bộ các trang dạng ZIP
   if (btnZip) {
-    btnZip.addEventListener("click", () => {
+    bindWriteEvent(btnZip, "click", () => {
       if (!currentDoc || !currentDoc.pages.length) {
         alert("Chưa có trang nào để xuất ZIP.");
         return;
@@ -936,12 +952,12 @@ function setupExportButtons() {
       const zipBytes = createZipArchive(files);
       const blob = new Blob([zipBytes], { type: "application/zip" });
       downloadBlob(blob, "tailieu_anh.zip");
-    });
+    }, options);
   }
 
   // In / Xuất PDF
   if (btnPrint) {
-    btnPrint.addEventListener("click", () => {
+    bindWriteEvent(btnPrint, "click", () => {
       if (!currentDoc || !currentDoc.pages.length) {
         alert("Chưa có nội dung để in.");
         return;
@@ -963,6 +979,6 @@ function setupExportButtons() {
           printContainer.innerHTML = "";
         }, 1000);
       }
-    });
+    }, options);
   }
 }

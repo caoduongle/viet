@@ -374,7 +374,7 @@ class DocumentLayoutEngine:
                                 width=w * self.S * scale_mult,
                                 missing=miss,
                                 token=chunk,
-                                token_id=ctx.token_id,
+                                token_id=f"{ctx.token_id}:{chunk_idx}" if len(chunks) > 1 else ctx.token_id,
                                 occurrence=tok_occ,
                             )
                         )
@@ -532,14 +532,14 @@ class DocumentLayoutEngine:
             cur_y = pf.content_top
 
         def render_paragraph_inlines(inlines: list[Inline], scale_mult: float = 1.0, prefix: str = "",
-                                     indent: float = 0.0, align: str = "left"):
+                                     indent: float = 0.0, align: str = "left", context_prefix: str = "text"):
             nonlocal ntok, nmiss
             if prefix:
                 inlines = [Text(text=prefix)] + list(inlines)
 
             avail_w = max(self.width - indent, 1.0)
             items, n_t, n_m = self._layout_inlines(inlines, scale_mult=scale_mult, missing_symbols=missing_symbols,
-                                                   max_item_width=avail_w, context_prefix="text")
+                                                   max_item_width=avail_w, context_prefix=context_prefix)
             ntok += n_t
             nmiss += n_m
 
@@ -767,7 +767,7 @@ class DocumentLayoutEngine:
                     head_scale = 1.35 if block.level == 1 else (1.2 if block.level == 2 else 1.1)
                     if not snap_ruling:
                         cur_y += self.line_h * 0.4
-                    render_paragraph_inlines(block.inlines, scale_mult=head_scale)
+                    render_paragraph_inlines(block.inlines, scale_mult=head_scale, context_prefix="heading")
                     if not snap_ruling:
                         cur_y += self.line_h * 0.3
 
@@ -832,7 +832,12 @@ class DocumentLayoutEngine:
                             elif isinstance(b, MathBlock):
                                 if blk_idx > 0:
                                     cell_inlines.append(LineBreak())
-                                cell_inlines.append(MathInline(latex=b.latex, ast=b.ast))
+                                cell_inlines.append(MathInline(
+                                    latex=b.latex,
+                                    ast=b.ast,
+                                    occurrence=getattr(b, "occurrence", None),
+                                    stable_id=getattr(b, "stable_id", None),
+                                ))
 
                         scale_mult = 1.0
                         if cell_inlines:

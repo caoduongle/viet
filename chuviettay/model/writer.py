@@ -190,6 +190,13 @@ class Writer:
             _, adv_w = self._normalize_digit_sample(sample, char)
             self._char_width_cache[char] = adv_w
             return adv_w
+        elif char in ",." and getattr(b, "punct", None) and (char in b.punct or "," in b.punct or "." in b.punct):
+            lib = b.punct.get(char) or b.punct.get(",") or b.punct.get(".")
+            if lib:
+                sample = lib[0]
+                _, adv_w = self._normalize_punct_sample(sample)
+                self._char_width_cache[char] = adv_w
+                return adv_w
         elif getattr(b, "punct", None) and char in b.punct and b.punct[char]:
             sample = b.punct[char][0]
         elif getattr(b, "symbols", None) and char in b.symbols and b.symbols[char]:
@@ -261,14 +268,26 @@ class Writer:
         if NUMRE.match(nfc_text):
             tot = 0.0
             first = True
-            for ch in nfc_text:
+            raw_gaps = getattr(self.b, "d", {}).get("dgaps") if getattr(self.b, "d", None) else None
+            min_dgap = 0.10 * xh
+            max_dgap = 0.18 * xh
+            if raw_gaps:
+                avg_g = sum(float(g) for g in raw_gaps) / len(raw_gaps)
+                scaled_g = avg_g * (xh / 7.94) if abs(xh - 7.94) > 1e-3 else avg_g
+                default_dgap = clamp(scaled_g, min_dgap, max_dgap)
+            else:
+                default_dgap = 0.12 * xh
+            for idx, ch in enumerate(nfc_text):
                 if ch in ",.":
                     cw = self.get_char_advance_width(ch)
-                    tot += cw + 0.18 * xh
+                    p_gap = 0.08 * xh if not first else 0.0
+                    tot += p_gap + cw + 0.10 * xh
                     first = True
                 else:
                     cw = self.get_char_advance_width(ch)
-                    gap = 0.0 if first else 0.12 * xh
+                    is_hyphen = (ch == "-" or (idx > 0 and nfc_text[idx - 1] == "-"))
+                    gap_base = (0.5 * default_dgap) if is_hyphen else default_dgap
+                    gap = 0.0 if first else gap_base
                     tot += gap + cw
                     first = False
             return tot * scale
@@ -543,8 +562,8 @@ class Writer:
         target_h = 1.20 * xh
 
         if sample_h > 1e-3 and (sample_h < 1.14 * xh or sample_h > 1.26 * xh):
-            scale_y = clamp(target_h / sample_h, 0.35, 1.85)
-            scale_x = clamp(scale_y ** 0.5, 0.75, 1.30)
+            scale_y = clamp(target_h / sample_h, 0.10, 15.0)
+            scale_x = clamp(scale_y ** 0.5, 0.40, 2.50)
         else:
             scale_x, scale_y = 1.0, 1.0
 
@@ -637,7 +656,8 @@ class Writer:
                 missing.append(ch)
                 continue
             g = self.pick(lib, "d" + ch)
-            gap = self._resolve_dgap(first, is_hyphen=(ch == "-"), digit_idx=d_idx)
+            is_hyphen = (ch == "-" or (d_idx > 0 and s[d_idx - 1] == "-"))
+            gap = self._resolve_dgap(first, is_hyphen=is_hyphen, digit_idx=d_idx)
             d_st, d_w = self._normalize_digit_sample(g, ch)
             out += [shift(st, x + gap, 0) for st in d_st]
             w_advance = d_w

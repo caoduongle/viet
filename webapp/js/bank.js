@@ -24,8 +24,22 @@ let currentDetailLabel = null;
 let currentDetailCategory = "letters";
 const selectedLabels = new Set(); // Nhãn các ký tự được chọn để thao tác hàng loạt
 
-export function initBankTab(sendWorkerMessage) {
+function bindBankEvent(el, evt, fn, options = {}) {
+  if (!el) return;
+  const key = `__bank_bound_${evt}_${fn.name || "anon"}`;
+  if (el[key]) return;
+  el.addEventListener(evt, fn, options);
+  el[key] = true;
+  if (options && options.signal) {
+    options.signal.addEventListener("abort", () => {
+      delete el[key];
+    });
+  }
+}
+
+export function initBankTab(sendWorkerMessage, options = {}) {
   sendWorkerFn = sendWorkerMessage;
+  const opts = options || {};
 
   // 1. Nút xuất / nhập / kiểm tra
   const btnExport = document.getElementById("btn-export-bank");
@@ -35,34 +49,34 @@ export function initBankTab(sendWorkerMessage) {
   const btnBankImportGrid = document.getElementById("btn-bank-import-grid");
   const btnRenameProfile = document.getElementById("btn-rename-profile");
 
-  if (btnExport) btnExport.addEventListener("click", exportCurrentBank);
+  if (btnExport) bindBankEvent(btnExport, "click", exportCurrentBank, opts);
   if (btnImport && fileInput) {
-    btnImport.addEventListener("click", () => fileInput.click());
-    fileInput.addEventListener("change", handleFileInput);
+    bindBankEvent(btnImport, "click", () => fileInput.click(), opts);
+    bindBankEvent(fileInput, "change", handleFileInput, opts);
   }
   if (btnBankImportGrid) {
-    btnBankImportGrid.addEventListener("click", () => {
+    bindBankEvent(btnBankImportGrid, "click", () => {
       const gridInput = document.getElementById("input-grid-file");
       if (gridInput) {
         gridInput.click();
       }
-    });
+    }, opts);
   }
-  if (btnExportCheck) btnExportCheck.addEventListener("click", exportCheckFile);
-  if (btnRenameProfile) btnRenameProfile.addEventListener("click", handleRenameProfile);
+  if (btnExportCheck) bindBankEvent(btnExportCheck, "click", exportCheckFile, opts);
+  if (btnRenameProfile) bindBankEvent(btnRenameProfile, "click", handleRenameProfile, opts);
 
   // 2. Tìm kiếm tức thì & Bộ lọc phân loại
   const searchInput = document.getElementById("input-search-bank");
   if (searchInput) {
-    searchInput.addEventListener("input", (e) => {
+    bindBankEvent(searchInput, "input", (e) => {
       currentSearchQuery = e.target.value.trim().toLowerCase();
       applyFiltersAndRender();
-    });
+    }, opts);
   }
 
   const filterContainer = document.getElementById("bank-category-filters");
   if (filterContainer) {
-    filterContainer.addEventListener("click", (e) => {
+    bindBankEvent(filterContainer, "click", (e) => {
       const btn = e.target.closest("button");
       if (!btn) return;
       const cat = btn.getAttribute("data-cat");
@@ -72,7 +86,7 @@ export function initBankTab(sendWorkerMessage) {
       filterContainer.querySelectorAll("button").forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       applyFiltersAndRender();
-    });
+    }, opts);
   }
 
   // 3. Thanh thao tác xóa hàng loạt
@@ -80,20 +94,20 @@ export function initBankTab(sendWorkerMessage) {
   const btnDeleteSelected = document.getElementById("btn-bank-delete-selected");
 
   if (chkSelectAll) {
-    chkSelectAll.addEventListener("change", (e) => {
+    bindBankEvent(chkSelectAll, "change", (e) => {
       toggleSelectAll(e.target.checked);
-    });
+    }, opts);
   }
 
   if (btnDeleteSelected) {
-    btnDeleteSelected.addEventListener("click", handleDeleteSelected);
+    bindBankEvent(btnDeleteSelected, "click", handleDeleteSelected, opts);
   }
 
   // 4. Modal chi tiết nhãn
-  setupDetailModal();
+  setupDetailModal(opts);
 }
 
-function setupDetailModal() {
+function setupDetailModal(options = {}) {
   const modal = document.getElementById("modal-label-detail");
   const btnClose = document.getElementById("btn-close-label-detail");
   const btnTeachMore = document.getElementById("btn-label-teach-more");
@@ -101,31 +115,31 @@ function setupDetailModal() {
   const btnDelete = document.getElementById("btn-label-delete");
 
   if (btnClose && modal) {
-    btnClose.addEventListener("click", () => {
+    bindBankEvent(btnClose, "click", () => {
       modal.style.display = "none";
-    });
-    modal.addEventListener("click", (e) => {
+    }, options);
+    bindBankEvent(modal, "click", (e) => {
       if (e.target === modal) modal.style.display = "none";
-    });
+    }, options);
   }
 
   if (btnTeachMore) {
-    btnTeachMore.addEventListener("click", () => {
+    bindBankEvent(btnTeachMore, "click", () => {
       if (!currentDetailLabel) return;
       if (modal) modal.style.display = "none";
       switchTab("teach");
       if (window.__teachController) {
         window.__teachController.teachWordDirectly(currentDetailLabel);
       }
-    });
+    }, options);
   }
 
   if (btnPreviewRandom) {
-    btnPreviewRandom.addEventListener("click", handleRandomPreview);
+    bindBankEvent(btnPreviewRandom, "click", handleRandomPreview, options);
   }
 
   if (btnDelete) {
-    btnDelete.addEventListener("click", handleDeleteLabel);
+    bindBankEvent(btnDelete, "click", handleDeleteLabel, options);
   }
 }
 
