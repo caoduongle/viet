@@ -203,6 +203,12 @@ def test_sw_precache_and_lazy_urls_separation(built_dist: Path):
     overlap = set(precache_urls).intersection(set(lazy_urls))
     assert len(overlap) == 0, f"PRECACHE_URLS và OPTIONAL_LAZY_URLS bị trùng lặp: {overlap}"
 
+    # [055-parser-table-build-hardening] Marker an toàn và tệp ẩn KHÔNG được nằm trong sw.js hay PRECACHE_URLS
+    from scripts.build_web import BUILD_MARKER_NAME
+    assert BUILD_MARKER_NAME not in content, f"{BUILD_MARKER_NAME} bị lọt vào nội dung sw.js"
+    assert not any(BUILD_MARKER_NAME in u for u in precache_urls), f"{BUILD_MARKER_NAME} bị lọt vào PRECACHE_URLS"
+    assert not any("/." in u for u in precache_urls), "Tệp ẩn bị lọt vào PRECACHE_URLS"
+
 
 
 def test_deterministic_sw_cache_and_path_sensitivity(tmp_path: Path):

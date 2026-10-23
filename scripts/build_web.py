@@ -325,7 +325,7 @@ def generate_sw_js(dist_dir: Path) -> None:
 
     for root, _, files in os.walk(dist_dir):
         for f in files:
-            if f == "sw.js":
+            if f == "sw.js" or f.startswith(".") or f == BUILD_MARKER_NAME:
                 continue
             fpath = Path(root) / f
             rel_path = fpath.relative_to(dist_dir).as_posix()

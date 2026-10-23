@@ -327,7 +327,10 @@ test("T007 [US1]: Hoàn thành load_bank trong onWorkerReady() tự động kíc
       xopp_base64: mockXoppBase64,
       missing_token_boxes: [],
     });
-    await new Promise((r) => setTimeout(r, 60));
+    // Chờ chu trình render hoàn tất (decompress + parse xopp)
+    for (let i = 0; i < 20 && !getWritePreviewSyncState().hasRendered; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
 
     const syncState = getWritePreviewSyncState();
     assert.strictEqual(syncState.isBankHydrated, true);

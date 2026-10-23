@@ -97,6 +97,166 @@ class MarkdownImporter(BaseImporter):
         out.append(seg[i:])
         return "".join(out)
 
+    @staticmethod
+    def _find_code_spans(text: str) -> list[tuple[int, int]]:
+        """Tìm tất cả các vị trí (start, end) của inline code spans theo CommonMark.
+        Hỗ trợ bất kỳ độ dài backticks nào (1, 2, 3+ backticks)."""
+        spans: list[tuple[int, int]] = []
+        i = 0
+        n = len(text)
+        while i < n:
+            if text[i] == "`":
+                start = i
+                while i < n and text[i] == "`":
+                    i += 1
+                flen = i - start
+                closer = "`" * flen
+                j = i
+                while j < n:
+                    k = text.find(closer, j)
+                    if k == -1:
+                        break
+                    prev_ok = (k == 0 or text[k - 1] != "`")
+                    after_idx = k + flen
+                    next_ok = (after_idx >= n or text[after_idx] != "`")
+                    if prev_ok and next_ok:
+                        spans.append((start, after_idx))
+                        i = after_idx
+                        break
+                    j = k + 1
+            else:
+                i += 1
+        return spans
+
+    @classmethod
+    def _split_code_segments(cls, text: str) -> list[tuple[str, bool]]:
+        """Phân tách văn bản thành danh sách (chunk, is_code) tuân thủ CommonMark.
+        Hỗ trợ code fence (>=3 backticks/tildes với đóng >= mở, thụt lề 0-3 khoảng trắng)
+        và code span bất kỳ độ dài. Bảo toàn 100% từng ký tự ban đầu."""
+        if not text:
+            return []
+
+        n = len(text)
+        i = 0
+        segments: list[tuple[str, bool]] = []
+        text_start = 0
+
+        def flush_text(end_idx: int):
+            nonlocal text_start
+            if end_idx > text_start:
+                segments.append((text[text_start:end_idx], False))
+            text_start = end_idx
+
+        while i < n:
+            is_line_start = (i == 0 or text[i - 1] == "\n")
+
+            if is_line_start:
+                indent = 0
+                while i + indent < n and text[i + indent] == " " and indent < 3:
+                    indent += 1
+                idx_fence = i + indent
+                if idx_fence < n and text[idx_fence] in ("`", "~"):
+                    fc = text[idx_fence]
+                    flen = 0
+                    while idx_fence + flen < n and text[idx_fence + flen] == fc:
+                        flen += 1
+                    if flen >= 3:
+                        eol = text.find("\n", idx_fence + flen)
+                        if eol == -1:
+                            eol = n
+                        info_line = text[idx_fence + flen : eol]
+                        if fc == "~" or "`" not in info_line:
+                            flush_text(i)
+                            fence_start = i
+                            i = eol + 1 if eol < n else n
+
+                            found_close = False
+                            while i < n:
+                                close_indent = 0
+                                while i + close_indent < n and text[i + close_indent] == " " and close_indent < 3:
+                                    close_indent += 1
+                                pos = i + close_indent
+                                c_len = 0
+                                while pos + c_len < n and text[pos + c_len] == fc:
+                                    c_len += 1
+                                if c_len >= flen:
+                                    next_eol = text.find("\n", pos + c_len)
+                                    if next_eol == -1:
+                                        next_eol = n
+                                    rest_of_line = text[pos + c_len : next_eol].rstrip("\r\n")
+                                    if re.match(r"^[ \t]*$", rest_of_line):
+                                        found_close = True
+                                        i = next_eol + 1 if next_eol < n else n
+                                        segments.append((text[fence_start:i], True))
+                                        text_start = i
+                                        break
+                                next_line = text.find("\n", i)
+                                if next_line == -1:
+                                    i = n
+                                    break
+                                i = next_line + 1
+
+                            if not found_close:
+                                segments.append((text[fence_start:n], True))
+                                text_start = n
+                                i = n
+                            continue
+
+            if text[i] == "`":
+                start_backticks = i
+                while i < n and text[i] == "`":
+                    i += 1
+                span_len = i - start_backticks
+                closer = "`" * span_len
+
+                j = i
+                found_span = False
+                while j < n:
+                    k = text.find(closer, j)
+                    if k == -1:
+                        break
+                    prev_ok = (k == 0 or text[k - 1] != "`")
+                    after_idx = k + span_len
+                    next_ok = (after_idx >= n or text[after_idx] != "`")
+                    if prev_ok and next_ok:
+                        flush_text(start_backticks)
+                        segments.append((text[start_backticks:after_idx], True))
+                        text_start = after_idx
+                        i = after_idx
+                        found_span = True
+                        break
+                    j = k + 1
+                if not found_span:
+                    pass
+                continue
+
+            i += 1
+
+        flush_text(n)
+        return segments
+
+    @classmethod
+    def _is_table_line(cls, line: str) -> bool:
+        """Kiểm tra dòng có thuộc bảng GFM hay không dựa trên ký tự phân cách cột '|'
+        nằm BÊN NGOÀI các code spans và công thức toán học ($$...$$, $...$)."""
+        if "|" not in line:
+            return False
+
+        # Ẩn code spans trong line
+        spans = cls._find_code_spans(line)
+        cleaned = list(line)
+        for st, en in spans:
+            for idx in range(st, en):
+                cleaned[idx] = " "
+        s = "".join(cleaned)
+
+        # Ẩn các công thức hoàn chỉnh trên dòng ($$...$$ và $...$)
+        s = re.sub(r"\$\$.*?\$\$", " ", s)
+        s = re.sub(r"\$[^\s$][^$\n]*?\$", " ", s)
+
+        # Kiểm tra còn ký tự | không bị thoát
+        return bool(re.search(r"(?<!\\)\|", s))
+
     @classmethod
     def _isolate_display_math_blocks(cls, seg: str) -> str:
         """Đảm bảo các khối công thức toán display ($$..$$) bắt đầu ở dòng mới hoặc liền sau
@@ -131,16 +291,16 @@ class MarkdownImporter(BaseImporter):
             # A. Đang ở trong khối mã lập trình (FENCED_CODE)
             if in_fence:
                 out_lines.append(line)
-                # Dòng đóng fence: cùng ký tự, độ dài >= fence_len, không chứa ký tự khác ngoài khoảng trắng
-                m_close = re.match(r"^[ \t]*(`{3,}|~{3,})[ \t]*$", line)
+                # Dòng đóng fence: cùng ký tự, độ dài >= fence_len, thụt lề 0-3 khoảng trắng
+                m_close = re.match(r"^[ ]{0,3}(`{3,}|~{3,})[ \t]*$", line)
                 if m_close and m_close.group(1)[0] == fence_char and len(m_close.group(1)) >= fence_len:
                     in_fence = False
                     fence_char = ""
                     fence_len = 0
                 continue
 
-            # B. Kiểm tra bắt đầu khối mã lập trình (code fence: >=3 backticks hoặc tildes)
-            m_open_fence = re.match(r"^[ \t]*(`{3,}|~{3,})", line)
+            # B. Kiểm tra bắt đầu khối mã lập trình (code fence: >=3 backticks hoặc tildes, thụt lề 0-3 khoảng trắng)
+            m_open_fence = re.match(r"^[ ]{0,3}(`{3,}|~{3,})", line)
             if m_open_fence:
                 in_fence = True
                 fence_char = m_open_fence.group(1)[0]
@@ -159,22 +319,24 @@ class MarkdownImporter(BaseImporter):
                         out_lines.append(math_indent)
                 continue
 
-            # D. Kiểm tra bảng GFM: dòng chứa phân tách cột '|'
+            # D. Kiểm tra bảng GFM: dòng chứa phân tách cột '|' bên ngoài công thức toán
             # (bao gồm cả hàng chuẩn | a | b | và hàng rút gọn a | b)
-            if "|" in line and not stripped.startswith("$$"):
+            if cls._is_table_line(line):
                 out_lines.append(line)
                 continue
 
             # E. Xử lý trường hợp nhãn hai chấm dẫn nhập: 'ta có:$$...' hoặc 'với: $$...'
-            # Tuyệt đối bỏ qua nếu nằm bên trong đoạn mã nội dòng `...`
-            def _is_inside_code_span(txt: str, pos: int) -> bool:
-                for span in re.finditer(r"`[^`\n]*`", txt):
-                    if span.start() <= pos < span.end():
+            # Tuyệt đối bỏ qua nếu nằm bên trong đoạn mã nội dòng (hỗ trợ mọi độ dài backticks)
+            line_spans = cls._find_code_spans(line)
+
+            def _is_inside_code_span(pos: int) -> bool:
+                for span_st, span_en in line_spans:
+                    if span_st <= pos < span_en:
                         return True
                 return False
 
             colon_match = re.search(r"([^\n$]+:)[ \t]*(\$\$[^\n$].*?\$\$)", line)
-            if colon_match and not _is_inside_code_span(line, colon_match.start(2)):
+            if colon_match and not _is_inside_code_span(colon_match.start(2)):
                 prefix = line[:colon_match.start(2)].rstrip()
                 rest = line[colon_match.start(2):]
                 if out_lines and out_lines[-1].strip() != "":
@@ -183,10 +345,11 @@ class MarkdownImporter(BaseImporter):
                 out_lines.append("")
                 line = rest
                 stripped = line.strip()
+                line_spans = cls._find_code_spans(line)
 
             # F. Dòng bắt đầu bằng $$ (sau khoảng trắng thụt lề nếu có)
             m_open_math = re.match(r"^([ \t]*)\$\$", line)
-            if m_open_math and not _is_inside_code_span(line, m_open_math.start(1)):
+            if m_open_math and not _is_inside_code_span(m_open_math.start(1)):
                 indent = m_open_math.group(1)
                 math_indent = indent
 
@@ -224,13 +387,16 @@ class MarkdownImporter(BaseImporter):
     @classmethod
     def _normalize_math_delimiters(cls, text: str) -> str:
         """Đổi \\( .. \\) thành $..$ và \\[ .. \\] thành $$..$$ (ngoài đoạn mã) để markdown-it nhận ra công thức."""
-        parts = _CODE_SEGMENT.split(text)
-        for i in range(0, len(parts), 2):
-            seg = parts[i]
-            seg = cls._convert_delimited(seg, "\\[", "\\]", "$$", _MAX_DISPLAY_MATH, strip=False)
-            seg = cls._convert_delimited(seg, "\\(", "\\)", "$", _MAX_INLINE_MATH, strip=True)
-            parts[i] = seg
-        return "".join(parts)
+        segments = cls._split_code_segments(text)
+        out: list[str] = []
+        for chunk, is_code in segments:
+            if is_code:
+                out.append(chunk)
+            else:
+                seg = cls._convert_delimited(chunk, "\\[", "\\]", "$$", _MAX_DISPLAY_MATH, strip=False)
+                seg = cls._convert_delimited(seg, "\\(", "\\)", "$", _MAX_INLINE_MATH, strip=True)
+                out.append(seg)
+        return "".join(out)
 
     def _sanitize_html(self, text: str) -> str:
         """Loại bỏ an toàn các thẻ HTML và script độc hại,
@@ -239,19 +405,20 @@ class MarkdownImporter(BaseImporter):
         if not text:
             return ""
         # Tách riêng đoạn mã và các khối công thức toán để không bao giờ bị can thiệp
+        segments = self._split_code_segments(text)
         out: list[str] = []
-        for k, code_part in enumerate(_CODE_SEGMENT.split(text)):
-            if k % 2:
-                out.append(code_part)
+        for chunk, is_code in segments:
+            if is_code:
+                out.append(chunk)
                 continue
-            parts = _MATH_SEGMENT.split(code_part)
+            parts = _MATH_SEGMENT.split(chunk)
             for i in range(0, len(parts), 2):
-                chunk = parts[i]
+                c = parts[i]
                 # Loại bỏ thẻ script/style kèm nội dung bên trong
-                chunk = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", chunk, flags=re.DOTALL | re.IGNORECASE)
+                c = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", c, flags=re.DOTALL | re.IGNORECASE)
                 # Loại bỏ các thẻ HTML thật (tên thẻ đã biết); chữ như "a<b và c>d" được giữ nguyên
-                chunk = _HTML_TAG.sub("", chunk)
-                parts[i] = chunk
+                c = _HTML_TAG.sub("", c)
+                parts[i] = c
             out.append("".join(parts))
         return "".join(out)
 

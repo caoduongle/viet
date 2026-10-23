@@ -91,6 +91,34 @@ def test_gfm_table_math_not_broken(importer: MarkdownImporter):
     assert len(blocks[0].rows) == 2
 
 
+def test_gfm_compact_table_math_first_cell(importer: MarkdownImporter):
+    """[055] Bảng GFM compact không có | ở hai đầu, ô đầu tiên bắt đầu bằng $$ không bị xé dòng."""
+    text = "Col | Val\n---|---\n$$x=1$$ | 2"
+    res = importer.import_text(text)
+    blocks = res.document.blocks
+
+    assert len(blocks) == 1, f"Bảng compact bị xé thành nhiều block: {blocks}"
+    assert isinstance(blocks[0], Table)
+    table = blocks[0]
+    assert len(table.rows) == 2
+    # Hàng 1 (tiêu đề): Col, Val
+    assert table.rows[0].cells[0].blocks[0].inlines[0].text == "Col"
+    assert table.rows[0].cells[1].blocks[0].inlines[0].text == "Val"
+    # Hàng 2 (dữ liệu): $$x=1$$, 2
+    assert len(table.rows[1].cells) == 2
+
+
+def test_math_block_containing_internal_pipe(importer: MarkdownImporter):
+    """[055] Công thức display chứa ký tự | nội bộ ($$|x|=1$$) vẫn là MathBlock, không phải Table."""
+    text = "$$\\int |x| dx = 1$$"
+    res = importer.import_text(text)
+    blocks = res.document.blocks
+
+    assert len(blocks) == 1
+    assert isinstance(blocks[0], MathBlock)
+    assert "\\int |x| dx = 1" in blocks[0].latex
+
+
 # ==============================================================================
 # Phase 5 / US3: Dấu hai chấm dẫn nhập và các trường hợp biên cú pháp
 # ==============================================================================
@@ -154,27 +182,56 @@ def test_code_fence_preservation(importer: MarkdownImporter):
     isolated_unclosed = MarkdownImporter._isolate_display_math_blocks(fence_unclosed)
     assert isolated_unclosed == fence_unclosed
 
+    # 5. [055] Code fence 4 backticks chứa dòng 3 backticks và \[x=1\] qua _normalize_math_delimiters và import_text
+    fence_nested = "````markdown\n```\n\\[x=1\\]\n````"
+    assert MarkdownImporter._normalize_math_delimiters(fence_nested) == fence_nested
+    res_fence = importer.import_text(fence_nested)
+    assert not any(isinstance(b, MathBlock) for b in res_fence.document.blocks)
+
 
 def test_code_span_preservation(importer: MarkdownImporter):
     """Đoạn mã nội dòng chứa $$ không bị nhận nhầm thành display math."""
+    # 1. Đoạn mã 1 backtick
     code_span = "Sử dụng mã `prefix:$$x=1$$` để minh họa."
     isolated = MarkdownImporter._isolate_display_math_blocks(code_span)
     assert isolated == code_span
 
+    # 2. [055] Đoạn mã 2 backticks chứa $$ qua _isolate_display_math_blocks và import_text
+    code_span_2 = "Sử dụng mã ``prefix:$$x=1$$`` để minh họa."
+    isolated_2 = MarkdownImporter._isolate_display_math_blocks(code_span_2)
+    assert isolated_2 == code_span_2
+    res_span = importer.import_text(code_span_2)
+    assert len(res_span.document.blocks) == 1
+    assert not any(isinstance(b, MathBlock) for b in res_span.document.blocks)
+
 
 def test_linear_scalability_unclosed_display_math(importer: MarkdownImporter):
-    """5,000 dòng mở $$ không đóng xử lý xong trong thời gian tuyến tính (< 200ms)."""
+    """[055] 5,000 và 10,000 dòng mở $$ không đóng xử lý với tỷ lệ tuyến tính (T2/T1 <= 3.5)."""
     import time
-    lines = ["Dòng văn bản\n$$unclosed_formula" for _ in range(2500)]
-    large_input = "\n".join(lines)
+    lines_n = ["Dòng văn bản\n$$unclosed_formula" for _ in range(2500)]
+    input_n = "\n".join(lines_n)
+
+    lines_2n = ["Dòng văn bản\n$$unclosed_formula" for _ in range(5000)]
+    input_2n = "\n".join(lines_2n)
 
     t0 = time.perf_counter()
-    isolated = MarkdownImporter._isolate_display_math_blocks(large_input)
-    elapsed = time.perf_counter() - t0
+    res_n = MarkdownImporter._isolate_display_math_blocks(input_n)
+    t1 = time.perf_counter() - t0
 
-    assert len(isolated) > 0
-    # Xử lý 5,000 dòng phải dưới 0.25 giây (nếu O(n^2) sẽ mất hàng chục giây)
-    assert elapsed < 0.25, f"Thời gian xử lý quá lâu ({elapsed:.3f}s), có thể dính lỗi O(n^2)"
+    t0 = time.perf_counter()
+    res_2n = MarkdownImporter._isolate_display_math_blocks(input_2n)
+    t2 = time.perf_counter() - t0
+
+    assert len(res_n) > 0
+    assert len(res_2n) > 0
+
+    # Tỷ lệ tăng thời gian giữa 2N và N: thuật toán tuyến tính xấp xỉ 2.0x, trần an toàn <= 3.5x
+    if t1 > 0.01:
+        ratio = t2 / t1
+        assert ratio <= 3.5, f"Tỷ lệ tăng thời gian ({ratio:.2f}x) vượt ngưỡng tuyến tính (t1={t1:.3f}s, t2={t2:.3f}s)"
+
+    # Ngưỡng trần an toàn chống treo (2.0s) để tránh flaky trên runner CI chậm
+    assert t2 < 2.0, f"Thời gian xử lý 10,000 dòng vượt ngưỡng trần an toàn ({t2:.3f}s)"
 
 
 def test_crlf_windows_line_endings_safety(importer: MarkdownImporter):
