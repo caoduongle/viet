@@ -169,3 +169,40 @@ def test_import_docx_hyperlink(tmp_path):
     assert isinstance(block, Paragraph)
     all_texts = [inline.text for inline in block.inlines if isinstance(inline, Text)]
     assert any("Trang chủ" in t for t in all_texts)
+
+
+def test_docx_content_first_warnings(tmp_path):
+    """[054-repo-audit-hardening] Kiểm tra importer DOCX ghi nhận cảnh báo rõ ràng cho ảnh và bảng lồng nhau."""
+    import docx
+    from docx.oxml import parse_xml
+    from chuviettay.importer.docx_importer import DocxImporter
+
+    doc_path = str(tmp_path / "content_first_warnings.docx")
+    doc = docx.Document()
+    p = doc.add_paragraph("Đoạn văn có hình: ")
+    drawing_xml = (
+        '<w:drawing xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '  <wp:inline xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing">'
+        '    <wp:docPr id="1" name="Picture 1"/>'
+        '  </wp:inline>'
+        '</w:drawing>'
+    )
+    p._element.append(parse_xml(drawing_xml))
+
+    tbl = doc.add_table(rows=1, cols=1)
+    cell = tbl.cell(0, 0)
+    cell.text = "Ô cha có bảng con"
+    # Giả lập bảng con lồng nhau
+    nested_tbl_xml = (
+        '<w:tbl xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+        '  <w:tr><w:tc><w:p><w:r><w:t>Nội dung con</w:t></w:r></w:p></w:tc></w:tr>'
+        '</w:tbl>'
+    )
+    cell._tc.append(parse_xml(nested_tbl_xml))
+    doc.save(doc_path)
+
+    importer = DocxImporter()
+    res = importer.import_file(doc_path)
+
+    assert any("hình ảnh/hình vẽ không được đưa vào" in w for w in res.warnings), "Phải cảnh báo hình ảnh trong Content-First"
+    assert any("bảng lồng nhau" in w for w in res.warnings), "Phải cảnh báo bảng lồng nhau trong Content-First"

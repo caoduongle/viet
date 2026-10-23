@@ -25,8 +25,8 @@ from chuviettay.document.ir import (
 from chuviettay.importer.base import BaseImporter, ImportResult
 from chuviettay.importer.dependency import require_dependency
 
-# Đoạn mã (fence / inline code): không đụng tới khi đổi dấu phân cách toán hay lọc HTML
-_CODE_SEGMENT = re.compile(r"(```.*?```|~~~.*?~~~|`[^`\n]*`)", re.DOTALL)
+# Đoạn mã (fence / inline code): không đụng tới khi đổi dấu phân cách toán hay lọc HTML (hỗ trợ >=3 backticks/tildes và unclosed fence)
+_CODE_SEGMENT = re.compile(r"(`{3,}.*?(?:`{3,}|\Z)|~{3,}.*?(?:~{3,}|\Z)|`[^`\n]*`)", re.DOTALL)
 # Dấu phân cách toán kiểu LaTeX: \( ... \) và \[ ... \] (CommonMark sẽ nuốt dấu \ nếu không đổi trước)
 _MAX_INLINE_MATH = 4000
 _MAX_DISPLAY_MATH = 20000
@@ -100,28 +100,81 @@ class MarkdownImporter(BaseImporter):
     @classmethod
     def _isolate_display_math_blocks(cls, seg: str) -> str:
         """Đảm bảo các khối công thức toán display ($$..$$) bắt đầu ở dòng mới hoặc liền sau
-        dấu hai chấm có dòng trống phân cách chuẩn CommonMark, ngoại trừ các ô bảng GFM."""
+        dấu hai chấm có dòng trống phân cách chuẩn CommonMark, ngoại trừ các khối mã (code fence),
+        đoạn mã nội dòng (code span) và các ô bảng GFM.
+
+        Sử dụng máy trạng thái một lượt (single-pass line scanner) đạt độ phức tạp O(n) tuyến tính,
+        chuẩn hóa ngắt dòng CRLF và bảo toàn 100% nội dung bên trong code fence."""
+        if not seg:
+            return ""
+
+        # 1. Chuẩn hóa CRLF / CR thành \n để tránh lỗi bám ký tự \r
+        seg = seg.replace("\r\n", "\n").replace("\r", "\n")
+
         if "$$" not in seg:
             return seg
 
         lines = seg.split("\n")
         out_lines: list[str] = []
         n = len(lines)
-        idx = 0
 
-        while idx < n:
-            line = lines[idx]
+        in_fence = False
+        fence_char = ""
+        fence_len = 0
+
+        in_display_math = False
+        math_indent = ""
+
+        for idx, line in enumerate(lines):
             stripped = line.strip()
 
-            # 1. Bỏ qua các hàng của bảng GFM (|...|) để không phá vỡ cú pháp bảng
-            if stripped.startswith("|") and stripped.endswith("|"):
+            # A. Đang ở trong khối mã lập trình (FENCED_CODE)
+            if in_fence:
                 out_lines.append(line)
-                idx += 1
+                # Dòng đóng fence: cùng ký tự, độ dài >= fence_len, không chứa ký tự khác ngoài khoảng trắng
+                m_close = re.match(r"^[ \t]*(`{3,}|~{3,})[ \t]*$", line)
+                if m_close and m_close.group(1)[0] == fence_char and len(m_close.group(1)) >= fence_len:
+                    in_fence = False
+                    fence_char = ""
+                    fence_len = 0
                 continue
 
-            # 2. Xử lý trường hợp nhãn hai chấm dẫn nhập: 'ta có:$$...' hoặc 'với: $$...'
+            # B. Kiểm tra bắt đầu khối mã lập trình (code fence: >=3 backticks hoặc tildes)
+            m_open_fence = re.match(r"^[ \t]*(`{3,}|~{3,})", line)
+            if m_open_fence:
+                in_fence = True
+                fence_char = m_open_fence.group(1)[0]
+                fence_len = len(m_open_fence.group(1))
+                out_lines.append(line)
+                continue
+
+            # C. Đang ở trong khối toán display nhiều dòng (DISPLAY_MATH)
+            if in_display_math:
+                out_lines.append(line)
+                # Kiểm tra kết thúc khối toán: dòng kết thúc bằng $$ (có thể kèm dấu câu)
+                if stripped.endswith("$$") or re.search(r"\$\$[ \t]*[,.;:!?]?$", stripped):
+                    in_display_math = False
+                    # Đảm bảo dòng trống sau khối toán nếu dòng tiếp theo có chữ
+                    if idx + 1 < n and lines[idx + 1].strip() != "":
+                        out_lines.append(math_indent)
+                continue
+
+            # D. Kiểm tra bảng GFM: dòng chứa phân tách cột '|'
+            # (bao gồm cả hàng chuẩn | a | b | và hàng rút gọn a | b)
+            if "|" in line and not stripped.startswith("$$"):
+                out_lines.append(line)
+                continue
+
+            # E. Xử lý trường hợp nhãn hai chấm dẫn nhập: 'ta có:$$...' hoặc 'với: $$...'
+            # Tuyệt đối bỏ qua nếu nằm bên trong đoạn mã nội dòng `...`
+            def _is_inside_code_span(txt: str, pos: int) -> bool:
+                for span in re.finditer(r"`[^`\n]*`", txt):
+                    if span.start() <= pos < span.end():
+                        return True
+                return False
+
             colon_match = re.search(r"([^\n$]+:)[ \t]*(\$\$[^\n$].*?\$\$)", line)
-            if colon_match:
+            if colon_match and not _is_inside_code_span(line, colon_match.start(2)):
                 prefix = line[:colon_match.start(2)].rstrip()
                 rest = line[colon_match.start(2):]
                 if out_lines and out_lines[-1].strip() != "":
@@ -131,10 +184,12 @@ class MarkdownImporter(BaseImporter):
                 line = rest
                 stripped = line.strip()
 
-            # 3. Dòng bắt đầu bằng $$ (sau khoảng trắng thụt lề nếu có)
-            m_open = re.match(r"^([ \t]*)\$\$", line)
-            if m_open:
-                indent = m_open.group(1)
+            # F. Dòng bắt đầu bằng $$ (sau khoảng trắng thụt lề nếu có)
+            m_open_math = re.match(r"^([ \t]*)\$\$", line)
+            if m_open_math and not _is_inside_code_span(line, m_open_math.start(1)):
+                indent = m_open_math.group(1)
+                math_indent = indent
+
                 # Đảm bảo có dòng trống phía trước nếu dòng trước có chữ
                 if out_lines and out_lines[-1].strip() != "":
                     out_lines.append(indent)
@@ -155,27 +210,14 @@ class MarkdownImporter(BaseImporter):
                         out_lines.append(f"{indent}{after_text}")
                     elif idx + 1 < n and lines[idx + 1].strip() != "":
                         out_lines.append(indent)
-                    idx += 1
                     continue
-
-                # Multi-line block: tìm dòng kết thúc bằng $$
-                close_idx = -1
-                for scan_idx in range(idx + 1, n):
-                    s_strip = lines[scan_idx].strip()
-                    if s_strip.endswith("$$") or re.search(r"\$\$[ \t]*[,.;:!?]?$", s_strip):
-                        close_idx = scan_idx
-                        break
-
-                if close_idx != -1:
-                    for b_idx in range(idx, close_idx + 1):
-                        out_lines.append(lines[b_idx])
-                    if close_idx + 1 < n and lines[close_idx + 1].strip() != "":
-                        out_lines.append(indent)
-                    idx = close_idx + 1
+                else:
+                    # Khối mở nhiều dòng: chuyển trạng thái sang DISPLAY_MATH
+                    in_display_math = True
+                    out_lines.append(line)
                     continue
 
             out_lines.append(line)
-            idx += 1
 
         return "\n".join(out_lines)
 

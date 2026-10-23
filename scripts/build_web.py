@@ -87,7 +87,10 @@ def require_pyodide_runtime() -> None:
         )
 
 
-def prepare_dist_dir(dist_dir: Path) -> None:
+BUILD_MARKER_NAME = ".chuviettay_build_dist"
+
+
+def prepare_dist_dir(dist_dir: Path, force_clean: bool = False) -> None:
     """Kiểm tra an toàn đường dẫn và dọn sạch thư mục dist."""
     resolved_dist = dist_dir.resolve()
     resolved_root = ROOT_DIR.resolve()
@@ -111,8 +114,21 @@ def prepare_dist_dir(dist_dir: Path) -> None:
         )
 
     if resolved_dist.exists():
+        is_default_dist = (resolved_dist == resolved_default_dist)
+        is_empty = not any(resolved_dist.iterdir())
+        has_marker = (resolved_dist / BUILD_MARKER_NAME).exists()
+
+        if not (is_default_dist or is_empty or has_marker or force_clean):
+            sys.exit(
+                f"Lỗi an toàn: Thư mục đích ({resolved_dist}) nằm ngoài phạm vi mặc định, đang chứa dữ liệu "
+                f"và không có cờ --force-clean. Thao tác dọn dẹp bị từ chối để bảo vệ dữ liệu."
+            )
+
         shutil.rmtree(resolved_dist)
+
     resolved_dist.mkdir(parents=True, exist_ok=True)
+    # Ghi nhận tệp marker đánh dấu thư mục dist do build sinh ra
+    (resolved_dist / BUILD_MARKER_NAME).write_text("chuviettay-dist-marker\n", encoding="utf-8")
 
 
 def ensure_vendor_wheels(dist_wheels_dir: Path) -> None:
@@ -304,20 +320,28 @@ def generate_sw_js(dist_dir: Path) -> None:
         except Exception as e:
             print(f"[build_web] Cảnh báo khi đọc vendor_lock.json: {e}")
 
-    # 1. Thu thập tất cả các tệp trong dist_dir (trừ sw.js) và tính băm tổng hợp
-    files_to_cache: list[tuple[str, str]] = []  # (rel_url, file_sha)
-    hasher = hashlib.sha256()
+    # 1. Thu thập tất cả các tệp trong dist_dir (trừ sw.js) và tính băm tổng hợp chuẩn tắc
+    raw_files: list[tuple[str, str]] = []  # (rel_path, file_sha)
 
     for root, _, files in os.walk(dist_dir):
-        for f in sorted(files):
+        for f in files:
             if f == "sw.js":
                 continue
             fpath = Path(root) / f
             rel_path = fpath.relative_to(dist_dir).as_posix()
-            rel_url = f"./{rel_path}"
             f_hash = sha256_file(fpath)
-            files_to_cache.append((rel_url, f_hash))
-            hasher.update(f_hash.encode("utf-8"))
+            raw_files.append((rel_path, f_hash))
+
+    # Sắp xếp tăng dần theo đường dẫn tương đối chuẩn tắc để bảo đảm tính tái lập 100%
+    raw_files.sort(key=lambda item: item[0])
+
+    files_to_cache: list[tuple[str, str]] = []  # (rel_url, file_sha)
+    hasher = hashlib.sha256()
+
+    for rel_path, f_hash in raw_files:
+        rel_url = f"./{rel_path}"
+        files_to_cache.append((rel_url, f_hash))
+        hasher.update(f"{rel_path}:{f_hash}\n".encode("utf-8"))
 
     content_hash_12 = hasher.hexdigest()[:12]
     cache_name = f"chuviettay-cache-{content_hash_12}"
@@ -396,12 +420,18 @@ def main(argv: list[str] | None = None) -> None:
         default=DEFAULT_DIST_DIR,
         help="Thư mục xuất bản dist (mặc định: webapp/dist)",
     )
+    parser.add_argument(
+        "--force-clean",
+        action="store_true",
+        default=False,
+        help="Cho phép dọn dẹp thư mục ngoài không rỗng",
+    )
     args = parser.parse_args(argv)
     dist_dir = args.dist.resolve()
 
     print(f"================ BẮT ĐẦU BUILD STATIC WEB CLIENT -> {dist_dir} ================")
     require_pyodide_runtime()
-    prepare_dist_dir(dist_dir)
+    prepare_dist_dir(dist_dir, force_clean=args.force_clean)
 
     dist_pyodide = dist_dir / "pyodide"
     dist_wheels = dist_pyodide / "wheels"

@@ -27,11 +27,13 @@ let isRendering = false;
 let hasPendingRequest = false;
 let pendingParams = null;
 
-// Trạng thái đồng bộ kho mẫu (052-write-preview-bank-sync)
+// Trạng thái đồng bộ kho mẫu (052-write-preview-bank-sync & 054-repo-audit-hardening)
 let isBankHydrated = false;       // True khi kho mẫu từ IndexedDB (hoặc profile rỗng ban đầu) đã sẵn sàng
 let isBankDirty = false;          // True khi kho mẫu thay đổi/nạp mới kể từ lần render gần nhất
 let hasInitialRenderDone = false; // True khi đã thực hiện ít nhất 1 lần kết xuất xem trước
 let lastRenderedBankTs = 0;       // Timestamp của kho mẫu được sử dụng trong lượt kết xuất gần nhất
+let currentBankRevision = 1;      // Số hiệu phiên bản kho mẫu hiện hành (tăng đơn điệu)
+let lastRenderedBankRevision = 0; // Phiên bản kho mẫu của bản vẽ đang hiển thị trên preview
 
 // Quản lý thu phóng (Zoom State: 50% - 300%)
 let currentZoom = 1.0;
@@ -163,6 +165,7 @@ export function triggerPreviewImmediate() {
  * @param {boolean} [details.immediate] - Kích hoạt render ngay nếu tab Viết đang mở
  */
 export function notifyBankUpdated(details = {}) {
+  currentBankRevision++;
   isBankHydrated = true;
   isBankDirty = true;
   const shouldRenderNow = details?.immediate ?? true;
@@ -181,6 +184,7 @@ export function notifyBankUpdated(details = {}) {
  * Đánh dấu kho mẫu bị thay đổi trong nền cần kết xuất lại khi chuyển về tab Viết.
  */
 export function markBankDirty() {
+  currentBankRevision++;
   isBankDirty = true;
 }
 
@@ -195,6 +199,8 @@ export function getWritePreviewSyncState() {
     hasRendered: hasInitialRenderDone,
     isBankHydrated,
     isBankDirty,
+    bankRevision: currentBankRevision,
+    lastRenderedRevision: lastRenderedBankRevision,
     lastRenderedBankTs,
     missingBoxesCount: currentMissingBoxes ? currentMissingBoxes.length : 0,
   };
@@ -208,6 +214,8 @@ export function resetWriteSyncStateForTesting() {
   isBankDirty = false;
   hasInitialRenderDone = false;
   lastRenderedBankTs = 0;
+  currentBankRevision = 1;
+  lastRenderedBankRevision = 0;
   isRendering = false;
   hasPendingRequest = false;
   pendingParams = null;
@@ -217,7 +225,8 @@ export function resetWriteSyncStateForTesting() {
 }
 
 /**
- * Thực hiện yêu cầu render với mô hình "Một request chờ" (One Pending Request).
+ * Thực hiện yêu cầu render với mô hình "Một request chờ" (One Pending Request)
+ * và kiểm soát phiên bản kho mẫu đơn điệu (054-repo-audit-hardening).
  */
 async function requestRender(params) {
   if (isRendering) {
@@ -226,6 +235,7 @@ async function requestRender(params) {
     return;
   }
 
+  const requestBankRev = currentBankRevision;
   isRendering = true;
   showRenderingIndicator(true);
 
@@ -245,8 +255,13 @@ async function requestRender(params) {
       updateInfoPanel(res);
 
       hasInitialRenderDone = true;
-      isBankDirty = false;
+      lastRenderedBankRevision = requestBankRev;
       lastRenderedBankTs = Date.now();
+
+      // Chỉ đánh dấu đã đồng bộ nếu không có cập nhật kho mẫu mới chen ngang lúc đang render
+      if (requestBankRev === currentBankRevision) {
+        isBankDirty = false;
+      }
 
       if (res.seed_used !== undefined && res.seed_used !== null) {
         const badgeSeed = document.getElementById("badge-seed-used");

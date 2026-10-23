@@ -368,3 +368,41 @@ def test_d4b_does_not_overwrite_user_handwriting_in_missing_grid(tiny_bank_path,
 
 
 
+
+
+def test_document_ir_immutability_and_idempotence(tiny_bank_path, tmp_path):
+    """[054-repo-audit-hardening] Kiểm tra tính bất biến của Document IR qua nhiều lần gọi write_document."""
+    ctl = AppController(tiny_bank_path)
+    ctl.load_bank()
+
+    text1 = Text(text="Xin chào ")
+    text2 = Text(text="Việt Nam")
+    doc = Document(blocks=[
+        Paragraph(inlines=[text1, text2]),
+    ])
+
+    out1 = str(tmp_path / "immutability_run1.xopp")
+    out2 = str(tmp_path / "immutability_run2.xopp")
+    opts = WriteOptions(seed=100)
+
+    res1 = ctl.write_document(doc, opts, out1)
+
+    # 1. Khẳng định các nút ban đầu KHÔNG bị sửa đổi sau lần 1
+    assert text1.text == "Xin chào ", "Nút Text 1 đã bị biến đổi nội dung sau render 1"
+    assert text2.text == "Việt Nam", "Nút Text 2 đã bị biến đổi nội dung sau render 1"
+    assert len(doc.blocks[0].inlines) == 2
+
+    res2 = ctl.write_document(doc, opts, out2)
+
+    # 2. Khẳng định các nút ban đầu tiếp tục KHÔNG bị sửa đổi sau lần 2
+    assert text1.text == "Xin chào ", "Nút Text 1 đã bị biến đổi nội dung sau render 2"
+    assert text2.text == "Việt Nam", "Nút Text 2 đã bị biến đổi nội dung sau render 2"
+
+    # 3. Kết quả 2 lần phải giống hệt nhau 100%
+    assert res1.n_strokes == res2.n_strokes
+    assert res1.n_lines == res2.n_lines
+    assert res1.n_tokens == res2.n_tokens
+
+    xml1 = gzip.decompress(open(out1, "rb").read()).decode("utf-8")
+    xml2 = gzip.decompress(open(out2, "rb").read()).decode("utf-8")
+    assert xml1 == xml2, "Hai lần render cùng một Document IR phải cho ra nội dung XOPP hoàn toàn đồng nhất"

@@ -126,3 +126,66 @@ def test_unclosed_math_delimiter_safe(importer: MarkdownImporter):
     res = importer.import_text(text)
     blocks = res.document.blocks
     assert len(blocks) >= 1
+
+
+# ==============================================================================
+# Feature 054: Gia cố bảo vệ code fence, tính tuyến tính O(n) và CRLF
+# ==============================================================================
+
+def test_code_fence_preservation(importer: MarkdownImporter):
+    """Bảo toàn 100% nội dung bên trong code fence (3, 4+ backticks và tildes)."""
+    # 1. Code fence 3 backticks chứa prefix:$$...$$
+    fence_3 = "```latex\nprefix:$$x=1$$\n```"
+    isolated_3 = MarkdownImporter._isolate_display_math_blocks(fence_3)
+    assert isolated_3 == fence_3
+
+    # 2. Code fence 4 backticks
+    fence_4 = "````markdown\nprefix:$$x=1$$\n```\nvan_ban\n````"
+    isolated_4 = MarkdownImporter._isolate_display_math_blocks(fence_4)
+    assert isolated_4 == fence_4
+
+    # 3. Code fence tilde ~~~
+    fence_tilde = "~~~math\nprefix:$$x=1$$\n~~~"
+    isolated_tilde = MarkdownImporter._isolate_display_math_blocks(fence_tilde)
+    assert isolated_tilde == fence_tilde
+
+    # 4. Unclosed code fence ở cuối file
+    fence_unclosed = "```python\nprefix:$$x=1$$\n"
+    isolated_unclosed = MarkdownImporter._isolate_display_math_blocks(fence_unclosed)
+    assert isolated_unclosed == fence_unclosed
+
+
+def test_code_span_preservation(importer: MarkdownImporter):
+    """Đoạn mã nội dòng chứa $$ không bị nhận nhầm thành display math."""
+    code_span = "Sử dụng mã `prefix:$$x=1$$` để minh họa."
+    isolated = MarkdownImporter._isolate_display_math_blocks(code_span)
+    assert isolated == code_span
+
+
+def test_linear_scalability_unclosed_display_math(importer: MarkdownImporter):
+    """5,000 dòng mở $$ không đóng xử lý xong trong thời gian tuyến tính (< 200ms)."""
+    import time
+    lines = ["Dòng văn bản\n$$unclosed_formula" for _ in range(2500)]
+    large_input = "\n".join(lines)
+
+    t0 = time.perf_counter()
+    isolated = MarkdownImporter._isolate_display_math_blocks(large_input)
+    elapsed = time.perf_counter() - t0
+
+    assert len(isolated) > 0
+    # Xử lý 5,000 dòng phải dưới 0.25 giây (nếu O(n^2) sẽ mất hàng chục giây)
+    assert elapsed < 0.25, f"Thời gian xử lý quá lâu ({elapsed:.3f}s), có thể dính lỗi O(n^2)"
+
+
+def test_crlf_windows_line_endings_safety(importer: MarkdownImporter):
+    """Chuẩn hóa an toàn ngắt dòng CRLF kiểu Windows."""
+    text_crlf = "Dòng 1\r\n$$\\sum_{j=1}^9 x_j = 1$$\r\nDòng 2"
+    res = importer.import_text(text_crlf)
+    blocks = res.document.blocks
+
+    assert len(blocks) == 3
+    assert isinstance(blocks[0], Paragraph)
+    assert isinstance(blocks[1], MathBlock)
+    assert blocks[1].latex == "\\sum_{j=1}^9 x_j = 1"
+    assert isinstance(blocks[2], Paragraph)
+

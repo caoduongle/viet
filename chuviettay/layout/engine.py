@@ -307,16 +307,18 @@ class DocumentLayoutEngine:
         nmiss = 0
 
         # Gộp các Text inline liền kề để tránh chèn khoảng trắng giả tạo trước dấu câu (L6)
+        # BẢO ĐẢM TÍNH BẤT BIẾN (054-repo-audit-hardening): Tạo Text mới, không sửa đổi Text nguồn của caller
         merged_inlines: list[Inline] = []
         for inl in inlines:
             if isinstance(inl, Text) and merged_inlines and isinstance(merged_inlines[-1], Text):
-                t1_occ = getattr(merged_inlines[-1], "token_occurrences", None)
+                prev = merged_inlines[-1]
+                t1_occ = getattr(prev, "token_occurrences", None)
                 t2_occ = getattr(inl, "token_occurrences", None)
+                combined_text = (prev.text or "") + (inl.text or "")
                 if t1_occ is None and t2_occ is None:
-                    merged_inlines[-1].text += (inl.text or "")
+                    merged_inlines[-1] = Text(text=combined_text)
                 elif t1_occ is not None and t2_occ is not None:
-                    merged_inlines[-1].text += (inl.text or "")
-                    merged_inlines[-1].token_occurrences = list(t1_occ) + list(t2_occ)
+                    merged_inlines[-1] = Text(text=combined_text, token_occurrences=list(t1_occ) + list(t2_occ))
                 else:
                     merged_inlines.append(inl)
             else:

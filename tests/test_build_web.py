@@ -203,3 +203,79 @@ def test_sw_precache_and_lazy_urls_separation(built_dist: Path):
     overlap = set(precache_urls).intersection(set(lazy_urls))
     assert len(overlap) == 0, f"PRECACHE_URLS và OPTIONAL_LAZY_URLS bị trùng lặp: {overlap}"
 
+
+
+def test_deterministic_sw_cache_and_path_sensitivity(tmp_path: Path):
+    """[054-repo-audit-hardening] Kiểm tra tính tái lập của khóa cache Service Worker và độ nhạy khi đổi đường dẫn."""
+    from scripts import build_web
+
+    dist1 = tmp_path / "dist1"
+    dist1.mkdir()
+    (dist1 / "a.js").write_text("console.log('hello');", encoding="utf-8")
+    (dist1 / "b.css").write_text("body { color: red; }", encoding="utf-8")
+
+    # Giả lập template sw.js
+    sw_template = build_web.WEBAPP_SRC / "sw.js"
+    assert sw_template.exists()
+
+    build_web.generate_sw_js(dist1)
+    sw1 = (dist1 / "sw.js").read_text(encoding="utf-8")
+    import re
+    match1 = re.search(r'const\s+CACHE_NAME\s*=\s*"([^"]+)";', sw1)
+    assert match1
+    cache1 = match1.group(1)
+
+    # Chạy lần 2 trên cùng cấu trúc -> hash phải trùng khớp 100%
+    build_web.generate_sw_js(dist1)
+    sw2 = (dist1 / "sw.js").read_text(encoding="utf-8")
+    match2 = re.search(r'const\s+CACHE_NAME\s*=\s*"([^"]+)";', sw2)
+    assert match2
+    assert match2.group(1) == cache1, "Cùng dữ liệu đầu vào phải cho ra cùng CACHE_NAME"
+
+    # Đổi đường dẫn tệp (đổi tên b.css -> sub/c.css với nội dung giữ nguyên)
+    (dist1 / "b.css").unlink()
+    sub_dir = dist1 / "sub"
+    sub_dir.mkdir()
+    (sub_dir / "c.css").write_text("body { color: red; }", encoding="utf-8")
+
+    build_web.generate_sw_js(dist1)
+    sw3 = (dist1 / "sw.js").read_text(encoding="utf-8")
+    match3 = re.search(r'const\s+CACHE_NAME\s*=\s*"([^"]+)";', sw3)
+    assert match3
+    assert match3.group(1) != cache1, "Đổi đường dẫn tệp phải làm thay đổi CACHE_NAME"
+
+
+def test_prepare_dist_dir_external_safety(monkeypatch, tmp_path: Path):
+    """[054-repo-audit-hardening] Kiểm tra bảo vệ thư mục ngoài không rỗng khi thiếu --force-clean."""
+    from scripts import build_web
+
+    mock_root = tmp_path / "repo"
+    mock_root.mkdir()
+    mock_webapp = mock_root / "webapp"
+    mock_default_dist = mock_webapp / "dist"
+    mock_default_dist.mkdir(parents=True)
+
+    monkeypatch.setattr(build_web, "ROOT_DIR", mock_root)
+    monkeypatch.setattr(build_web, "DEFAULT_DIST_DIR", mock_default_dist)
+
+    external_dir = tmp_path / "user_important_data"
+    external_dir.mkdir()
+    secret_file = external_dir / "important_document.txt"
+    secret_file.write_text("Dữ liệu quan trọng của người dùng", encoding="utf-8")
+
+    # 1. Thư mục ngoài có dữ liệu, không có marker, không có force_clean -> Chặn và ném SystemExit
+    with pytest.raises(SystemExit) as exc:
+        build_web.prepare_dist_dir(external_dir, force_clean=False)
+    assert "nằm ngoài phạm vi mặc định" in str(exc.value)
+    assert secret_file.exists(), "Tệp quan trọng của người dùng không được phép bị xóa"
+
+    # 2. Thư mục ngoài có dữ liệu nhưng có cờ force_clean=True -> Cho phép dọn dẹp
+    build_web.prepare_dist_dir(external_dir, force_clean=True)
+    assert external_dir.exists()
+    assert not secret_file.exists(), "Tệp cũ đã được dọn sạch khi có force_clean"
+    assert (external_dir / build_web.BUILD_MARKER_NAME).exists(), "Marker file phải được ghi nhận"
+
+    # 3. Lần build tiếp theo vào external_dir (đã có marker) -> Tự động cho phép dọn dẹp không cần force_clean
+    build_web.prepare_dist_dir(external_dir, force_clean=False)
+    assert external_dir.exists()
+    assert (external_dir / build_web.BUILD_MARKER_NAME).exists()

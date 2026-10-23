@@ -560,3 +560,82 @@ test("T019 [US3]: Phục hồi Worker (recoverWorker) nạp lại kho và tự �
     dom.cleanup();
   }
 });
+
+test("T015 [US5]: Kiểm soát phiên bản bankRevision đơn điệu, không mất cờ isBankDirty khi render chen ngang hoặc thất bại", async () => {
+  const dom = setupMockDom();
+  try {
+    const mockWorker = new SyncMockWorker();
+    setWorkerInstance(mockWorker);
+
+    const editor = document.getElementById("editor-text");
+    editor.value = "Kiểm tra race condition bankRevision";
+
+    let state = getWritePreviewSyncState();
+    assert.strictEqual(state.bankRevision, 1);
+    assert.strictEqual(state.lastRenderedRevision, 0);
+    assert.strictEqual(state.isBankDirty, false);
+
+    // Bắt đầu render lượt 1 (tại bankRevision = 1)
+    triggerPreviewImmediate();
+    const writeCalls1 = mockWorker.messagesSent.filter((m) => m.method === "write_text");
+    assert.strictEqual(writeCalls1.length, 1);
+    const req1Id = writeCalls1[0].id;
+
+    // Trong lúc render 1 đang chạy trong nền, người dùng cập nhật kho mẫu (notifyBankUpdated)
+    notifyBankUpdated({ immediate: false });
+    state = getWritePreviewSyncState();
+    assert.strictEqual(state.bankRevision, 2, "bankRevision phải tăng đơn điệu lên 2");
+    assert.strictEqual(state.isBankDirty, true, "isBankDirty phải bật thành true");
+
+    // Render 1 hoàn tất
+    mockWorker.simulateResponse(req1Id, true, {
+      ok: true,
+      xopp_base64: mockXoppBase64,
+      missing_token_boxes: [],
+    });
+    await new Promise((r) => setTimeout(r, 80));
+
+    state = getWritePreviewSyncState();
+    assert.strictEqual(state.lastRenderedRevision, 1, "lastRenderedRevision ghi nhận bản vẽ 1");
+    assert.strictEqual(
+      state.isBankDirty,
+      true,
+      "isBankDirty PHẢI giữ nguyên true vì bản vẽ trên màn hình là kho cũ (rev 1 < rev 2)"
+    );
+
+    // Kích hoạt render lượt 2 (cho revision 2)
+    triggerPreviewImmediate();
+    const writeCalls2 = mockWorker.messagesSent.filter((m) => m.method === "write_text");
+    assert.strictEqual(writeCalls2.length, 2);
+    const req2Id = writeCalls2[1].id;
+
+    // Giả sử lượt 2 gặp lỗi Worker
+    mockWorker.simulateResponse(req2Id, true, {
+      ok: false,
+      error: "Worker memory pressure",
+    });
+    await new Promise((r) => setTimeout(r, 80));
+
+    state = getWritePreviewSyncState();
+    assert.strictEqual(state.isBankDirty, true, "Render lỗi phải giữ nguyên cờ dirty để người dùng có thể thử lại");
+
+    // Thử lại lần 3 thành công
+    triggerPreviewImmediate();
+    const writeCalls3 = mockWorker.messagesSent.filter((m) => m.method === "write_text");
+    assert.strictEqual(writeCalls3.length, 3);
+    const req3Id = writeCalls3[2].id;
+
+    mockWorker.simulateResponse(req3Id, true, {
+      ok: true,
+      xopp_base64: mockXoppBase64,
+      missing_token_boxes: [],
+    });
+    await new Promise((r) => setTimeout(r, 80));
+
+    state = getWritePreviewSyncState();
+    assert.strictEqual(state.lastRenderedRevision, 2);
+    assert.strictEqual(state.isBankDirty, false, "Render thành công với đúng revision hiện hành mới xóa cờ dirty");
+  } finally {
+    dom.cleanup();
+  }
+});

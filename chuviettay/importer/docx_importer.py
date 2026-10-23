@@ -113,6 +113,12 @@ class DocxImporter(BaseImporter):
             warnings.append(MATHTYPE_WARNING.format(n=self._mathtype_count))
         if self._eq_field_count:
             warnings.append(EQ_FIELD_WARNING.format(n=self._eq_field_count))
+        drawing_count = sum(1 for u in unsupported if "embedded image or drawing shape" in u)
+        if drawing_count > 0:
+            warnings.append(f"Tài liệu chứa {drawing_count} hình ảnh/hình vẽ không được đưa vào luồng viết tay (chế độ Content-First).")
+        nested_table_count = sum(1 for u in unsupported if "Bảng lồng nhau" in u)
+        if nested_table_count > 0:
+            warnings.append("Tài liệu chứa bảng lồng nhau đã được trích xuất thành văn bản tóm tắt vào ô cha.")
         return ImportResult(document=Document(blocks=blocks), warnings=warnings, unsupported=unsupported)
 
     # ------------------------------------------------------------------ đối tượng OLE (MathType) và trường EQ
