@@ -98,6 +98,88 @@ class MarkdownImporter(BaseImporter):
         return "".join(out)
 
     @classmethod
+    def _isolate_display_math_blocks(cls, seg: str) -> str:
+        """Đảm bảo các khối công thức toán display ($$..$$) bắt đầu ở dòng mới hoặc liền sau
+        dấu hai chấm có dòng trống phân cách chuẩn CommonMark, ngoại trừ các ô bảng GFM."""
+        if "$$" not in seg:
+            return seg
+
+        lines = seg.split("\n")
+        out_lines: list[str] = []
+        n = len(lines)
+        idx = 0
+
+        while idx < n:
+            line = lines[idx]
+            stripped = line.strip()
+
+            # 1. Bỏ qua các hàng của bảng GFM (|...|) để không phá vỡ cú pháp bảng
+            if stripped.startswith("|") and stripped.endswith("|"):
+                out_lines.append(line)
+                idx += 1
+                continue
+
+            # 2. Xử lý trường hợp nhãn hai chấm dẫn nhập: 'ta có:$$...' hoặc 'với: $$...'
+            colon_match = re.search(r"([^\n$]+:)[ \t]*(\$\$[^\n$].*?\$\$)", line)
+            if colon_match:
+                prefix = line[:colon_match.start(2)].rstrip()
+                rest = line[colon_match.start(2):]
+                if out_lines and out_lines[-1].strip() != "":
+                    out_lines.append("")
+                out_lines.append(prefix)
+                out_lines.append("")
+                line = rest
+                stripped = line.strip()
+
+            # 3. Dòng bắt đầu bằng $$ (sau khoảng trắng thụt lề nếu có)
+            m_open = re.match(r"^([ \t]*)\$\$", line)
+            if m_open:
+                indent = m_open.group(1)
+                # Đảm bảo có dòng trống phía trước nếu dòng trước có chữ
+                if out_lines and out_lines[-1].strip() != "":
+                    out_lines.append(indent)
+
+                # Kiểm tra khối đóng ngay trên cùng một dòng: '  $$content$$[punct] tail'
+                m_single = re.match(r"^([ \t]*)\$\$(.*?)\$\$([ \t]*[,.;:!?]?)(.*)$", line)
+                if m_single:
+                    content = m_single.group(2)
+                    trail_punct = m_single.group(3).strip()
+                    tail = m_single.group(4)
+
+                    block_line = f"{indent}$${content}$$"
+                    out_lines.append(block_line)
+
+                    after_text = f"{trail_punct}{tail}".strip()
+                    if after_text:
+                        out_lines.append(indent)
+                        out_lines.append(f"{indent}{after_text}")
+                    elif idx + 1 < n and lines[idx + 1].strip() != "":
+                        out_lines.append(indent)
+                    idx += 1
+                    continue
+
+                # Multi-line block: tìm dòng kết thúc bằng $$
+                close_idx = -1
+                for scan_idx in range(idx + 1, n):
+                    s_strip = lines[scan_idx].strip()
+                    if s_strip.endswith("$$") or re.search(r"\$\$[ \t]*[,.;:!?]?$", s_strip):
+                        close_idx = scan_idx
+                        break
+
+                if close_idx != -1:
+                    for b_idx in range(idx, close_idx + 1):
+                        out_lines.append(lines[b_idx])
+                    if close_idx + 1 < n and lines[close_idx + 1].strip() != "":
+                        out_lines.append(indent)
+                    idx = close_idx + 1
+                    continue
+
+            out_lines.append(line)
+            idx += 1
+
+        return "\n".join(out_lines)
+
+    @classmethod
     def _normalize_math_delimiters(cls, text: str) -> str:
         """Đổi \\( .. \\) thành $..$ và \\[ .. \\] thành $$..$$ (ngoài đoạn mã) để markdown-it nhận ra công thức."""
         parts = _CODE_SEGMENT.split(text)
@@ -319,7 +401,7 @@ class MarkdownImporter(BaseImporter):
         from mdit_py_plugins.amsmath import amsmath_plugin
         from mdit_py_plugins.dollarmath import dollarmath_plugin
 
-        clean_content = self._sanitize_html(self._normalize_math_delimiters(text or ""))
+        clean_content = self._sanitize_html(self._isolate_display_math_blocks(self._normalize_math_delimiters(text or "")))
         # allow_space=False: "$ x $" và "5$ rồi 10$" (tiền tệ) không bị nhận nhầm là công thức
         md = (
             MarkdownIt("commonmark", {"html": False})

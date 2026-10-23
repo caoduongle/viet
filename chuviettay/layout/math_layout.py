@@ -50,6 +50,11 @@ _SPACING_ROWS = {
     "punct": (-1, -1, 0, -1, -1, -1, -1, -1),
     "inner": (-1, 1, -2, -3, -1, 0, -1, -1),
 }
+# Khoảng hở quang học tối thiểu giữa chỉ số trên và chỉ số dưới khi toán tử lớn thẳng hàng (∑, ∏...)
+# hiển thị ở chế độ cận bên (TeX Rule 18).
+MIN_SUBSUP_GAP_EFF = 3.5
+MIN_SUBSUP_GAP_XH = 0.40
+
 _CLASS_ORDER = ("ord", "op", "bin", "rel", "open", "close", "punct", "inner")
 _MU = {1: 1.0 / 6.0, 2: 2.0 / 9.0, 3: 5.0 / 18.0}
 _TIGHT = 0.09           # khe hở nhỏ giữa hai ký tự liền kề (em) - chữ viết tay cần chút thở
@@ -720,15 +725,35 @@ class MathLayoutEngine:
         ascent, descent = op.size.ascent, op.size.descent
         sup_dx = 0.35 * op.size.width if (tall and node.op in SIDE_LIMIT_OPERATORS) else 0.0
         right = x
+
+        sup_y = 0.0
         if sup is not None:
-            y = (sup.size.ascent - op.size.ascent) if tall else -0.55 * max(op.size.ascent, self.xh * eff)
-            canvas.put(sup, x + sup_dx, y)
-            ascent = max(ascent, -y + sup.size.ascent)
+            sup_y = (sup.size.ascent - op.size.ascent) if tall else -0.55 * max(op.size.ascent, self.xh * eff)
+
+        sub_y = 0.0
+        if sub is not None:
+            sub_y = (op.size.descent - sub.size.descent) if tall else 0.35 * op.size.descent + 3.0 * eff
+
+        # Bảo đảm khoảng cách an toàn quang học giữa chỉ số trên và chỉ số dưới khi thẳng hàng (TeX Rule 18)
+        if tall and sup is not None and sub is not None and sup_dx == 0.0:
+            sup_ink_top, sup_ink_bot = self._get_item_ink_bounds(sup)
+            sub_ink_top, sub_ink_bot = self._get_item_ink_bounds(sub)
+            sup_actual_bot = sup_y + max(sup.size.descent, sup_ink_bot)
+            sub_actual_top = sub_y + min(-sub.size.ascent, sub_ink_top)
+            gap = sub_actual_top - sup_actual_bot
+            min_gap = max(MIN_SUBSUP_GAP_EFF * eff, MIN_SUBSUP_GAP_XH * self.xh * eff)
+            if gap < min_gap:
+                deficit = min_gap - gap
+                sub_y += deficit * 0.65
+                sup_y -= deficit * 0.35
+
+        if sup is not None:
+            canvas.put(sup, x + sup_dx, sup_y)
+            ascent = max(ascent, -sup_y + sup.size.ascent)
             right = max(right, x + sup_dx + sup.size.width)
         if sub is not None:
-            y = (op.size.descent - sub.size.descent) if tall else 0.35 * op.size.descent + 3.0 * eff
-            canvas.put(sub, x, y)
-            descent = max(descent, y + sub.size.descent)
+            canvas.put(sub, x, sub_y)
+            descent = max(descent, sub_y + sub.size.descent)
             right = max(right, x + sub.size.width)
         return canvas.build(right, ascent, descent)
 

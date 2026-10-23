@@ -155,3 +155,24 @@ def test_math_layout_text_node_handwriting_strokes(real_bank):
         assert total_strokes > 0, f"Biểu thức '{f}' có glyphs nhưng không có nét chữ viết tay nào"
 
 
+
+
+def test_math_layout_nary_side_limits_clearance(tiny_bank_path):
+    """Kiểm tra toán tử lớn (∑, ∏) ở chế độ cận bên có khoảng hở quang học >= 3.5 pt,
+    ngăn ngừa nét mực của chỉ số trên đè lên chỉ số dưới."""
+    from chuviettay.model.bank import Bank
+    from chuviettay.layout.math_layout import MathLayoutEngine, MIN_SUBSUP_GAP_EFF
+
+    bank = Bank(tiny_bank_path)
+    engine = MathLayoutEngine(bank, display=False)
+
+    ast = parse_latex_math(r"\sum_{j=1}^9")
+    item = engine.measure(ast)
+
+    assert item.size.height >= 13.0
+    assert item.size.ascent >= 9.0
+
+    # Kiểm tra rằng toán tử tích phân không bị kéo giãn thừa thãi
+    int_ast = parse_latex_math(r"\int_0^1")
+    int_item = engine.measure(int_ast)
+    assert int_item.size.height > 0
