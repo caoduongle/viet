@@ -564,7 +564,17 @@ class MarkdownImporter(BaseImporter):
                         out_lines.append(curr_bq_pref.rstrip())
                     # Không continue: dòng này rơi ra ngoài trích dẫn của khối toán và cần được xử lý tiếp bên dưới
                 else:
-                    out_lines.append(line)
+                    line_to_emit = line
+                    # Nếu dòng có độ sâu trích dẫn sâu hơn math_bq_depth và kết thúc bằng $$,
+                    # đây là dấu đóng giả ở cấp lồng nhau. Thoát $$ thành \$\$ để dollarmath
+                    # của markdown-it không đóng sớm ở cấp lồng nhau này.
+                    if bq_depth > math_bq_depth and (stripped_rest.endswith("$$") or re.search(r"\$\$[ \t]*[,.;:!?]?$", stripped_rest)):
+                        m_trail = re.search(r"\$\$([ \t]*[,.;:!?]?[ \t]*)$", line)
+                        if m_trail:
+                            trail_punct = m_trail.group(1)
+                            line_to_emit = line[:m_trail.start()] + r"\$\$" + trail_punct
+                    out_lines.append(line_to_emit)
+
                     # Chỉ đóng khối toán khi ở cùng độ sâu trích dẫn math_bq_depth
                     # và dòng kết thúc bằng $$ (có thể kèm dấu câu)
                     is_close = False
@@ -900,7 +910,8 @@ class MarkdownImporter(BaseImporter):
             # 3. Math Block ($$...$$, \[...\], \begin{align}...\end{align})
             elif tok.type in ("math_block", "math_block_label", "math_block_end", "amsmath"):
                 if tok.content.strip():
-                    blocks.append(MathBlock(latex=tok.content.strip()))
+                    latex = tok.content.strip().replace(r"\$\$", "$$")
+                    blocks.append(MathBlock(latex=latex))
 
             # 4. List Block (đệ quy lồng nhau)
             elif tok.type in ("bullet_list_open", "ordered_list_open"):

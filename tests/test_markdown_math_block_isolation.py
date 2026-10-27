@@ -442,6 +442,7 @@ def test_adversarial_complexity_unclosed_backticks_and_blockquotes(importer: Mar
     def run_pipeline(txt: str) -> str:
         return importer._sanitize_html(importer._isolate_display_math_blocks(importer._normalize_math_delimiters(txt)))
 
+    was_gc_enabled = gc.isenabled()
     gc.collect()
     try:
         gc.disable()
@@ -466,7 +467,10 @@ def test_adversarial_complexity_unclosed_backticks_and_blockquotes(importer: Mar
             run_pipeline(text_4n)
         t_4n = (time.perf_counter() - t0) / 3
     finally:
-        gc.enable()
+        if was_gc_enabled:
+            gc.enable()
+        else:
+            gc.disable()
 
     # Tỷ lệ tăng giữa 2N và N, 4N và N: thuật toán tuyến tính O(n) xấp xỉ 2.0x và 4.0x, trần an toàn <= 6.0x
     assert t_2n > 0
@@ -705,8 +709,32 @@ def test_display_math_in_blockquote_blank_line_exit_and_matching_depth_close(imp
         "> $$"
     )
     isolated_nested = importer._isolate_display_math_blocks(text_nested_close)
-    # Khối toán đóng ở dòng cuối (> $$)
+    # Khối toán đóng ở dòng cuối (> $$) và bảo toàn các dòng bên trong
     assert isolated_nested.endswith("$$")
+    assert "> x = 1" in isolated_nested
+    assert "> x = 2" in isolated_nested
+
+    # Xác nhận qua import_text(): chỉ sinh đúng 1 MathBlock duy nhất chứa cả x=1 và x=2
+    res_nested = importer.import_text(text_nested_close)
+    math_blocks_nested = [b for b in res_nested.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_blocks_nested) == 1
+    assert "x = 1" in math_blocks_nested[0].latex
+    assert "x = 2" in math_blocks_nested[0].latex
+
+    # Dấu đóng $$ ở cấp sâu hơn (>>) kèm dấu câu và khoảng trắng không đóng nhầm khối toán ở cấp >
+    text_nested_punct = (
+        "> $$\n"
+        "> a = 1\n"
+        ">> $$,   \n"
+        "> a = 2\n"
+        "> $$"
+    )
+    res_punct = importer.import_text(text_nested_punct)
+    math_blocks_punct = [b for b in res_punct.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_blocks_punct) == 1
+    assert "a = 1" in math_blocks_punct[0].latex
+    assert "a = 2" in math_blocks_punct[0].latex
+    assert "$$,   " in math_blocks_punct[0].latex
 
 
 def test_pipeline_code_preservation_and_outside_math_invariants(importer: MarkdownImporter):
@@ -802,6 +830,7 @@ def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: 
     def run_pipeline(txt: str) -> str:
         return importer._sanitize_html(importer._isolate_display_math_blocks(importer._normalize_math_delimiters(txt)))
 
+    was_gc_enabled = gc.isenabled()
     gc.collect()
     try:
         gc.disable()
@@ -827,12 +856,24 @@ def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: 
             out_4n = run_pipeline(text_4n)
         t_4n = (time.perf_counter() - t0) / 3
     finally:
-        gc.enable()
+        if was_gc_enabled:
+            gc.enable()
+        else:
+            gc.disable()
 
     assert len(out_n) > 0
     assert len(out_2n) > 0
     assert len(out_4n) > 0
     assert t_2n > 0
+
+    # Khẳng định bất biến công thức toán học được bảo toàn / chuẩn hóa đúng số lượng
+    assert out_n.count("$$display_formula$$") == 250
+    assert out_2n.count("$$display_formula$$") == 500
+    assert out_4n.count("$$display_formula$$") == 1000
+
+    assert out_n.count("$$x=1$$") == 250
+    assert out_2n.count("$$x=1$$") == 500
+    assert out_4n.count("$$x=1$$") == 1000
 
     # Khẳng định bất biến bảo toàn nội dung cụ thể trên out_n, out_2n, out_4n
     # Mỗi cấu trúc trong 4 mẫu xuất hiện đúng n_chunks // 4 lần
