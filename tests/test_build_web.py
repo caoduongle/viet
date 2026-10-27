@@ -210,6 +210,33 @@ def test_sw_precache_and_lazy_urls_separation(built_dist: Path):
     assert not any("/." in u for u in precache_urls), "Tệp ẩn bị lọt vào PRECACHE_URLS"
 
 
+def test_generate_sw_js_excludes_hidden_directories(tmp_path: Path):
+    """[056] Kiểm tra generate_sw_js cắt tỉa thư mục ẩn (.internal/) không đưa vào PRECACHE_URLS."""
+    from scripts import build_web
+
+    dist = tmp_path / "dist_with_hidden"
+    dist.mkdir()
+    (dist / "index.html").write_text("<h1>Test</h1>", encoding="utf-8")
+
+    # Tạo thư mục ẩn chứa tệp
+    hidden_dir = dist / ".internal"
+    hidden_dir.mkdir()
+    (hidden_dir / "secret.js").write_text("console.log('secret');", encoding="utf-8")
+
+    build_web.generate_sw_js(dist)
+    sw_content = (dist / "sw.js").read_text(encoding="utf-8")
+
+    import json
+    import re
+    m = re.search(r"const\s+PRECACHE_URLS\s*=\s*(\[[^\]]+\]);", sw_content)
+    assert m, "Không tìm thấy PRECACHE_URLS trong sw.js"
+    precache_urls = json.loads(m.group(1))
+
+    assert not any("secret.js" in u for u in precache_urls), "Tệp trong thư mục ẩn bị lọt vào PRECACHE_URLS"
+    assert not any(".internal" in u for u in precache_urls), "Thư mục ẩn bị lọt vào PRECACHE_URLS"
+    assert not any("/." in u for u in precache_urls)
+
+
 
 def test_deterministic_sw_cache_and_path_sensitivity(tmp_path: Path):
     """[054-repo-audit-hardening] Kiểm tra tính tái lập của khóa cache Service Worker và độ nhạy khi đổi đường dẫn."""
@@ -269,7 +296,7 @@ def test_prepare_dist_dir_external_safety(monkeypatch, tmp_path: Path):
     secret_file = external_dir / "important_document.txt"
     secret_file.write_text("Dữ liệu quan trọng của người dùng", encoding="utf-8")
 
-    # 1. Thư mục ngoài có dữ liệu, không có marker, không có force_clean -> Chặn và ném SystemExit
+    # 1. Thư mục ngoài có dữ liệu, không có force_clean -> Chặn và ném SystemExit
     with pytest.raises(SystemExit) as exc:
         build_web.prepare_dist_dir(external_dir, force_clean=False)
     assert "nằm ngoài phạm vi mặc định" in str(exc.value)
@@ -279,9 +306,20 @@ def test_prepare_dist_dir_external_safety(monkeypatch, tmp_path: Path):
     build_web.prepare_dist_dir(external_dir, force_clean=True)
     assert external_dir.exists()
     assert not secret_file.exists(), "Tệp cũ đã được dọn sạch khi có force_clean"
-    assert (external_dir / build_web.BUILD_MARKER_NAME).exists(), "Marker file phải được ghi nhận"
+    assert not (external_dir / build_web.BUILD_MARKER_NAME).exists(), "Thư mục xuất xưởng sạch, không tạo marker nội bộ"
 
-    # 3. Lần build tiếp theo vào external_dir (đã có marker) -> Tự động cho phép dọn dẹp không cần force_clean
+    # 3. Sau khi build, người dùng lưu thêm tệp mới vào external_dir
+    user_new_file = external_dir / "user_new_document.pdf"
+    user_new_file.write_text("Tài liệu mới của người dùng", encoding="utf-8")
+
+    # Lần build tiếp theo vào external_dir có chứa dữ liệu mà không có force_clean -> BẮT BUỘC chặn và ném SystemExit
+    with pytest.raises(SystemExit) as exc2:
+        build_web.prepare_dist_dir(external_dir, force_clean=False)
+    assert "nằm ngoài phạm vi mặc định" in str(exc2.value)
+    assert user_new_file.exists(), "Tệp mới của người dùng không bao giờ bị xóa chỉ vì thư mục từng được build trước đó"
+
+    # 4. Khi external_dir hoàn toàn rỗng -> Cho phép chuẩn bị build mà không cần force_clean
+    user_new_file.unlink()
+    assert not any(external_dir.iterdir())
     build_web.prepare_dist_dir(external_dir, force_clean=False)
     assert external_dir.exists()
-    assert (external_dir / build_web.BUILD_MARKER_NAME).exists()

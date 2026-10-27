@@ -106,6 +106,30 @@ def test_gfm_compact_table_math_first_cell(importer: MarkdownImporter):
     assert table.rows[0].cells[1].blocks[0].inlines[0].text == "Val"
     # Hàng 2 (dữ liệu): $$x=1$$, 2
     assert len(table.rows[1].cells) == 2
+    # Ô 1 là công thức math: x=1
+    cell_0_inlines = table.rows[1].cells[0].blocks[0].inlines
+    assert len(cell_0_inlines) == 1
+    assert isinstance(cell_0_inlines[0], MathInline)
+    assert cell_0_inlines[0].latex == "x=1"
+    # Ô 2 là văn bản: 2
+    cell_1_inlines = table.rows[1].cells[1].blocks[0].inlines
+    assert len(cell_1_inlines) == 1
+    assert isinstance(cell_1_inlines[0], Text)
+    assert cell_1_inlines[0].text == "2"
+
+
+def test_isolated_pipe_line_is_not_table(importer: MarkdownImporter):
+    """[056] Dòng đơn độc lập '$$x=1$$ | 2' không có hàng phân cách '---|---' không phải bảng GFM."""
+    text = "$$x=1$$ | 2"
+    res = importer.import_text(text)
+    blocks = res.document.blocks
+
+    # Phải được tách thành MathBlock("x=1") và Paragraph("| 2")
+    assert len(blocks) == 2, f"Kỳ vọng 2 blocks (MathBlock + Paragraph) nhưng nhận được: {blocks}"
+    assert isinstance(blocks[0], MathBlock)
+    assert blocks[0].latex == "x=1"
+    assert isinstance(blocks[1], Paragraph)
+    assert "| 2" in blocks[1].inlines[0].text
 
 
 def test_math_block_containing_internal_pipe(importer: MarkdownImporter):
@@ -188,6 +212,52 @@ def test_code_fence_preservation(importer: MarkdownImporter):
     res_fence = importer.import_text(fence_nested)
     assert not any(isinstance(b, MathBlock) for b in res_fence.document.blocks)
 
+    # 6. [056] Code fence tilde lồng trong Blockquote (> ~~~latex) qua _normalize_math_delimiters và import_text
+    fence_bq_tilde = "> ~~~latex\n> \\[x=1\\]\n> ~~~"
+    assert MarkdownImporter._normalize_math_delimiters(fence_bq_tilde) == fence_bq_tilde
+    res_bq = importer.import_text(fence_bq_tilde)
+    assert not any(isinstance(b, MathBlock) for b in res_bq.document.blocks)
+
+    # 7. [056] Code fence 4 backticks lồng trong Blockquote (>> ````)
+    fence_bq_nested = ">> ````markdown\n>> ```\n>> \\[x=1\\]\n>> ````"
+    assert MarkdownImporter._normalize_math_delimiters(fence_bq_nested) == fence_bq_nested
+    res_bq_nested = importer.import_text(fence_bq_nested)
+    assert not any(isinstance(b, MathBlock) for b in res_bq_nested.document.blocks)
+
+
+def test_indented_code_block_preservation(importer: MarkdownImporter):
+    """[056] Khối mã thụt lề 4 khoảng trắng (Indented Code Block) bảo toàn công thức \\[...\\] không bị đổi thành MathBlock."""
+    # Khối mã thụt lề 4 dấu cách đứng sau dòng trống
+    text = "Văn bản dẫn nhập\n\n    \\[x=1\\]\n    \\[y=2\\]\n\nĐoạn văn kết thúc"
+    normalized = MarkdownImporter._normalize_math_delimiters(text)
+    assert "\\[x=1\\]" in normalized
+    assert "$$x=1$$" not in normalized
+
+    res = importer.import_text(text)
+    # Khối mã thụt lề được ghi nhận vào unsupported code_block, không tạo MathBlock
+    assert not any(isinstance(b, MathBlock) for b in res.document.blocks)
+    assert any("code_block" in u for u in res.unsupported)
+
+
+def test_escaped_backtick_not_code_span(importer: MarkdownImporter):
+    """[056] Dấu backtick bị thoát bởi gạch chéo ngược (\\`) không được coi là mở/đóng code span."""
+    # 1. Backtick bị thoát (\`) không mở code span; code span thật `\[x=1\]` nằm phía sau
+    text = "Dấu \\` không phải code nhưng `\\[x=1\\]` là code."
+    spans = MarkdownImporter._find_code_spans(text)
+    # Duy nhất đoạn `\[x=1\]` là code span
+    assert len(spans) == 1
+    code_text = text[spans[0][0] : spans[0][1]]
+    assert code_text == "`\\[x=1\\]`"
+
+    # Công thức trong code span được giữ nguyên, backtick thoát không làm vỡ
+    normalized = MarkdownImporter._normalize_math_delimiters(text)
+    assert "`\\[x=1\\]`" in normalized
+
+    # 2. Hai gạch chéo ngược (\\\\`) -> gạch chéo tự thoát, backtick là hợp lệ mở code span
+    text_even = "Dấu \\\\`code\\` bình thường."
+    spans_even = MarkdownImporter._find_code_spans(text_even)
+    assert len(spans_even) == 1
+
 
 def test_code_span_preservation(importer: MarkdownImporter):
     """Đoạn mã nội dòng chứa $$ không bị nhận nhầm thành display math."""
@@ -206,20 +276,25 @@ def test_code_span_preservation(importer: MarkdownImporter):
 
 
 def test_linear_scalability_unclosed_display_math(importer: MarkdownImporter):
-    """[055] 5,000 và 10,000 dòng mở $$ không đóng xử lý với tỷ lệ tuyến tính (T2/T1 <= 3.5)."""
+    """[056] 5,000 và 10,000 dòng tiền xử lý toàn diện (split_code, normalize, isolate, sanitize) với tỷ lệ tuyến tính (T2/T1 <= 3.5)."""
     import time
-    lines_n = ["Dòng văn bản\n$$unclosed_formula" for _ in range(2500)]
+    lines_n = ["Dòng văn bản \\[a=1\\] và `code`\n$$unclosed_formula" for _ in range(2500)]
     input_n = "\n".join(lines_n)
 
-    lines_2n = ["Dòng văn bản\n$$unclosed_formula" for _ in range(5000)]
+    lines_2n = ["Dòng văn bản \\[a=1\\] và `code`\n$$unclosed_formula" for _ in range(5000)]
     input_2n = "\n".join(lines_2n)
 
+    def run_pipeline(text: str) -> str:
+        s1 = importer._normalize_math_delimiters(text)
+        s2 = importer._isolate_display_math_blocks(s1)
+        return importer._sanitize_html(s2)
+
     t0 = time.perf_counter()
-    res_n = MarkdownImporter._isolate_display_math_blocks(input_n)
+    res_n = run_pipeline(input_n)
     t1 = time.perf_counter() - t0
 
     t0 = time.perf_counter()
-    res_2n = MarkdownImporter._isolate_display_math_blocks(input_2n)
+    res_2n = run_pipeline(input_2n)
     t2 = time.perf_counter() - t0
 
     assert len(res_n) > 0

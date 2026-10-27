@@ -116,19 +116,18 @@ def prepare_dist_dir(dist_dir: Path, force_clean: bool = False) -> None:
     if resolved_dist.exists():
         is_default_dist = (resolved_dist == resolved_default_dist)
         is_empty = not any(resolved_dist.iterdir())
-        has_marker = (resolved_dist / BUILD_MARKER_NAME).exists()
 
-        if not (is_default_dist or is_empty or has_marker or force_clean):
+        # Thư mục ngoài mặc định đang chứa dữ liệu bắt buộc phải có --force-clean tại phiên chạy này
+        if not is_default_dist and not is_empty and not force_clean:
             sys.exit(
                 f"Lỗi an toàn: Thư mục đích ({resolved_dist}) nằm ngoài phạm vi mặc định, đang chứa dữ liệu "
                 f"và không có cờ --force-clean. Thao tác dọn dẹp bị từ chối để bảo vệ dữ liệu."
             )
 
-        shutil.rmtree(resolved_dist)
+        if not is_empty:
+            shutil.rmtree(resolved_dist)
 
     resolved_dist.mkdir(parents=True, exist_ok=True)
-    # Ghi nhận tệp marker đánh dấu thư mục dist do build sinh ra
-    (resolved_dist / BUILD_MARKER_NAME).write_text("chuviettay-dist-marker\n", encoding="utf-8")
 
 
 def ensure_vendor_wheels(dist_wheels_dir: Path) -> None:
@@ -323,7 +322,9 @@ def generate_sw_js(dist_dir: Path) -> None:
     # 1. Thu thập tất cả các tệp trong dist_dir (trừ sw.js) và tính băm tổng hợp chuẩn tắc
     raw_files: list[tuple[str, str]] = []  # (rel_path, file_sha)
 
-    for root, _, files in os.walk(dist_dir):
+    for root, dirs, files in os.walk(dist_dir):
+        # Loại trừ toàn bộ thư mục ẩn (.git, .internal, ...) in-place để không duyệt sâu vào trong
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
         for f in files:
             if f == "sw.js" or f.startswith(".") or f == BUILD_MARKER_NAME:
                 continue
