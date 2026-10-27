@@ -67,3 +67,39 @@ def test_build_web_generates_matching_version_json(tmp_path):
     assert data.get("version") == chuviettay.__version__, (
         f"version.json do build sinh ra ghi '{data.get('version')}', không khớp với '{chuviettay.__version__}'!"
     )
+
+
+def test_python_version_file_format():
+    """[057-fix-ci-python-version] .python-version phải khai báo dòng minor '3.13' hợp lệ, không ghim bản vá vi mô."""
+    import re
+
+    py_ver_path = ROOT_DIR / ".python-version"
+    assert py_ver_path.exists(), ".python-version không tồn tại!"
+
+    content = py_ver_path.read_text(encoding="utf-8").strip()
+    assert re.match(r"^\d+\.\d+$", content), (
+        f".python-version phải có định dạng Major.Minor (ví dụ 3.13), nhưng nhận được: '{content}'"
+    )
+    assert content == "3.13", f".python-version phải là '3.13', nhưng nhận được '{content}'!"
+
+
+def test_render_yaml_python_version():
+    """[057-fix-ci-python-version] render.yaml phải đồng bộ biến PYTHON_VERSION khớp với .python-version ('3.13')."""
+    import re
+
+    render_yaml_path = ROOT_DIR / "render.yaml"
+    py_ver_path = ROOT_DIR / ".python-version"
+    assert render_yaml_path.exists(), "render.yaml không tồn tại!"
+    assert py_ver_path.exists(), ".python-version không tồn tại!"
+
+    expected_ver = py_ver_path.read_text(encoding="utf-8").strip()
+
+    content = render_yaml_path.read_text(encoding="utf-8")
+    assert "key: PYTHON_VERSION" in content
+    m = re.search(r"key:\s*PYTHON_VERSION\s*\n\s*value:\s*([^\n\r]+)", content)
+    assert m, "Không tìm thấy cấu hình value cho PYTHON_VERSION trong render.yaml!"
+    val = m.group(1).strip().strip('"').strip("'")
+    assert val == expected_ver, (
+        f"PYTHON_VERSION trong render.yaml ({val}) phải khớp với .python-version ({expected_ver})!"
+    )
+    assert val == "3.13", f"PYTHON_VERSION trong render.yaml phải là '3.13', nhưng nhận được '{val}'!"
