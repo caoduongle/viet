@@ -51,6 +51,10 @@ _HTML_TAG = re.compile(
     re.IGNORECASE,
 )
 
+# Miền ký tự Private Use Area của BMP (U+E000..U+F8FF, 6.400 điểm mã) dùng làm dấu giữ chỗ nội bộ
+_FAKE_CLOSE_PUA_START = 0xE000
+_FAKE_CLOSE_PUA_END = 0xF8FF
+
 
 class MarkdownImporter(BaseImporter):
     """Nạp tài liệu Markdown, hỗ trợ tiêu đề, danh sách, bảng GFM và công thức toán học."""
@@ -59,6 +63,34 @@ class MarkdownImporter(BaseImporter):
         # Kiểm tra và nạp thư viện markdown-it-py
         require_dependency("markdown_it", feature_desc="tệp Markdown (.md)")
         require_dependency("mdit_py_plugins", feature_desc="tính năng toán học trong Markdown")
+
+    @classmethod
+    def _choose_fake_close_placeholder(cls, text: str) -> str | None:
+        """Chọn ký tự giữ chỗ cho dấu đóng giả từ vùng Private Use Area của BMP (U+E000..U+F8FF).
+        Trả về ký tự đầu tiên không xuất hiện trong text, hoặc None nếu cạn kiệt."""
+        if not text:
+            return chr(_FAKE_CLOSE_PUA_START)
+        for cp in range(_FAKE_CLOSE_PUA_START, _FAKE_CLOSE_PUA_END + 1):
+            ch = chr(cp)
+            if ch not in text:
+                return ch
+        return None
+
+    @classmethod
+    def _restore_fake_close_placeholder(cls, tokens: list[Any], placeholder: str | None) -> None:
+        """Khôi phục đệ quy dấu giữ chỗ nội bộ về '$$' trên toàn bộ cây token của markdown-it.
+        Xử lý cả token.content và token.info (phòng ngừa rò rỉ vào unsupported hoặc Text)."""
+        if not placeholder or not tokens:
+            return
+
+        for tok in tokens:
+            if getattr(tok, "content", None) and placeholder in tok.content:
+                tok.content = tok.content.replace(placeholder, "$$")
+            if getattr(tok, "info", None) and placeholder in tok.info:
+                tok.info = tok.info.replace(placeholder, "$$")
+            children = getattr(tok, "children", None)
+            if children:
+                cls._restore_fake_close_placeholder(children, placeholder)
 
     @classmethod
     def _escaped_split_table_row(cls, line_str: str) -> list[str]:
@@ -424,7 +456,7 @@ class MarkdownImporter(BaseImporter):
         return bool(re.search(r"(?<!\\)\|", s))
 
     @classmethod
-    def _isolate_display_math_blocks(cls, seg: str) -> str:
+    def _isolate_display_math_blocks(cls, seg: str, fake_close_placeholder: str | None = "") -> str:
         """Đảm bảo các khối công thức toán display ($$..$$) bắt đầu ở dòng mới hoặc liền sau
         dấu hai chấm có dòng trống phân cách chuẩn CommonMark, ngoại trừ các khối mã (code fence),
         khối mã thụt lề (indented code block), đoạn mã nội dòng (code span) và các ô bảng GFM.
@@ -439,6 +471,9 @@ class MarkdownImporter(BaseImporter):
 
         if "$$" not in seg:
             return seg
+
+        if fake_close_placeholder == "":
+            fake_close_placeholder = cls._choose_fake_close_placeholder(seg)
 
         lines = seg.split("\n")
         out_lines: list[str] = []
@@ -566,13 +601,17 @@ class MarkdownImporter(BaseImporter):
                 else:
                     line_to_emit = line
                     # Nếu dòng có độ sâu trích dẫn sâu hơn math_bq_depth và kết thúc bằng $$,
-                    # đây là dấu đóng giả ở cấp lồng nhau. Thoát $$ thành \$\$ để dollarmath
-                    # của markdown-it không đóng sớm ở cấp lồng nhau này.
-                    if bq_depth > math_bq_depth and (stripped_rest.endswith("$$") or re.search(r"\$\$[ \t]*[,.;:!?]?$", stripped_rest)):
+                    # đây là dấu đóng giả ở cấp lồng nhau. Thay $$ bằng dấu giữ chỗ nội bộ
+                    # để dollarmath của markdown-it không đóng sớm ở cấp lồng nhau này.
+                    if (
+                        fake_close_placeholder
+                        and bq_depth > math_bq_depth
+                        and (stripped_rest.endswith("$$") or re.search(r"\$\$[ \t]*[,.;:!?]?$", stripped_rest))
+                    ):
                         m_trail = re.search(r"\$\$([ \t]*[,.;:!?]?[ \t]*)$", line)
                         if m_trail:
                             trail_punct = m_trail.group(1)
-                            line_to_emit = line[:m_trail.start()] + r"\$\$" + trail_punct
+                            line_to_emit = line[:m_trail.start()] + fake_close_placeholder + trail_punct
                     out_lines.append(line_to_emit)
 
                     # Chỉ đóng khối toán khi ở cùng độ sâu trích dẫn math_bq_depth
@@ -910,8 +949,7 @@ class MarkdownImporter(BaseImporter):
             # 3. Math Block ($$...$$, \[...\], \begin{align}...\end{align})
             elif tok.type in ("math_block", "math_block_label", "math_block_end", "amsmath"):
                 if tok.content.strip():
-                    latex = tok.content.strip().replace(r"\$\$", "$$")
-                    blocks.append(MathBlock(latex=latex))
+                    blocks.append(MathBlock(latex=tok.content.strip()))
 
             # 4. List Block (đệ quy lồng nhau)
             elif tok.type in ("bullet_list_open", "ordered_list_open"):
@@ -941,7 +979,10 @@ class MarkdownImporter(BaseImporter):
         from mdit_py_plugins.amsmath import amsmath_plugin
         from mdit_py_plugins.dollarmath import dollarmath_plugin
 
-        clean_content = self._sanitize_html(self._isolate_display_math_blocks(self._normalize_math_delimiters(text or "")))
+        normalized = self._normalize_math_delimiters(text or "")
+        placeholder = self._choose_fake_close_placeholder(normalized) if "$$" in normalized else None
+        isolated = self._isolate_display_math_blocks(normalized, fake_close_placeholder=placeholder)
+        clean_content = self._sanitize_html(isolated)
         # allow_space=False: "$ x $" và "5$ rồi 10$" (tiền tệ) không bị nhận nhầm là công thức
         md = (
             MarkdownIt("commonmark", {"html": False})
@@ -951,6 +992,7 @@ class MarkdownImporter(BaseImporter):
             .use(amsmath_plugin)
         )
         tokens = md.parse(clean_content)
+        self._restore_fake_close_placeholder(tokens, placeholder)
 
         warnings: list[str] = []
         unsupported: list[str] = []

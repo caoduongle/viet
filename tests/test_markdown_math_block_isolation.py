@@ -709,19 +709,16 @@ def test_display_math_in_blockquote_blank_line_exit_and_matching_depth_close(imp
         "> $$"
     )
     isolated_nested = importer._isolate_display_math_blocks(text_nested_close)
-    # Khối toán đóng ở dòng cuối (> $$) và bảo toàn các dòng bên trong
-    assert isolated_nested.endswith("$$")
-    assert "> x = 1" in isolated_nested
-    assert "> x = 2" in isolated_nested
+    # [062-US3: T-ISO] So sánh chính xác 100% chuỗi đầu ra sau cô lập (chứa ký tự PUA \ue000)
+    assert isolated_nested == "> $$\n> x = 1\n>> \ue000\n> x = 2\n> $$"
 
-    # Xác nhận qua import_text(): chỉ sinh đúng 1 MathBlock duy nhất chứa cả x=1 và x=2
+    # [062-US3: T-NEST] Xác nhận qua import_text(): chỉ sinh đúng 1 MathBlock với nội dung chính xác tuyệt đối
     res_nested = importer.import_text(text_nested_close)
     math_blocks_nested = [b for b in res_nested.document.blocks if isinstance(b, MathBlock)]
     assert len(math_blocks_nested) == 1
-    assert "x = 1" in math_blocks_nested[0].latex
-    assert "x = 2" in math_blocks_nested[0].latex
+    assert math_blocks_nested[0].latex == "> x = 1\n>> $$\n> x = 2\n>"
 
-    # Dấu đóng $$ ở cấp sâu hơn (>>) kèm dấu câu và khoảng trắng không đóng nhầm khối toán ở cấp >
+    # [062-US3: T-PUNCT] Dấu đóng $$ ở cấp sâu hơn (>>) kèm dấu câu và khoảng trắng được khôi phục chính xác từng ký tự
     text_nested_punct = (
         "> $$\n"
         "> a = 1\n"
@@ -732,9 +729,7 @@ def test_display_math_in_blockquote_blank_line_exit_and_matching_depth_close(imp
     res_punct = importer.import_text(text_nested_punct)
     math_blocks_punct = [b for b in res_punct.document.blocks if isinstance(b, MathBlock)]
     assert len(math_blocks_punct) == 1
-    assert "a = 1" in math_blocks_punct[0].latex
-    assert "a = 2" in math_blocks_punct[0].latex
-    assert "$$,   " in math_blocks_punct[0].latex
+    assert math_blocks_punct[0].latex == "> a = 1\n>> $$,   \n> a = 2\n>"
 
 
 def test_pipeline_code_preservation_and_outside_math_invariants(importer: MarkdownImporter):
@@ -906,4 +901,94 @@ def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: 
     assert ratio <= 6.0, f"Tỷ lệ tăng thời gian ({ratio:.2f}x) vượt ngưỡng tuyến tính (t_n={t_n:.3f}s, t_4n={t_4n:.3f}s)"
     assert t_4n < 2.0, f"Thời gian xử lý 4,000 dòng bất lợi vượt ngưỡng 2.0s ({t_4n:.3f}s)"
 
+
+# ==============================================================================
+# Feature 062: Khôi phục Dấu Đóng Giả bằng Dấu Giữ Chỗ Riêng & Bảo Toàn LaTeX
+# ==============================================================================
+
+def test_escaped_dollar_formula_preservation(importer: MarkdownImporter):
+    """[062-US1] Khẳng định các công thức LaTeX chứa ký hiệu đô-la escape (\\$, \\$\\$)
+    được bảo toàn 100% nguyên vẹn từng ký tự, không bị replace(r"\\$\\$", "$$") làm sai lệch.
+    """
+    # T-ESC1: Một dòng $$\\text{\\$\\$}$$
+    res_esc1 = importer.import_text("$$\\text{\\$\\$}$$")
+    math_esc1 = [b for b in res_esc1.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_esc1) == 1
+    assert math_esc1[0].latex == r"\text{\$\$}"
+
+    # T-ESC2: Nhiều dòng
+    res_esc2 = importer.import_text("$$\n\\text{\\$\\$}\n$$")
+    math_esc2 = [b for b in res_esc2.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_esc2) == 1
+    assert math_esc2[0].latex == r"\text{\$\$}"
+
+    # T-ESC3: Trong trích dẫn
+    res_esc3 = importer.import_text("> $$\n> \\text{\\$\\$}\n> $$")
+    math_esc3 = [b for b in res_esc3.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_esc3) == 1
+    assert math_esc3[0].latex == "> \\text{\\$\\$}\n>"
+
+    # T-MULTI: Một dòng và nhiều dòng chứa cả \\$ và \\$\\$\\$\\$
+    res_multi_single = importer.import_text(r"$$\$ + \text{\$\$\$\$}$$")
+    math_multi_single = [b for b in res_multi_single.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_multi_single) == 1
+    assert math_multi_single[0].latex == r"\$ + \text{\$\$\$\$}"
+
+    res_multi_multi = importer.import_text("$$\n\\$ + \\$\\$\\$\\$\n$$")
+    math_multi_multi = [b for b in res_multi_multi.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_multi_multi) == 1
+    assert math_multi_multi[0].latex == r"\$ + \$\$\$\$"
+
+    # T-COMBO: Cùng một khối toán vừa có \\text{\\$\\$} vừa có dấu đóng giả lồng nhau >> $$
+    res_combo = importer.import_text("> $$\n> \\text{\\$\\$}\n>> $$\n> x = 2\n> $$")
+    math_combo = [b for b in res_combo.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_combo) == 1
+    assert math_combo[0].latex == "> \\text{\\$\\$}\n>> $$\n> x = 2\n>"
+
+
+def test_fake_close_pua_placeholder_safety_and_fallback(importer: MarkdownImporter):
+    """[062-US2] Kiểm chứng cơ chế dấu giữ chỗ PUA:
+    - T-COLL: Đầu vào chứa sẵn ký tự \\ue000 tự động dịch sang ký tự PUA tiếp theo,
+      ký tự \\ue000 của người dùng được bảo toàn nguyên vẹn.
+    - T-LEAK: Khối toán không đóng chứa dòng đóng giả lồng nhau không làm rò rỉ ký tự PUA
+      vào bất kỳ node nào của Document hay ImportResult.unsupported; dòng rơi vào Paragraph có chữ '$$'.
+    - Fallback: fake_close_placeholder=None giữ nguyên dòng '$$' mà không ném lỗi.
+    """
+    # T-COLL: Đầu vào chứa sẵn \ue000
+    text_coll = "\ue000 văn bản gốc\n\n> $$\n> x = 1\n>> $$\n> x = 2\n> $$"
+    res_coll = importer.import_text(text_coll)
+    math_coll = [b for b in res_coll.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_coll) == 1
+    assert math_coll[0].latex == "> x = 1\n>> $$\n> x = 2\n>"
+    p_coll = [b for b in res_coll.document.blocks if isinstance(b, Paragraph)]
+    assert any("\ue000 văn bản gốc" in [inl.text for inl in p.inlines if isinstance(inl, Text)] for p in p_coll)
+
+    # T-LEAK: Khối toán không đóng
+    text_unclosed = "> $$\n> x = 1\n>> $$\n> x = 2"
+    res_unclosed = importer.import_text(text_unclosed)
+    # Khối toán không đóng -> không tạo MathBlock
+    assert not any(isinstance(b, MathBlock) for b in res_unclosed.document.blocks)
+    # Không ký tự PUA nào rò rỉ trong document
+    for b in res_unclosed.document.blocks:
+        if isinstance(b, Paragraph):
+            for inl in b.inlines:
+                if isinstance(inl, Text):
+                    assert not any(0xE000 <= ord(c) <= 0xF8FF for c in inl.text)
+    # Dòng đóng giả trong đoạn văn hiển thị đúng '$$'
+    text_fragments = []
+    for b in res_unclosed.document.blocks:
+        if isinstance(b, Paragraph):
+            text_fragments.extend([inl.text for inl in b.inlines if isinstance(inl, Text)])
+    assert any("$$" in frag for frag in text_fragments)
+
+    # T-LEAK 2: Dòng mở fence lồng nhau có $$ trong khối toán không đóng không rò rỉ PUA vào unsupported
+    text_fence_unclosed = "> $$\n>> ```python $$\n>> pass\n>> ```"
+    res_fence_unclosed = importer.import_text(text_fence_unclosed)
+    for unsup in res_fence_unclosed.unsupported:
+        assert not any(0xE000 <= ord(c) <= 0xF8FF for c in unsup)
+
+    # Fallback: fake_close_placeholder=None giữ nguyên chuỗi
+    raw_nested = "> $$\n> x = 1\n>> $$\n> x = 2\n> $$"
+    out_fallback = importer._isolate_display_math_blocks(raw_nested, fake_close_placeholder=None)
+    assert ">> $$" in out_fallback
 
