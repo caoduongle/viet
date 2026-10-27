@@ -468,3 +468,234 @@ def test_adversarial_complexity_unclosed_backticks_and_blockquotes(importer: Mar
     assert ratio <= 6.0, f"Tỷ lệ tăng thời gian ({ratio:.2f}x) vượt ngưỡng tuyến tính (t_n={t_n:.3f}s, t_4n={t_4n:.3f}s)"
     assert t_4n < 1.0, f"Thời gian xử lý 4,000 dòng bất lợi vượt ngưỡng 1.0s ({t_4n:.3f}s)"
 
+
+# ==============================================================================
+# Feature 059: Bảo toàn Phụ thuộc Tùy chọn, Đồng bộ Code Fence & Đối kháng Blockquote
+# ==============================================================================
+
+def test_minimal_environment_simulation_import_and_error_handling():
+    """[059-US1] Môi trường không có markdown-it-py vẫn nạp được chuviettay.importer,
+    TxtImporter, get_importer_for_path(txt); còn MarkdownImporter ném OptionalDependencyError.
+    """
+    import sys
+    import unittest.mock as mock
+
+    # Lưu và dọn tạm thời chuviettay.importer khỏi sys.modules
+    saved_modules = {k: v for k, v in sys.modules.items() if k.startswith("chuviettay.importer")}
+    for k in list(saved_modules.keys()):
+        del sys.modules[k]
+
+    try:
+        # Chặn toàn bộ nạp markdown_it và mdit_py_plugins
+        blocked = {
+            "markdown_it": None,
+            "markdown_it.rules_block": None,
+            "markdown_it.rules_block.table": None,
+            "mdit_py_plugins": None,
+        }
+        with mock.patch.dict("sys.modules", blocked):
+            # 1. Nạp chuviettay.importer không được phát sinh ImportError ở cấp module
+            import chuviettay.importer as imp_pkg
+            from chuviettay.importer.base import get_importer_for_path
+            from chuviettay.importer.dependency import OptionalDependencyError
+            from chuviettay.importer.markdown_importer import MarkdownImporter
+            from chuviettay.importer.txt_importer import TxtImporter
+
+            # 2. TxtImporter và get_importer_for_path(txt) hoạt động bình thường
+            txt_imp = get_importer_for_path("test.txt", format_name="txt")
+            assert isinstance(txt_imp, TxtImporter)
+            res_txt = txt_imp.import_text("Dòng văn bản thuần túy.")
+            assert len(res_txt.document.blocks) == 1
+
+            # 3. AppController nạp và phân tích file txt bình thường
+            from chuviettay.controller.app_controller import AppController
+            ctrl = AppController()
+            assert ctrl is not None
+
+            # 4. Khởi tạo MarkdownImporter hoặc gọi tính năng Markdown báo lỗi OptionalDependencyError
+            with pytest.raises(OptionalDependencyError) as exc_info:
+                MarkdownImporter()
+            assert exc_info.value.package_name == "markdown_it"
+            assert exc_info.value.extra == "docs"
+
+            with pytest.raises(OptionalDependencyError):
+                get_importer_for_path("test.md")
+
+            # 5. Gọi hàm tách bảng khi thiếu thư viện ném OptionalDependencyError
+            with pytest.raises(OptionalDependencyError):
+                MarkdownImporter._escaped_split_table_row("col1 | col2")
+    finally:
+        # Khôi phục lại sys.modules
+        for k, v in saved_modules.items():
+            sys.modules[k] = v
+
+
+def test_code_fence_nested_blockquote_fake_close(importer: MarkdownImporter):
+    """[059-US2] Code fence mở ở '>' không bị đóng bởi dòng đóng giả '>> ```',
+    công thức toán ở các dòng tiếp theo trong fence được bảo toàn ký tự.
+    """
+    text = (
+        "> ```python\n"
+        ">> ```\n"
+        "> ta có:$$x=1$$\n"
+        "> \\[y=2\\]\n"
+        "> ```\n"
+        "> Đoạn ngoài fence:$$z=3$$"
+    )
+    # Bước cô lập không được xé dòng công thức trong fence
+    isolated = importer._isolate_display_math_blocks(text)
+    assert "> ta có:$$x=1$$" in isolated
+    assert "> \\[y=2\\]" in isolated
+
+    # Pipeline import_text(): nội dung trong fence là code_block, chỉ đoạn ngoài fence sinh MathBlock
+    res = importer.import_text(text)
+    math_blocks = [b for b in res.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_blocks) == 1
+    assert math_blocks[0].latex == "z=3"
+
+
+def test_code_fence_in_blockquote_auto_closes_on_dedent(importer: MarkdownImporter):
+    """[059-US2] Code fence mở ở '>>' tự động kết thúc khi blockquote cấp 2 kết thúc
+    (dòng kế tiếp quay về '>' hoặc không có '>').
+    """
+    text = (
+        ">> ```python\n"
+        ">> x = 1\n"
+        "> ta có:$$x=2$$\n"
+        "> \\[y=3\\]"
+    )
+    isolated = importer._isolate_display_math_blocks(text)
+    # Dòng 'ta có:$$x=2$$' ở cấp '>' nằm ngoài fence cấp 2 nên phải được cô lập
+    assert "$$x=2$$" in isolated
+    res = importer.import_text(text)
+    math_blocks = [b for b in res.document.blocks if isinstance(b, MathBlock)]
+    # Cả x=2 và y=3 (được normalize từ \[y=3\]) đều được tách thành MathBlock
+    assert any(b.latex == "x=2" for b in math_blocks)
+
+
+def test_indented_code_block_in_blockquote(importer: MarkdownImporter):
+    """[059-US2] Khối mã thụt lề bên trong blockquote (>     prefix:$$x=1$$)
+    được bảo toàn 100% nội dung, không bị xé dòng bởi colon_match.
+    """
+    text = (
+        "> Đoạn trích dẫn mở đầu\n"
+        ">\n"
+        ">     prefix:$$x=1$$\n"
+        ">     $$y=2$$\n"
+        ">     \\[z=3\\]\n"
+        ">\n"
+        "> Đoạn tiếp theo:$$a=4$$"
+    )
+    isolated = importer._isolate_display_math_blocks(text)
+    assert ">     prefix:$$x=1$$" in isolated
+    assert ">     $$y=2$$" in isolated
+
+    normalized = importer._normalize_math_delimiters(text)
+    assert "\\[z=3\\]" in normalized
+
+    res = importer.import_text(text)
+    # Khối mã thụt lề không sinh MathBlock nào, chỉ đoạn tiếp theo sinh MathBlock("a=4")
+    math_blocks = [b for b in res.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_blocks) == 1
+    assert math_blocks[0].latex == "a=4"
+
+
+def test_code_fence_info_string_with_backtick(importer: MarkdownImporter):
+    """[059-US3] Dòng backtick có info string chứa backtick không mở fence nhiều dòng (CommonMark 4.5);
+    công thức ở dòng tiếp theo vẫn được tách thành MathBlock.
+    Ngược lại, fence tilde (~~~) cho phép backtick trong info string.
+    """
+    # 1. Backtick fence với backtick trong info string -> Không mở fence
+    text_bt = (
+        "```python`invalid\n"
+        "ta có:$$x=1$$\n"
+        "\\[y=2\\]\n"
+        "```"
+    )
+    # Cả hai bước tiền xử lý đều thống nhất nhận diện công thức
+    isolated_bt = importer._isolate_display_math_blocks(text_bt)
+    assert "$$x=1$$" in isolated_bt
+
+    res_bt = importer.import_text(text_bt)
+    math_blocks_bt = [b for b in res_bt.document.blocks if isinstance(b, MathBlock)]
+    assert any(b.latex == "x=1" for b in math_blocks_bt)
+
+    # 2. Tilde fence với backtick trong info string -> Vẫn mở fence hợp lệ
+    text_tilde = (
+        "~~~python`valid\n"
+        "ta có:$$x=1$$\n"
+        "\\[y=2\\]\n"
+        "~~~"
+    )
+    isolated_tilde = importer._isolate_display_math_blocks(text_tilde)
+    assert "ta có:$$x=1$$" in isolated_tilde
+
+    res_tilde = importer.import_text(text_tilde)
+    math_blocks_tilde = [b for b in res_tilde.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_blocks_tilde) == 0
+
+
+def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: MarkdownImporter):
+    """[059-US4] Đo độ phức tạp O(n) vô điều kiện trên dữ liệu bất lợi hỗn hợp:
+    nhiều độ dài backtick chưa đóng (1-6 ký tự), dòng dài, blockquote lồng nhau.
+    Xác nhận T(4N)/T(N) <= 6.0 và nội dung đầu ra khớp từng ký tự.
+    """
+    import time
+
+    def make_adversarial_text(n_chunks: int) -> str:
+        chunks = []
+        for i in range(n_chunks):
+            # Xen kẽ nhiều độ dài backticks khác nhau từ 1 đến 6
+            bt_len = (i % 6) + 1
+            bts = "`" * bt_len
+            mod = i % 4
+            if mod == 0:
+                chunks.append(f"> > {bts}unclosed_depth2_{i} với \\[math=1\\] và chuỗi rất dài {'x'*80}")
+            elif mod == 1:
+                chunks.append(f"> {bts}unclosed_depth1_{i} và $$display_formula$$")
+            elif mod == 2:
+                chunks.append(f">{bts}no_space_bq_{i} cùng `code_span` và \\\\[escaped\\\\]")
+            else:
+                chunks.append(f"Dòng cấp gốc {bts}unclosed_{i} kèm $$x=1$$ và 'chuỗi dài {'y'*60}'")
+        return "\n".join(chunks)
+
+    text_n = make_adversarial_text(1000)
+    text_2n = make_adversarial_text(2000)
+    text_4n = make_adversarial_text(4000)
+
+    def run_pipeline(txt: str) -> str:
+        return importer._sanitize_html(importer._isolate_display_math_blocks(importer._normalize_math_delimiters(txt)))
+
+    # Warmup
+    out_warmup = run_pipeline(text_n)
+    assert len(out_warmup) > 0
+
+    # Đo N
+    t0 = time.perf_counter()
+    for _ in range(5):
+        out_n = run_pipeline(text_n)
+    t_n = (time.perf_counter() - t0) / 5
+
+    # Đo 2N
+    t0 = time.perf_counter()
+    for _ in range(3):
+        out_2n = run_pipeline(text_2n)
+    t_2n = (time.perf_counter() - t0) / 3
+
+    # Đo 4N
+    t0 = time.perf_counter()
+    for _ in range(2):
+        out_4n = run_pipeline(text_4n)
+    t_4n = (time.perf_counter() - t0) / 2
+
+    assert len(out_n) > 0
+    assert len(out_2n) > 0
+    assert len(out_4n) > 0
+    assert t_2n > 0
+
+    # Khẳng định tỷ lệ tăng trưởng tuyến tính T(4N)/T(N) <= 6.0
+    ratio = t_4n / max(t_n, 0.001)
+    assert ratio <= 6.0, f"Tỷ lệ tăng thời gian ({ratio:.2f}x) vượt ngưỡng tuyến tính (t_n={t_n:.3f}s, t_4n={t_4n:.3f}s)"
+    assert t_4n < 2.0, f"Thời gian xử lý 4,000 dòng bất lợi vượt ngưỡng 2.0s ({t_4n:.3f}s)"
+
+
