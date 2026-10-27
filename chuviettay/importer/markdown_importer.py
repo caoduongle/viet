@@ -514,6 +514,7 @@ class MarkdownImporter(BaseImporter):
         fence_len = 0
 
         in_display_math = False
+        math_bq_depth = 0
         math_indent = ""
 
         in_indented_code = False
@@ -547,32 +548,60 @@ class MarkdownImporter(BaseImporter):
                     out_lines.append(line)
                     continue
 
-            # B. Dòng trống
+            # B. Đang ở trong khối toán display nhiều dòng (DISPLAY_MATH)
+            if in_display_math:
+                if bq_depth < math_bq_depth:
+                    # Khối trích dẫn chứa khối toán đã kết thúc trước dòng này (CommonMark container block)
+                    in_display_math = False
+                    math_bq_depth = 0
+                    math_indent = ""
+                    can_start_indented = True
+                    # Chèn dòng phân cách để đóng khối trích dẫn cũ, tránh CommonMark lazy continuation
+                    # nếu dòng trước đó có nội dung và dòng hiện tại không phải dòng trống
+                    if out_lines and cls._get_bq_depth_and_rest(out_lines[-1])[1].strip() != "" and stripped_rest != "":
+                        m_curr_bq = _BQ_PREFIX_RE.match(line)
+                        curr_bq_pref = m_curr_bq.group(0) if m_curr_bq else ""
+                        out_lines.append(curr_bq_pref.rstrip())
+                    # Không continue: dòng này rơi ra ngoài trích dẫn của khối toán và cần được xử lý tiếp bên dưới
+                else:
+                    out_lines.append(line)
+                    # Chỉ đóng khối toán khi ở cùng độ sâu trích dẫn math_bq_depth
+                    # và dòng kết thúc bằng $$ (có thể kèm dấu câu)
+                    is_close = False
+                    if bq_depth == math_bq_depth:
+                        if stripped_rest.endswith("$$") or re.search(r"\$\$[ \t]*[,.;:!?]?$", stripped_rest):
+                            is_close = True
+
+                    if is_close:
+                        in_display_math = False
+                        math_bq_depth = 0
+                        can_start_indented = True
+                        # Đảm bảo dòng trống sau khối toán nếu dòng tiếp theo có chữ
+                        if idx + 1 < n and lines[idx + 1].strip() != "":
+                            next_bq_depth, next_rest = cls._get_bq_depth_and_rest(lines[idx + 1])
+                            if next_rest.strip() != "":
+                                if next_bq_depth < bq_depth:
+                                    m_next_bq = _BQ_PREFIX_RE.match(lines[idx + 1])
+                                    next_pref = m_next_bq.group(0) if m_next_bq else ""
+                                    out_lines.append(next_pref.rstrip())
+                                else:
+                                    out_lines.append(math_indent.rstrip())
+                    continue
+
+            # C. Dòng trống
             if stripped == "":
                 in_indented_code = False
                 can_start_indented = True
                 out_lines.append(line)
                 continue
 
-            # C. Bắt đầu khối mã lập trình (code fence: >=3 backticks hoặc tildes, cấp gốc hoặc trong blockquote)
+            # D. Bắt đầu khối mã lập trình (code fence: >=3 backticks hoặc tildes, cấp gốc hoặc trong blockquote)
             m_open_fence = cls._parse_fence_open_line(line)
             if m_open_fence is not None:
                 in_fence = True
                 fence_bq_depth, fence_char, fence_len = m_open_fence
                 in_indented_code = False
                 out_lines.append(line)
-                continue
-
-            # D. Đang ở trong khối toán display nhiều dòng (DISPLAY_MATH)
-            if in_display_math:
-                out_lines.append(line)
-                # Kiểm tra kết thúc khối toán: dòng kết thúc bằng $$ (có thể kèm dấu câu)
-                if stripped.endswith("$$") or re.search(r"\$\$[ \t]*[,.;:!?]?$", stripped):
-                    in_display_math = False
-                    can_start_indented = True
-                    # Đảm bảo dòng trống sau khối toán nếu dòng tiếp theo có chữ
-                    if idx + 1 < n and lines[idx + 1].strip() != "":
-                        out_lines.append(math_indent)
                 continue
 
             # E. Khối mã thụt lề (Indented Code Block - CommonMark 4.4, cấp gốc hoặc trong blockquote)
@@ -608,7 +637,7 @@ class MarkdownImporter(BaseImporter):
 
                 prefix = line[:colon_match.start(2)].rstrip()
                 rest_math = line[colon_match.start(2):]
-                if out_lines and out_lines[-1].strip() != "":
+                if out_lines and cls._get_bq_depth_and_rest(out_lines[-1])[1].strip() != "":
                     out_lines.append(sep_line)
                 out_lines.append(prefix)
                 out_lines.append(sep_line)
@@ -630,7 +659,7 @@ class MarkdownImporter(BaseImporter):
                 math_indent = bq_pref + indent
 
                 # Đảm bảo có dòng trống phía trước nếu dòng trước có chữ
-                if out_lines and out_lines[-1].strip() != "":
+                if out_lines and cls._get_bq_depth_and_rest(out_lines[-1])[1].strip() != "":
                     out_lines.append(math_indent.rstrip())
 
                 # Kiểm tra khối đóng ngay trên cùng một dòng: '  $$content$$[punct] tail'
@@ -648,12 +677,20 @@ class MarkdownImporter(BaseImporter):
                         out_lines.append(math_indent.rstrip())
                         out_lines.append(f"{math_indent}{after_text}")
                     elif idx + 1 < n and lines[idx + 1].strip() != "":
-                        out_lines.append(math_indent.rstrip())
+                        next_bq_depth, next_rest = cls._get_bq_depth_and_rest(lines[idx + 1])
+                        if next_rest.strip() != "":
+                            if next_bq_depth < bq_depth:
+                                m_next_bq = _BQ_PREFIX_RE.match(lines[idx + 1])
+                                next_pref = m_next_bq.group(0) if m_next_bq else ""
+                                out_lines.append(next_pref.rstrip())
+                            else:
+                                out_lines.append(math_indent.rstrip())
                     can_start_indented = True
                     continue
                 else:
                     # Khối mở nhiều dòng: chuyển trạng thái sang DISPLAY_MATH
                     in_display_math = True
+                    math_bq_depth = bq_depth
                     out_lines.append(line)
                     continue
 

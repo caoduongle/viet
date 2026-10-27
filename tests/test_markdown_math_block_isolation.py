@@ -416,6 +416,7 @@ def test_fake_delimiter_row_mismatched_columns(importer: MarkdownImporter):
 
 def test_adversarial_complexity_unclosed_backticks_and_blockquotes(importer: MarkdownImporter):
     """[058-US5] Đo độ phức tạp vô điều kiện trên đầu vào bất lợi (nhiều blockquote và nhiều backtick không đóng)."""
+    import gc
     import time
 
     def make_adversarial_text(num_lines: int) -> str:
@@ -441,26 +442,31 @@ def test_adversarial_complexity_unclosed_backticks_and_blockquotes(importer: Mar
     def run_pipeline(txt: str) -> str:
         return importer._sanitize_html(importer._isolate_display_math_blocks(importer._normalize_math_delimiters(txt)))
 
-    # Warmup
-    run_pipeline(text_n)
-
-    # Đo N (lặp 5 lần để đảm bảo t_n đo lường được và ổn định)
-    t0 = time.perf_counter()
-    for _ in range(5):
+    gc.collect()
+    try:
+        gc.disable()
+        # Warmup
         run_pipeline(text_n)
-    t_n = (time.perf_counter() - t0) / 5
 
-    # Đo 2N
-    t0 = time.perf_counter()
-    for _ in range(3):
-        run_pipeline(text_2n)
-    t_2n = (time.perf_counter() - t0) / 3
+        # Đo N (lặp 5 lần để đảm bảo t_n đo lường được và ổn định)
+        t0 = time.perf_counter()
+        for _ in range(5):
+            run_pipeline(text_n)
+        t_n = (time.perf_counter() - t0) / 5
 
-    # Đo 4N
-    t0 = time.perf_counter()
-    for _ in range(2):
-        run_pipeline(text_4n)
-    t_4n = (time.perf_counter() - t0) / 2
+        # Đo 2N
+        t0 = time.perf_counter()
+        for _ in range(3):
+            run_pipeline(text_2n)
+        t_2n = (time.perf_counter() - t0) / 3
+
+        # Đo 4N
+        t0 = time.perf_counter()
+        for _ in range(3):
+            run_pipeline(text_4n)
+        t_4n = (time.perf_counter() - t0) / 3
+    finally:
+        gc.enable()
 
     # Tỷ lệ tăng giữa 2N và N, 4N và N: thuật toán tuyến tính O(n) xấp xỉ 2.0x và 4.0x, trần an toàn <= 6.0x
     assert t_2n > 0
@@ -570,7 +576,7 @@ def test_code_fence_in_blockquote_auto_closes_on_dedent(importer: MarkdownImport
     res = importer.import_text(text)
     math_blocks = [b for b in res.document.blocks if isinstance(b, MathBlock)]
     # Cả x=2 và y=3 (được normalize từ \[y=3\]) đều được tách thành MathBlock
-    assert any(b.latex == "x=2" for b in math_blocks)
+    assert [b.latex for b in math_blocks] == ["x=2", "y=3"]
 
 
 def test_indented_code_block_in_blockquote(importer: MarkdownImporter):
@@ -635,11 +641,141 @@ def test_code_fence_info_string_with_backtick(importer: MarkdownImporter):
     assert len(math_blocks_tilde) == 0
 
 
-def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: MarkdownImporter):
-    """[059-US4] Đo độ phức tạp O(n) vô điều kiện trên dữ liệu bất lợi hỗn hợp:
-    nhiều độ dài backtick chưa đóng (1-6 ký tự), dòng dài, blockquote lồng nhau.
-    Xác nhận T(4N)/T(N) <= 6.0 và nội dung đầu ra khớp từng ký tự.
+def test_display_math_in_blockquote_exits_on_dedent(importer: MarkdownImporter):
+    """[060-US1] Khối toán hiển thị nhiều dòng (> $$) chưa đóng tự động thoát
+    khi ngữ cảnh trích dẫn kết thúc (dòng sau ra cấp gốc hoặc lùi từ >> về >),
+    cho phép công thức tiếp theo (Ngoài trích dẫn:$$y=2$$) được tách thành MathBlock.
     """
+    # Ca 1: Từ trích dẫn cấp 1 (>) ra cấp gốc
+    text1 = (
+        "> $$\n"
+        "> x = 1\n"
+        "Ngoài trích dẫn:$$y=2$$\n"
+        "Đoạn văn tiếp theo"
+    )
+    isolated1 = importer._isolate_display_math_blocks(text1)
+    # Dòng 'Ngoài trích dẫn:$$y=2$$' phải được tách công thức độc lập
+    assert "$$y=2$$" in isolated1
+    assert "Ngoài trích dẫn:" in isolated1
+    assert "Đoạn văn tiếp theo" in isolated1
+
+    res1 = importer.import_text(text1)
+    math_blocks1 = [b for b in res1.document.blocks if isinstance(b, MathBlock)]
+    assert any(b.latex == "y=2" for b in math_blocks1)
+
+    # Ca 2: Từ trích dẫn cấp 2 (>>) lùi về trích dẫn cấp 1 (>)
+    text2 = (
+        ">> $$\n"
+        ">> x = 1\n"
+        "> Trong trích dẫn cấp 1:$$y=2$$\n"
+        "> Đoạn văn tiếp theo"
+    )
+    isolated2 = importer._isolate_display_math_blocks(text2)
+    assert "$$y=2$$" in isolated2
+    assert "> Trong trích dẫn cấp 1:" in isolated2
+
+    res2 = importer.import_text(text2)
+    math_blocks2 = [b for b in res2.document.blocks if isinstance(b, MathBlock)]
+    assert any(b.latex == "y=2" for b in math_blocks2)
+
+
+def test_display_math_in_blockquote_blank_line_exit_and_matching_depth_close(importer: MarkdownImporter):
+    """[060-US1] Dòng hoàn toàn trống (không có '>') kết thúc khối toán trích dẫn đang mở.
+    Dấu đóng $$ chỉ có hiệu lực khi ở cùng độ sâu trích dẫn math_bq_depth.
+    """
+    # Dòng trống ở cấp gốc ngắt trích dẫn và khối toán dở dang
+    text_blank = (
+        "> $$\n"
+        "> x = 1\n"
+        "\n"
+        "Đoạn văn mới:$$z=9$$"
+    )
+    isolated_blank = importer._isolate_display_math_blocks(text_blank)
+    assert "$$z=9$$" in isolated_blank
+    res_blank = importer.import_text(text_blank)
+    math_blocks_blank = [b for b in res_blank.document.blocks if isinstance(b, MathBlock)]
+    assert any(b.latex == "z=9" for b in math_blocks_blank)
+
+    # Dấu đóng $$ ở cấp sâu hơn (>>) không đóng nhầm khối toán ở cấp >
+    text_nested_close = (
+        "> $$\n"
+        "> x = 1\n"
+        ">> $$\n"
+        "> x = 2\n"
+        "> $$"
+    )
+    isolated_nested = importer._isolate_display_math_blocks(text_nested_close)
+    # Khối toán đóng ở dòng cuối (> $$)
+    assert isolated_nested.endswith("$$")
+
+
+def test_pipeline_code_preservation_and_outside_math_invariants(importer: MarkdownImporter):
+    """[060-US2] Kiểm chứng tính bất biến bảo toàn từng ký tự của khối mã
+    (fenced code với backticks/tildes, cấp gốc & trong blockquote; indented code)
+    và trích xuất đầy đủ, chính xác các công thức toán bên ngoài mã qua toàn bộ pipeline.
+    """
+    raw_fenced_code_root = (
+        "```python\n"
+        "def compute(a, b):\n"
+        "    # Inside fence: $$not_math$$ và \\[also_not_math\\]\n"
+        "    return a + b\n"
+        "```"
+    )
+    raw_fenced_tilde_bq = (
+        "> ~~~bash\n"
+        "> echo '$$hello_world$$'\n"
+        "> # \\[not_a_formula\\]\n"
+        "> ~~~"
+    )
+    raw_indented_code_root = (
+        "    # Indented code block:\n"
+        "    val = x * 2  # $$x_times_2$$\n"
+        "    res = \\[z\\]"
+    )
+    raw_indented_code_bq = (
+        ">     # Indented code in blockquote:\n"
+        ">     y = val + 1  # $$y_plus_1$$\n"
+        ">     out = \\[w\\]"
+    )
+
+    text = (
+        "# Tiêu đề\n\n"
+        f"{raw_fenced_code_root}\n\n"
+        "Công thức cấp gốc:\n\n"
+        "$$alpha=1$$\n\n"
+        f"{raw_fenced_tilde_bq}\n\n"
+        "> Công thức trong trích dẫn:$$beta=2$$\n\n"
+        f"{raw_indented_code_root}\n\n"
+        "Công thức thứ ba: \\[gamma=3\\]\n\n"
+        f"{raw_indented_code_bq}\n\n"
+        "Đoạn kết thúc: $$omega=4$$"
+    )
+
+    # 1. Chạy toàn bộ pipeline tiền xử lý
+    pipeline_out = importer._sanitize_html(
+        importer._isolate_display_math_blocks(importer._normalize_math_delimiters(text))
+    )
+
+    # Khẳng định bảo toàn từng ký tự tuyệt đối trong toàn bộ các khối mã
+    assert raw_fenced_code_root in pipeline_out
+    assert raw_fenced_tilde_bq in pipeline_out
+    assert raw_indented_code_root in pipeline_out
+    assert raw_indented_code_bq in pipeline_out
+
+    # 2. Chạy import_text() và kiểm chứng danh sách MathBlock
+    res = importer.import_text(text)
+    math_blocks = [b for b in res.document.blocks if isinstance(b, MathBlock)]
+    # Không có công thức giả nào bên trong các khối mã bị biến thành MathBlock
+    extracted_latex = [b.latex for b in math_blocks]
+    assert extracted_latex == ["alpha=1", "beta=2", "gamma=3", "omega=4"]
+
+
+def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: MarkdownImporter):
+    """[059-US4 / 060-US2] Đo độ phức tạp O(n) vô điều kiện trên dữ liệu bất lợi hỗn hợp:
+    nhiều độ dài backtick chưa đóng (1-6 ký tự), dòng dài, blockquote lồng nhau.
+    Xác nhận T(4N)/T(N) <= 6.0 và nội dung đầu ra thỏa mãn các bất biến cụ thể.
+    """
+    import gc
     import time
 
     def make_adversarial_text(n_chunks: int) -> str:
@@ -666,32 +802,63 @@ def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: 
     def run_pipeline(txt: str) -> str:
         return importer._sanitize_html(importer._isolate_display_math_blocks(importer._normalize_math_delimiters(txt)))
 
-    # Warmup
-    out_warmup = run_pipeline(text_n)
-    assert len(out_warmup) > 0
+    gc.collect()
+    try:
+        gc.disable()
+        # Warmup
+        out_warmup = run_pipeline(text_n)
+        assert len(out_warmup) > 0
 
-    # Đo N
-    t0 = time.perf_counter()
-    for _ in range(5):
-        out_n = run_pipeline(text_n)
-    t_n = (time.perf_counter() - t0) / 5
+        # Đo N
+        t0 = time.perf_counter()
+        for _ in range(5):
+            out_n = run_pipeline(text_n)
+        t_n = (time.perf_counter() - t0) / 5
 
-    # Đo 2N
-    t0 = time.perf_counter()
-    for _ in range(3):
-        out_2n = run_pipeline(text_2n)
-    t_2n = (time.perf_counter() - t0) / 3
+        # Đo 2N
+        t0 = time.perf_counter()
+        for _ in range(3):
+            out_2n = run_pipeline(text_2n)
+        t_2n = (time.perf_counter() - t0) / 3
 
-    # Đo 4N
-    t0 = time.perf_counter()
-    for _ in range(2):
-        out_4n = run_pipeline(text_4n)
-    t_4n = (time.perf_counter() - t0) / 2
+        # Đo 4N
+        t0 = time.perf_counter()
+        for _ in range(3):
+            out_4n = run_pipeline(text_4n)
+        t_4n = (time.perf_counter() - t0) / 3
+    finally:
+        gc.enable()
 
     assert len(out_n) > 0
     assert len(out_2n) > 0
     assert len(out_4n) > 0
     assert t_2n > 0
+
+    # Khẳng định bất biến bảo toàn nội dung cụ thể trên out_n, out_2n, out_4n
+    # Mỗi cấu trúc trong 4 mẫu xuất hiện đúng n_chunks // 4 lần
+    assert out_n.count("x" * 80) == 250
+    assert out_2n.count("x" * 80) == 500
+    assert out_4n.count("x" * 80) == 1000
+
+    assert out_n.count("y" * 60) == 250
+    assert out_2n.count("y" * 60) == 500
+    assert out_4n.count("y" * 60) == 1000
+
+    assert out_n.count("unclosed_depth2_") == 250
+    assert out_2n.count("unclosed_depth2_") == 500
+    assert out_4n.count("unclosed_depth2_") == 1000
+
+    assert out_n.count("unclosed_depth1_") == 250
+    assert out_2n.count("unclosed_depth1_") == 500
+    assert out_4n.count("unclosed_depth1_") == 1000
+
+    assert out_n.count("no_space_bq_") == 250
+    assert out_2n.count("no_space_bq_") == 500
+    assert out_4n.count("no_space_bq_") == 1000
+
+    assert out_n.count("code_span") == 250
+    assert out_2n.count("code_span") == 500
+    assert out_4n.count("code_span") == 1000
 
     # Khẳng định tỷ lệ tăng trưởng tuyến tính T(4N)/T(N) <= 6.0
     ratio = t_4n / max(t_n, 0.001)
