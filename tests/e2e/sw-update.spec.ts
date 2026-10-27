@@ -10,7 +10,7 @@ const SW_PORT = 8101;
 const SW_ORIGIN = `http://localhost:${SW_PORT}`;
 
 /** Chạy build_web.py bằng Python có sẵn trên mọi nền tảng (không cố định `py -3`). */
-function runBuildWeb(distDir: string): void {
+function runBuildWeb(distDir: string, forceClean = false): void {
   const candidates: Array<[string, string[]]> = [];
   if (process.env.PYTHON) candidates.push([process.env.PYTHON, []]);
   if (process.platform === "win32") candidates.push(["py", ["-3"]]);
@@ -19,7 +19,11 @@ function runBuildWeb(distDir: string): void {
   let lastError: unknown;
   for (const [cmd, pre] of candidates) {
     try {
-      execFileSync(cmd, [...pre, "scripts/build_web.py", "--dist", distDir], {
+      const args = [...pre, "scripts/build_web.py", "--dist", distDir];
+      if (forceClean) {
+        args.push("--force-clean");
+      }
+      execFileSync(cmd, args, {
         encoding: "utf-8",
         stdio: "pipe",
       });
@@ -94,9 +98,9 @@ test.describe("B1 Regression: Service Worker Update & Cache-Busting", () => {
       });
       expect(initialCacheName).toBeTruthy();
 
-      // 2. Mô phỏng bản cập nhật: sửa nguồn rồi build lại vào dist tạm -> sw.js có băm mới
+      // 2. Mô phỏng bản cập nhật: sửa nguồn rồi build lại vào dist tạm (truyền forceClean để ghi đè) -> sw.js có băm mới
       fs.writeFileSync(srcAppJsPath, `${originalAppJs}\n${uniqueToken}\n`, "utf-8");
-      runBuildWeb(tmpDist);
+      runBuildWeb(tmpDist, true);
 
       // 3. Kích hoạt Service Worker kiểm tra cập nhật
       await page.evaluate(async () => {

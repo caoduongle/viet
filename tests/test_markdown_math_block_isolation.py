@@ -321,3 +321,150 @@ def test_crlf_windows_line_endings_safety(importer: MarkdownImporter):
     assert blocks[1].latex == "\\sum_{j=1}^9 x_j = 1"
     assert isinstance(blocks[2], Paragraph)
 
+
+# ==============================================================================
+# Feature 058: Bảo vệ Indented Code, Nhận diện Bảng GFM chặt chẽ và Tuyến tính O(n)
+# ==============================================================================
+
+def test_indented_code_block_preservation_with_math_and_html(importer: MarkdownImporter):
+    """[058-US3] Khối mã thụt lề chứa prefix:$$x=1$$, $$y=2$$, \\[z=3\\] và thẻ <b>tag</b> được bảo toàn 100%."""
+    text = (
+        "Đoạn văn mở đầu\n\n"
+        "    prefix:$$x=1$$\n"
+        "    $$y=2$$\n"
+        "    \\[z=3\\]\n"
+        "    <b>tag</b>\n\n"
+        "Đoạn văn tiếp theo."
+    )
+    # Bước cô lập không được xé dòng khối mã thụt lề
+    isolated = importer._isolate_display_math_blocks(text)
+    assert "    prefix:$$x=1$$" in isolated
+    assert "    $$y=2$$" in isolated
+    assert "    <b>tag</b>" in isolated
+
+    # Toàn bộ pipeline import_text()
+    res = importer.import_text(text)
+    # Không sinh bất kỳ MathBlock nào từ bên trong khối mã thụt lề
+    assert not any(isinstance(b, MathBlock) for b in res.document.blocks)
+    # 2 Paragraphs cho văn bản mở đầu và tiếp theo
+    paragraphs = [b for b in res.document.blocks if isinstance(b, Paragraph)]
+    assert len(paragraphs) == 2
+    assert "Đoạn văn mở đầu" in paragraphs[0].inlines[0].text
+    assert "Đoạn văn tiếp theo." in paragraphs[1].inlines[0].text
+    assert any("code_block" in u for u in res.unsupported)
+
+
+def test_indented_code_block_with_blank_lines_and_unclosed_math(importer: MarkdownImporter):
+    """[058-US3] Khối mã thụt lề có dòng trống xen giữa và công thức dở dang không làm hỏng đoạn văn tiếp theo."""
+    text = (
+        "Đoạn văn 1\n\n"
+        "    dòng 1: $$x=1\n\n"
+        "    dòng 2: y=2$$\n\n"
+        "Đoạn văn tiếp theo:\n"
+        "$$a=b$$"
+    )
+    res = importer.import_text(text)
+    # Đoạn văn tiếp theo vẫn tách được MathBlock("a=b")
+    math_blocks = [b for b in res.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_blocks) == 1
+    assert math_blocks[0].latex == "a=b"
+
+
+def test_lazy_paragraph_continuation_math_isolation(importer: MarkdownImporter):
+    """[058-US3] Dòng tiếp nối đoạn văn thụt 4 khoảng trắng chứa $$x=1$$ (không có dòng trống) vẫn tách thành MathBlock."""
+    text = "Đoạn văn 1\n    $$x=1$$"
+    res = importer.import_text(text)
+    blocks = res.document.blocks
+    assert len(blocks) == 2
+    assert isinstance(blocks[0], Paragraph)
+    assert isinstance(blocks[1], MathBlock)
+    assert blocks[1].latex == "x=1"
+
+
+def test_table_preceded_by_pipe_paragraph_with_math(importer: MarkdownImporter):
+    """[058-US4] Đoạn văn chứa | và $$x=1$$ đứng ngay trước bảng GFM trong cùng nhóm dòng không bị nuốt vào bảng."""
+    text = (
+        "ta có | điều kiện:$$x=1$$\n"
+        "Col 1 | Col 2\n"
+        "---|---\n"
+        "val 1 | val 2"
+    )
+    res = importer.import_text(text)
+    blocks = res.document.blocks
+
+    assert len(blocks) == 3
+    assert isinstance(blocks[0], Paragraph)
+    assert "ta có | điều kiện:" in blocks[0].inlines[0].text
+    assert isinstance(blocks[1], MathBlock)
+    assert blocks[1].latex == "x=1"
+    assert isinstance(blocks[2], Table)
+    assert len(blocks[2].rows) == 2
+
+
+def test_fake_delimiter_row_mismatched_columns(importer: MarkdownImporter):
+    """[058-US4] Dòng chứa | và $$x=1$$ đứng trước chuỗi giả phân cách không khớp số cột không bị coi là bảng."""
+    text = (
+        "$$x=1$$ | văn bản thường\n"
+        "---|---|---"
+    )
+    res = importer.import_text(text)
+    blocks = res.document.blocks
+    # Không thành Table vì hàng trên không khớp số cột với hàng phân cách 3 cột
+    assert not any(isinstance(b, Table) for b in blocks)
+    assert any(isinstance(b, MathBlock) for b in blocks)
+
+
+def test_adversarial_complexity_unclosed_backticks_and_blockquotes(importer: MarkdownImporter):
+    """[058-US5] Đo độ phức tạp vô điều kiện trên đầu vào bất lợi (nhiều blockquote và nhiều backtick không đóng)."""
+    import time
+
+    def make_adversarial_text(num_lines: int) -> str:
+        lines = []
+        for i in range(num_lines):
+            mod = i % 5
+            if mod == 0:
+                lines.append(f"> > `unclosed_line_{i} với \\[a=1\\]")
+            elif mod == 1:
+                lines.append(f"> ``double_unclosed_{i} và $$math")
+            elif mod == 2:
+                lines.append(f">> > ````quad_{i}")
+            elif mod == 3:
+                lines.append(f"    indented_code_{i} \\[x=1\\]")
+            else:
+                lines.append(f"dòng thường {i} với `span` và $$f$$")
+        return "\n".join(lines)
+
+    text_n = make_adversarial_text(1000)
+    text_2n = make_adversarial_text(2000)
+    text_4n = make_adversarial_text(4000)
+
+    def run_pipeline(txt: str) -> str:
+        return importer._sanitize_html(importer._isolate_display_math_blocks(importer._normalize_math_delimiters(txt)))
+
+    # Warmup
+    run_pipeline(text_n)
+
+    # Đo N (lặp 5 lần để đảm bảo t_n đo lường được và ổn định)
+    t0 = time.perf_counter()
+    for _ in range(5):
+        run_pipeline(text_n)
+    t_n = (time.perf_counter() - t0) / 5
+
+    # Đo 2N
+    t0 = time.perf_counter()
+    for _ in range(3):
+        run_pipeline(text_2n)
+    t_2n = (time.perf_counter() - t0) / 3
+
+    # Đo 4N
+    t0 = time.perf_counter()
+    for _ in range(2):
+        run_pipeline(text_4n)
+    t_4n = (time.perf_counter() - t0) / 2
+
+    # Tỷ lệ tăng giữa 2N và N, 4N và N: thuật toán tuyến tính O(n) xấp xỉ 2.0x và 4.0x, trần an toàn <= 6.0x
+    assert t_2n > 0
+    ratio = t_4n / max(t_n, 0.001)
+    assert ratio <= 6.0, f"Tỷ lệ tăng thời gian ({ratio:.2f}x) vượt ngưỡng tuyến tính (t_n={t_n:.3f}s, t_4n={t_4n:.3f}s)"
+    assert t_4n < 1.0, f"Thời gian xử lý 4,000 dòng bất lợi vượt ngưỡng 1.0s ({t_4n:.3f}s)"
+

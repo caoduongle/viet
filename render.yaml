@@ -7,8 +7,6 @@ services:
     staticPublishPath: "./webapp/dist"
     pullRequestPreviewsEnabled: true
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.13
       - key: NODE_VERSION
         value: 24.16.0
     routes:

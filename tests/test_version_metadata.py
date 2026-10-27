@@ -84,7 +84,7 @@ def test_python_version_file_format():
 
 
 def test_render_yaml_python_version():
-    """[057-fix-ci-python-version] render.yaml phải đồng bộ biến PYTHON_VERSION khớp với .python-version ('3.13')."""
+    """[058-ci-e2e-render-markdown-hardening] render.yaml không được ghim biến môi trường PYTHON_VERSION dạng rút gọn, để Render đọc trực tiếp .python-version ('3.13')."""
     import re
 
     render_yaml_path = ROOT_DIR / "render.yaml"
@@ -92,14 +92,18 @@ def test_render_yaml_python_version():
     assert render_yaml_path.exists(), "render.yaml không tồn tại!"
     assert py_ver_path.exists(), ".python-version không tồn tại!"
 
-    expected_ver = py_ver_path.read_text(encoding="utf-8").strip()
+    py_ver = py_ver_path.read_text(encoding="utf-8").strip()
+    assert py_ver == "3.13", f".python-version phải là '3.13', nhưng nhận được '{py_ver}'!"
 
     content = render_yaml_path.read_text(encoding="utf-8")
-    assert "key: PYTHON_VERSION" in content
+    # Biến môi trường PYTHON_VERSION trên Render nếu có phải là bản đầy đủ Major.Minor.Patch.
+    # Dự án chuẩn hóa ủy quyền hoàn toàn cho .python-version, không khai báo biến rút gọn trong render.yaml.
     m = re.search(r"key:\s*PYTHON_VERSION\s*\n\s*value:\s*([^\n\r]+)", content)
-    assert m, "Không tìm thấy cấu hình value cho PYTHON_VERSION trong render.yaml!"
-    val = m.group(1).strip().strip('"').strip("'")
-    assert val == expected_ver, (
-        f"PYTHON_VERSION trong render.yaml ({val}) phải khớp với .python-version ({expected_ver})!"
-    )
-    assert val == "3.13", f"PYTHON_VERSION trong render.yaml phải là '3.13', nhưng nhận được '{val}'!"
+    if m:
+        val = m.group(1).strip().strip('"').strip("'")
+        assert not re.match(r"^\d+\.\d+$", val), (
+            f"render.yaml không được khai báo PYTHON_VERSION dạng rút gọn Major.Minor ({val}) vì gây lỗi trên Render!"
+        )
+    else:
+        # Chuẩn: không khai báo PYTHON_VERSION trong render.yaml envVars
+        assert "key: PYTHON_VERSION" not in content

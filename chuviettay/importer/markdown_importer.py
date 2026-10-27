@@ -24,6 +24,10 @@ from chuviettay.document.ir import (
 )
 from chuviettay.importer.base import BaseImporter, ImportResult
 from chuviettay.importer.dependency import require_dependency
+from markdown_it.rules_block.table import escapedSplit
+
+# Tiền tố blockquote theo chuẩn CommonMark: ví dụ "> ", ">> ", "> > " (tối đa 3 khoảng trắng trước mỗi dấu >)
+_BQ_PREFIX_RE = re.compile(r"([ ]{0,3}>[ ]?)+")
 
 # Đoạn mã (fence / inline code): không đụng tới khi đổi dấu phân cách toán hay lọc HTML (hỗ trợ >=3 backticks/tildes và unclosed fence)
 _CODE_SEGMENT = re.compile(r"(`{3,}.*?(?:`{3,}|\Z)|~{3,}.*?(?:~{3,}|\Z)|`[^`\n]*`)", re.DOTALL)
@@ -110,10 +114,13 @@ class MarkdownImporter(BaseImporter):
     @classmethod
     def _find_code_spans(cls, text: str) -> list[tuple[int, int]]:
         """Tìm tất cả các vị trí (start, end) của inline code spans theo CommonMark.
-        Hỗ trợ bất kỳ độ dài backticks nào (1, 2, 3+ backticks) và bỏ qua backtick bị escape."""
+        Hỗ trợ bất kỳ độ dài backticks nào (1, 2, 3+ backticks) và bỏ qua backtick bị escape.
+        Áp dụng cơ chế bộ nhớ đệm backticks_max_pos đạt độ phức tạp tuyến tính O(n)."""
         spans: list[tuple[int, int]] = []
         i = 0
         n = len(text)
+        backticks_scanned = False
+        backticks_max_pos: dict[int, int] = {}
         while i < n:
             if text[i] == "`":
                 if cls._is_escaped_backtick(text, i):
@@ -123,20 +130,31 @@ class MarkdownImporter(BaseImporter):
                 while i < n and text[i] == "`":
                     i += 1
                 flen = i - start
-                closer = "`" * flen
+
+                if backticks_scanned and backticks_max_pos.get(flen, 0) <= start:
+                    continue
+
                 j = i
+                found = False
                 while j < n:
-                    k = text.find(closer, j)
-                    if k == -1:
+                    try:
+                        k = text.index("`", j)
+                    except ValueError:
                         break
-                    prev_ok = (k == 0 or text[k - 1] != "`")
-                    after_idx = k + flen
-                    next_ok = (after_idx >= n or text[after_idx] != "`")
-                    if prev_ok and next_ok:
-                        spans.append((start, after_idx))
-                        i = after_idx
+                    m_end = k + 1
+                    while m_end < n and text[m_end] == "`":
+                        m_end += 1
+                    c_len = m_end - k
+                    if c_len == flen:
+                        spans.append((start, m_end))
+                        i = m_end
+                        found = True
                         break
-                    j = k + 1
+                    backticks_max_pos[c_len] = k
+                    j = m_end
+
+                if not found:
+                    backticks_scanned = True
             else:
                 i += 1
         return spans
@@ -154,8 +172,9 @@ class MarkdownImporter(BaseImporter):
         i = 0
         segments: list[tuple[str, bool]] = []
         text_start = 0
-        line_start_idx = 0
         prev_line_blank = True
+        backticks_scanned = False
+        backticks_max_pos: dict[int, int] = {}
 
         def flush_text(end_idx: int):
             nonlocal text_start
@@ -167,8 +186,8 @@ class MarkdownImporter(BaseImporter):
             is_line_start = (i == 0 or text[i - 1] == "\n")
 
             if is_line_start:
-                # 1. Kiểm tra tiền tố blockquote nếu có (ví dụ: "> ", ">> ", "> > ")
-                m_bq = re.match(r"^([ ]{0,3}>[ ]?)+", text[i:])
+                # 1. Kiểm tra tiền tố blockquote nếu có (dùng Pattern.match trên text tại i, không cắt lát chuỗi)
+                m_bq = _BQ_PREFIX_RE.match(text, i)
                 bq_prefix = m_bq.group(0) if m_bq else ""
                 pos_after_bq = i + len(bq_prefix)
 
@@ -202,7 +221,7 @@ class MarkdownImporter(BaseImporter):
 
                                 is_close_line = False
                                 if bq_prefix:
-                                    m_close_bq = re.match(r"^([ ]{0,3}>[ ]?)+", line_content)
+                                    m_close_bq = _BQ_PREFIX_RE.match(line_content)
                                     if m_close_bq:
                                         rest_after_bq = line_content[len(m_close_bq.group(0)):]
                                         m_close = re.match(
@@ -224,7 +243,6 @@ class MarkdownImporter(BaseImporter):
                                     i = line_end + 1 if line_end < n else n
                                     segments.append((text[fence_start:i], True))
                                     text_start = i
-                                    line_start_idx = i
                                     prev_line_blank = False
                                     break
 
@@ -237,7 +255,6 @@ class MarkdownImporter(BaseImporter):
                                 segments.append((text[fence_start:n], True))
                                 text_start = n
                                 i = n
-                                line_start_idx = n
                                 prev_line_blank = False
                             continue
 
@@ -262,7 +279,7 @@ class MarkdownImporter(BaseImporter):
                                 last_indented_end = curr_eol + 1 if curr_eol < n else n
                                 curr_line_start = curr_eol + 1 if curr_eol < n else n
                             elif curr_line.strip() == "":
-                                # Dòng trống nằm giữa các dòng thụt lề
+                                # Dòng trống nằm giữa các dòng thụt lề: nhảy trực tiếp qua các dòng trống
                                 peek = curr_eol + 1 if curr_eol < n else n
                                 is_trailing_blank = True
                                 while peek < n:
@@ -278,7 +295,7 @@ class MarkdownImporter(BaseImporter):
                                     else:
                                         break
                                 if not is_trailing_blank:
-                                    curr_line_start = curr_eol + 1 if curr_eol < n else n
+                                    curr_line_start = peek
                                 else:
                                     break
                             else:
@@ -287,11 +304,10 @@ class MarkdownImporter(BaseImporter):
                         segments.append((text[indented_start:last_indented_end], True))
                         text_start = last_indented_end
                         i = last_indented_end
-                        line_start_idx = i
                         prev_line_blank = False
                         continue
 
-            # C. Inline Code Span (xét thoát backtick)
+            # C. Inline Code Span (xét thoát backtick và bộ nhớ đệm O(n))
             if text[i] == "`":
                 if cls._is_escaped_backtick(text, i):
                     i += 1
@@ -300,33 +316,40 @@ class MarkdownImporter(BaseImporter):
                 while i < n and text[i] == "`":
                     i += 1
                 span_len = i - start_backticks
-                closer = "`" * span_len
+
+                if backticks_scanned and backticks_max_pos.get(span_len, 0) <= start_backticks:
+                    continue
 
                 j = i
                 found_span = False
                 while j < n:
-                    k = text.find(closer, j)
-                    if k == -1:
+                    try:
+                        k = text.index("`", j)
+                    except ValueError:
                         break
-                    prev_ok = (k == 0 or text[k - 1] != "`")
-                    after_idx = k + span_len
-                    next_ok = (after_idx >= n or text[after_idx] != "`")
-                    if prev_ok and next_ok:
+                    m_end = k + 1
+                    while m_end < n and text[m_end] == "`":
+                        m_end += 1
+                    c_len = m_end - k
+                    if c_len == span_len:
                         flush_text(start_backticks)
-                        segments.append((text[start_backticks:after_idx], True))
-                        text_start = after_idx
-                        i = after_idx
+                        segments.append((text[start_backticks:m_end], True))
+                        text_start = m_end
+                        i = m_end
                         found_span = True
                         prev_line_blank = False
                         break
-                    j = k + 1
+                    backticks_max_pos[c_len] = k
+                    j = m_end
+
                 if not found_span:
-                    pass
+                    backticks_scanned = True
                 continue
 
             if text[i] == "\n":
-                prev_line_blank = (text[line_start_idx:i].strip() == "")
-                line_start_idx = i + 1
+                prev_nl = text.rfind("\n", 0, i)
+                line_content = text[prev_nl + 1 : i] if prev_nl != -1 else text[:i]
+                prev_line_blank = (line_content.strip() == "")
 
             i += 1
 
@@ -359,10 +382,10 @@ class MarkdownImporter(BaseImporter):
     def _isolate_display_math_blocks(cls, seg: str) -> str:
         """Đảm bảo các khối công thức toán display ($$..$$) bắt đầu ở dòng mới hoặc liền sau
         dấu hai chấm có dòng trống phân cách chuẩn CommonMark, ngoại trừ các khối mã (code fence),
-        đoạn mã nội dòng (code span) và các ô bảng GFM.
+        khối mã thụt lề (indented code block), đoạn mã nội dòng (code span) và các ô bảng GFM.
 
         Sử dụng máy trạng thái một lượt (single-pass line scanner) đạt độ phức tạp O(n) tuyến tính,
-        chuẩn hóa ngắt dòng CRLF và bảo toàn 100% nội dung bên trong code fence."""
+        chuẩn hóa ngắt dòng CRLF và bảo toàn 100% nội dung bên trong code fence và khối mã thụt lề."""
         if not seg:
             return ""
 
@@ -377,24 +400,68 @@ class MarkdownImporter(BaseImporter):
         n = len(lines)
 
         # Tiền quét các khối bảng GFM có hàng phân cách cột (delimiter row)
+        # Chỉ đánh dấu bảng khi có dòng tiêu đề h = d - 1 ngay trước dòng phân cách d
+        # có số cột khớp nhau (C_header == C_delim >= 1) và các dòng dữ liệu liền kề
         table_line_indices: set[int] = set()
-        delim_re = re.compile(r"^[ ]{0,3}\|?[ ]*:?-+:?[ ]*(\|([ ]*:?-+:?[ ]*))+\|?[ ]*$")
-        group_start = None
-        for i_line, line_str in enumerate(lines):
-            if line_str.strip() != "":
-                if group_start is None:
-                    group_start = i_line
-            else:
-                if group_start is not None:
-                    if any(delim_re.match(lines[k]) for k in range(group_start, i_line)):
-                        for k in range(group_start, i_line):
-                            table_line_indices.add(k)
-                    group_start = None
 
-        if group_start is not None:
-            if any(delim_re.match(lines[k]) for k in range(group_start, n)):
-                for k in range(group_start, n):
-                    table_line_indices.add(k)
+        def _parse_delim_cols(line_str: str) -> int | None:
+            if len(line_str) - len(line_str.lstrip(" ")) >= 4 or line_str.startswith("\t"):
+                return None
+            s = line_str.strip()
+            if not s or not all(c in "|-: \t" for c in s):
+                return None
+            if s.startswith("- "):
+                return None
+            if "|" not in s:
+                return None
+            cols = [c.strip() for c in s.split("|")]
+            if cols and cols[0] == "":
+                cols.pop(0)
+            if cols and cols[-1] == "":
+                cols.pop()
+            if not cols:
+                return None
+            if any(not c or not re.match(r"^:?-+:?$", c) for c in cols):
+                return None
+            return len(cols)
+
+        def _count_header_cols(line_str: str) -> int:
+            if not cls._is_table_line(line_str):
+                return 0
+            cols = escapedSplit(line_str.strip())
+            if cols and cols[0] == "":
+                cols.pop(0)
+            if cols and cols[-1] == "":
+                cols.pop()
+            return len(cols)
+
+        i_scan = 1
+        while i_scan < n:
+            d_cols = _parse_delim_cols(lines[i_scan])
+            if d_cols is not None:
+                h_idx = i_scan - 1
+                if h_idx not in table_line_indices and lines[h_idx].strip() != "":
+                    if len(lines[h_idx]) - len(lines[h_idx].lstrip(" ")) < 4 and not lines[h_idx].startswith("\t"):
+                        h_cols = _count_header_cols(lines[h_idx])
+                        if h_cols == d_cols and h_cols > 0:
+                            table_line_indices.add(h_idx)
+                            table_line_indices.add(i_scan)
+                            k = i_scan + 1
+                            while k < n:
+                                k_line = lines[k]
+                                if k_line.strip() == "":
+                                    break
+                                if len(k_line) - len(k_line.lstrip(" ")) >= 4 or k_line.startswith("\t"):
+                                    break
+                                if re.match(r"^[ ]{0,3}(`{3,}|~{3,}|#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$|[+*-][ \t]|\d+[.)][ \t])", k_line):
+                                    break
+                                if not cls._is_table_line(k_line):
+                                    break
+                                table_line_indices.add(k)
+                                k += 1
+                            i_scan = k
+                            continue
+            i_scan += 1
 
         in_fence = False
         fence_char = ""
@@ -403,8 +470,17 @@ class MarkdownImporter(BaseImporter):
         in_display_math = False
         math_indent = ""
 
+        in_indented_code = False
+        can_start_indented = True
+
         for idx, line in enumerate(lines):
             stripped = line.strip()
+
+            if stripped == "":
+                in_indented_code = False
+                can_start_indented = True
+                out_lines.append(line)
+                continue
 
             # A. Đang ở trong khối mã lập trình (FENCED_CODE, bao gồm cả trong blockquote)
             if in_fence:
@@ -414,6 +490,7 @@ class MarkdownImporter(BaseImporter):
                     in_fence = False
                     fence_char = ""
                     fence_len = 0
+                    can_start_indented = True
                 continue
 
             # B. Bắt đầu khối mã lập trình (code fence: >=3 backticks hoặc tildes, cấp gốc hoặc trong blockquote)
@@ -422,6 +499,7 @@ class MarkdownImporter(BaseImporter):
                 in_fence = True
                 fence_char = m_open_fence.group(3)[0]
                 fence_len = len(m_open_fence.group(3))
+                in_indented_code = False
                 out_lines.append(line)
                 continue
 
@@ -431,17 +509,28 @@ class MarkdownImporter(BaseImporter):
                 # Kiểm tra kết thúc khối toán: dòng kết thúc bằng $$ (có thể kèm dấu câu)
                 if stripped.endswith("$$") or re.search(r"\$\$[ \t]*[,.;:!?]?$", stripped):
                     in_display_math = False
+                    can_start_indented = True
                     # Đảm bảo dòng trống sau khối toán nếu dòng tiếp theo có chữ
                     if idx + 1 < n and lines[idx + 1].strip() != "":
                         out_lines.append(math_indent)
                 continue
 
-            # D. Kiểm tra bảng GFM: dòng phải thuộc khối bảng có hàng phân cách cột
-            if idx in table_line_indices and cls._is_table_line(line):
+            # D. Khối mã thụt lề (Indented Code Block - CommonMark 4.4)
+            is_indented_line = line.startswith("    ") or line.startswith("\t")
+            if (can_start_indented or in_indented_code) and is_indented_line:
+                in_indented_code = True
                 out_lines.append(line)
                 continue
 
-            # E. Xử lý trường hợp nhãn hai chấm dẫn nhập: 'ta có:$$...' hoặc 'với: $$...'
+            in_indented_code = False
+
+            # E. Kiểm tra bảng GFM: dòng phải thuộc khối bảng có hàng phân cách cột
+            if idx in table_line_indices and cls._is_table_line(line):
+                can_start_indented = True
+                out_lines.append(line)
+                continue
+
+            # F. Xử lý trường hợp nhãn hai chấm dẫn nhập: 'ta có:$$...' hoặc 'với: $$...'
             # Tuyệt đối bỏ qua nếu nằm bên trong đoạn mã nội dòng (hỗ trợ mọi độ dài backticks)
             line_spans = cls._find_code_spans(line)
 
@@ -463,10 +552,14 @@ class MarkdownImporter(BaseImporter):
                 stripped = line.strip()
                 line_spans = cls._find_code_spans(line)
 
-            # F. Dòng bắt đầu bằng $$ (sau khoảng trắng thụt lề nếu có)
+            # G. Dòng bắt đầu bằng $$ (sau khoảng trắng thụt lề nếu có)
             m_open_math = re.match(r"^([ \t]*)\$\$", line)
             if m_open_math and not _is_inside_code_span(m_open_math.start(1)):
-                indent = m_open_math.group(1)
+                raw_indent = m_open_math.group(1)
+                # Nếu thụt lề >= 4 khoảng trắng ở cấp gốc (dòng tiếp nối đoạn văn),
+                # chuẩn hóa indent về "" để dòng trống chèn trước không biến nó thành
+                # indented code block ở bước markdown-it
+                indent = "" if len(raw_indent.expandtabs(4)) >= 4 else raw_indent
                 math_indent = indent
 
                 # Đảm bảo có dòng trống phía trước nếu dòng trước có chữ
@@ -489,12 +582,20 @@ class MarkdownImporter(BaseImporter):
                         out_lines.append(f"{indent}{after_text}")
                     elif idx + 1 < n and lines[idx + 1].strip() != "":
                         out_lines.append(indent)
+                    can_start_indented = True
                     continue
                 else:
                     # Khối mở nhiều dòng: chuyển trạng thái sang DISPLAY_MATH
                     in_display_math = True
                     out_lines.append(line)
                     continue
+
+            # Đánh giá xem dòng có thể mở khối mã thụt lề ở dòng kế tiếp hay không
+            # (chỉ dòng đoạn văn thông thường mới cấm mở khối thụt lề; heading, hr cho phép)
+            if re.match(r"^[ ]{0,3}(#{1,6}([ \t]|$)|([-*_])([ \t]*\3){2,}[ \t]*$)", line):
+                can_start_indented = True
+            else:
+                can_start_indented = False
 
             out_lines.append(line)
 
