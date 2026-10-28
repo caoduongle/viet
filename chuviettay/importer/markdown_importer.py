@@ -55,6 +55,7 @@ _HTML_TAG = re.compile(
 _FAKE_CLOSE_PUA_START = 0xE000
 _FAKE_CLOSE_PUA_END = 0xF8FF
 _FAKE_CLOSE_PUA_COUNT = _FAKE_CLOSE_PUA_END - _FAKE_CLOSE_PUA_START + 1
+_PUA_RE = re.compile(r"[\uE000-\uF8FF]")
 
 
 class MarkdownImporter(BaseImporter):
@@ -69,11 +70,15 @@ class MarkdownImporter(BaseImporter):
     def _choose_fake_close_placeholder(cls, text: str) -> str | None:
         """Chọn ký tự giữ chỗ cho dấu đóng giả từ vùng Private Use Area của BMP (U+E000..U+F8FF).
 
-        Tối ưu hóa:
-        1. Fast-path O(1): Nếu text rỗng hoặc U+E000 không có trong text, trả về U+E000 ngay lập tức.
-        2. Slow-path: Khi U+E000 có trong text (va chạm), gom các ký tự PUA bằng C qua set(text),
-           kiểm tra thoát sớm O(1) nếu cạn kiệt toàn bộ 6.400 ký tự (_FAKE_CLOSE_PUA_COUNT),
-           sau đó duyệt dải mã và tra cứu trên tập số nguyên used_cps để tìm ký tự chưa dùng.
+        Độ phức tạp và cơ chế:
+        1. Fast-path: Kiểm tra text rỗng hoặc first_pua not in text.
+           - Phép tìm kiếm chuỗi con 'not in' thực thi ở tầng C với thời gian O(N) trong trường hợp xấu nhất,
+             nhưng không cấp phát bộ nhớ phụ nào (O(1) auxiliary memory), tối ưu cho hầu hết tài liệu thông thường.
+        2. Collision path: Khi U+E000 xuất hiện trong text (va chạm), quét các ký tự PUA bằng biểu thức chính quy
+           _PUA_RE.finditer(text) ở tầng C mà không cấp phát danh sách hay tập hợp toàn bộ ký tự tài liệu:
+           - Tập hợp used_cps chỉ chứa các điểm mã PUA đã dùng, khống chế bộ nhớ phụ tối đa <= 6.400 phần tử.
+           - Thoát sớm ngay trong vòng lặp finditer nếu used_cps đã đủ 6.400 ký tự (cạn kiệt PUA).
+           - Duyệt dải mã U+E001..U+F8FF để tìm điểm mã chưa dùng đầu tiên; trả về None nếu cạn kiệt.
         """
         if not text:
             return chr(_FAKE_CLOSE_PUA_START)
@@ -82,9 +87,11 @@ class MarkdownImporter(BaseImporter):
         if first_pua not in text:
             return first_pua
 
-        used_cps = {ord(c) for c in set(text) if _FAKE_CLOSE_PUA_START <= ord(c) <= _FAKE_CLOSE_PUA_END}
-        if len(used_cps) == _FAKE_CLOSE_PUA_COUNT:
-            return None
+        used_cps: set[int] = set()
+        for m in _PUA_RE.finditer(text):
+            used_cps.add(ord(m.group(0)))
+            if len(used_cps) == _FAKE_CLOSE_PUA_COUNT:
+                return None
 
         for cp in range(_FAKE_CLOSE_PUA_START + 1, _FAKE_CLOSE_PUA_END + 1):
             if cp not in used_cps:

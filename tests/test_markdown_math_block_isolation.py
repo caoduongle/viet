@@ -803,6 +803,7 @@ def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: 
     Xác nhận T(4N)/T(N) <= 6.0 và nội dung đầu ra thỏa mãn các bất biến cụ thể.
     """
     import gc
+    import statistics
     import time
 
     def make_adversarial_text(n_chunks: int) -> str:
@@ -837,26 +838,36 @@ def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: 
         out_warmup = run_pipeline(text_n)
         assert len(out_warmup) > 0
 
-        # Đo N
-        gc.collect()
-        t0 = time.perf_counter()
-        for _ in range(5):
-            out_n = run_pipeline(text_n)
-        t_n = (time.perf_counter() - t0) / 5
-
-        # Đo 2N
+        # Đo 2N một lần để kiểm chứng các bất biến bảo toàn
         gc.collect()
         t0 = time.perf_counter()
         for _ in range(3):
             out_2n = run_pipeline(text_2n)
         t_2n = (time.perf_counter() - t0) / 3
 
-        # Đo 4N
-        gc.collect()
-        t0 = time.perf_counter()
-        for _ in range(3):
-            out_4n = run_pipeline(text_4n)
-        t_4n = (time.perf_counter() - t0) / 3
+        # Đo thống kê trung vị trên 5 lượt độc lập cho (N, 4N) để loại trừ nhiễu hệ điều hành
+        ratios: list[float] = []
+        t_n_rounds: list[float] = []
+        t_4n_rounds: list[float] = []
+
+        out_n = ""
+        out_4n = ""
+        for _ in range(5):
+            gc.collect()
+            t0 = time.perf_counter()
+            for _ in range(3):
+                out_n = run_pipeline(text_n)
+            t_n_r = (time.perf_counter() - t0) / 3
+
+            gc.collect()
+            t0 = time.perf_counter()
+            for _ in range(3):
+                out_4n = run_pipeline(text_4n)
+            t_4n_r = (time.perf_counter() - t0) / 3
+
+            ratios.append(t_4n_r / max(t_n_r, 0.001))
+            t_n_rounds.append(t_n_r)
+            t_4n_rounds.append(t_4n_r)
     finally:
         if was_gc_enabled:
             gc.enable()
@@ -903,28 +914,23 @@ def test_adversarial_complexity_multi_length_backticks_and_long_lines(importer: 
     assert out_2n.count("code_span") == 500
     assert out_4n.count("code_span") == 1000
 
-    # Khẳng định tỷ lệ tăng trưởng tuyến tính T(4N)/T(N) <= 6.0
-    ratio = t_4n / max(t_n, 0.001)
-    if ratio > 6.0:
-        # Đo lại một lần để loại trừ nhiễu điều phối CPU / background IO của hệ điều hành
-        gc.collect()
-        t0 = time.perf_counter()
-        for _ in range(5):
-            out_n = run_pipeline(text_n)
-        t_n_retry = (time.perf_counter() - t0) / 5
+    # Đánh giá hiệu năng bằng trung vị 5 lượt đo (loại trừ thiên vị min retry)
+    med_ratio = statistics.median(ratios)
+    med_t_n = statistics.median(t_n_rounds)
+    med_t_4n = statistics.median(t_4n_rounds)
+    rounds_diag = ", ".join(
+        f"R{i+1}: {r:.2f}x (T_N={tn:.3f}s, T_4N={t4n:.3f}s)"
+        for i, (r, tn, t4n) in enumerate(zip(ratios, t_n_rounds, t_4n_rounds))
+    )
 
-        gc.collect()
-        t0 = time.perf_counter()
-        for _ in range(3):
-            out_4n = run_pipeline(text_4n)
-        t_4n_retry = (time.perf_counter() - t0) / 3
-
-        ratio_retry = t_4n_retry / max(t_n_retry, 0.001)
-        if ratio_retry < ratio:
-            ratio, t_n, t_4n = ratio_retry, t_n_retry, t_4n_retry
-
-    assert ratio <= 6.0, f"Tỷ lệ tăng thời gian ({ratio:.2f}x) vượt ngưỡng tuyến tính (t_n={t_n:.3f}s, t_4n={t_4n:.3f}s)"
-    assert t_4n < 2.0, f"Thời gian xử lý 4,000 dòng bất lợi vượt ngưỡng 2.0s ({t_4n:.3f}s)"
+    assert med_ratio <= 6.0, (
+        f"Trung vị tỷ lệ tăng thời gian ({med_ratio:.2f}x) vượt ngưỡng tuyến tính 6.0x "
+        f"(med_t_n={med_t_n:.3f}s, med_t_4n={med_t_4n:.3f}s) across 5 rounds: [{rounds_diag}]"
+    )
+    assert med_t_4n < 2.0, (
+        f"Trung vị thời gian xử lý 4,000 dòng bất lợi vượt ngưỡng 2.0s ({med_t_4n:.3f}s) "
+        f"across 5 rounds: [{rounds_diag}]"
+    )
 
 
 # ==============================================================================
@@ -1084,5 +1090,61 @@ def test_fake_close_pua_exhaustion_e2e_fallback(importer: MarkdownImporter):
 
     # 3. Không có rò rỉ ký tự lạ hay chuỗi hỏng trong unsupported
     assert len(res.unsupported) == 0
+
+
+def test_pua_memory_bounded_multilingual(importer: MarkdownImporter):
+    """[064-US1] Kiểm chứng khống chế bộ nhớ và độ chính xác khi tài liệu chứa nhiều ký tự đa ngữ:
+    - Ca 1: Tài liệu chứa 10.000 ký tự Hán/Nôm khác nhau và ký tự \\ue000 -> Trả về \\ue001.
+    - Ca 2: Tài liệu chứa 10.000 ký tự đa ngữ và 10 ký tự PUA (\\ue000..\\ue009) -> Trả về \\ue00a.
+    - Ca 3: Tài liệu chứa toàn bộ 6.400 ký tự PUA xen kẽ văn bản đa ngữ lớn -> Thoát sớm và trả về None.
+    - Ca 4: Toàn bộ quy trình import_text() với tài liệu đa ngữ chứa \\ue000 và trích dẫn lồng nhau
+      bảo toàn 100% nội dung chữ Nôm và ký tự PUA gốc của người dùng.
+    """
+    # Ca 1: 10.000 ký tự chữ Hán/Nôm phân biệt (U+4E00..U+751F) + \ue000
+    han_nom_chars = "".join(chr(0x4E00 + i) for i in range(10000))
+    text_c1 = f"{han_nom_chars}\ue000 văn bản chữ Nôm"
+    placeholder_c1 = MarkdownImporter._choose_fake_close_placeholder(text_c1)
+    assert placeholder_c1 == "\ue001"
+
+    # Ca 2: 10.000 ký tự đa ngữ và chuỗi 10 ký tự PUA liên tiếp (\ue000..\ue009)
+    multi_pua = "".join(chr(0xE000 + i) for i in range(10))
+    text_c2 = f"{han_nom_chars}{multi_pua} tài liệu đa ngữ"
+    placeholder_c2 = MarkdownImporter._choose_fake_close_placeholder(text_c2)
+    assert placeholder_c2 == chr(0xE000 + 10)  # \ue00a
+
+    # Ca 3: Toàn bộ 6.400 ký tự PUA kèm văn bản đa ngữ lớn phía sau -> Trả về None
+    all_pua = "".join(chr(cp) for cp in range(0xE000, 0xF8FF + 1))
+    text_c3 = f"{all_pua}{han_nom_chars * 2}"
+    placeholder_c3 = MarkdownImporter._choose_fake_close_placeholder(text_c3)
+    assert placeholder_c3 is None
+
+    # Ca 4: Tích hợp e2e import_text() với văn bản chữ Nôm chứa \ue000 và dấu đóng giả lồng nhau
+    sample_nom = "".join(chr(0x4E00 + i) for i in range(500))
+    text_e2e = (
+        f"{sample_nom}\n\n"
+        "\ue000 Đoạn văn chứa PUA người dùng\n\n"
+        "> $$\n"
+        "> \\alpha = 1\n"
+        ">> $$\n"
+        "> \\beta = 2\n"
+        "> $$"
+    )
+    res = importer.import_text(text_e2e)
+    assert res is not None
+    assert len(res.unsupported) == 0
+
+    # Khẳng định trích xuất đúng MathBlock
+    math_blocks = [b for b in res.document.blocks if isinstance(b, MathBlock)]
+    assert len(math_blocks) == 1
+    assert math_blocks[0].latex == "> \\alpha = 1\n>> $$\n> \\beta = 2\n>"
+
+    # Khẳng định bảo toàn trọn vẹn 500 ký tự chữ Nôm và \ue000 trong các Paragraph
+    paragraphs = [b for b in res.document.blocks if isinstance(b, Paragraph)]
+    all_para_text = "".join(
+        inl.text for p in paragraphs for inl in p.inlines if isinstance(inl, Text)
+    )
+    assert sample_nom in all_para_text
+    assert "\ue000 Đoạn văn chứa PUA người dùng" in all_para_text
+
 
 
