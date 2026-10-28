@@ -67,6 +67,28 @@ class MarkdownImporter(BaseImporter):
         require_dependency("mdit_py_plugins", feature_desc="tính năng toán học trong Markdown")
 
     @classmethod
+    def _collect_used_pua_codepoints(cls, text: str) -> set[int]:
+        """Thu thập tập hợp các điểm mã BMP PUA (U+E000..U+F8FF) xuất hiện trong văn bản.
+
+        Cơ chế và độ phức tạp:
+        - Quét văn bản ở tầng C bằng _PUA_RE.finditer(text), không cấp phát danh sách hay tập hợp toàn bộ tài liệu.
+        - Bộ nhớ phụ khống chế nghiêm ngặt <= 6.400 phần tử (tương đương _FAKE_CLOSE_PUA_COUNT).
+        - Thoát sớm ngay trong vòng lặp khi tập hợp used_cps đạt đủ 6.400 phần tử (cạn kiệt PUA).
+
+        Args:
+            text (str): Chuỗi văn bản Markdown đầu vào.
+
+        Returns:
+            set[int]: Tập hợp chứa các điểm mã nguyên trong khoảng [0xE000, 0xF8FF] đã xuất hiện.
+        """
+        used_cps: set[int] = set()
+        for m in _PUA_RE.finditer(text):
+            used_cps.add(ord(m.group(0)))
+            if len(used_cps) == _FAKE_CLOSE_PUA_COUNT:
+                break
+        return used_cps
+
+    @classmethod
     def _choose_fake_close_placeholder(cls, text: str) -> str | None:
         """Chọn ký tự giữ chỗ cho dấu đóng giả từ vùng Private Use Area của BMP (U+E000..U+F8FF).
 
@@ -74,10 +96,10 @@ class MarkdownImporter(BaseImporter):
         1. Fast-path: Kiểm tra text rỗng hoặc first_pua not in text.
            - Phép tìm kiếm chuỗi con 'not in' thực thi ở tầng C với thời gian O(N) trong trường hợp xấu nhất,
              nhưng không cấp phát bộ nhớ phụ nào (O(1) auxiliary memory), tối ưu cho hầu hết tài liệu thông thường.
-        2. Collision path: Khi U+E000 xuất hiện trong text (va chạm), quét các ký tự PUA bằng biểu thức chính quy
-           _PUA_RE.finditer(text) ở tầng C mà không cấp phát danh sách hay tập hợp toàn bộ ký tự tài liệu:
-           - Tập hợp used_cps chỉ chứa các điểm mã PUA đã dùng, khống chế bộ nhớ phụ tối đa <= 6.400 phần tử.
-           - Thoát sớm ngay trong vòng lặp finditer nếu used_cps đã đủ 6.400 ký tự (cạn kiệt PUA).
+        2. Collision path: Khi U+E000 xuất hiện trong text (va chạm):
+           - Gọi cls._collect_used_pua_codepoints(text) quét các ký tự PUA bằng _PUA_RE.finditer(text) ở tầng C,
+             khống chế bộ nhớ phụ tối đa <= 6.400 phần tử và thoát sớm khi cạn kiệt.
+           - Nếu used_cps đã đủ 6.400 ký tự (_FAKE_CLOSE_PUA_COUNT), trả về None ngay lập tức.
            - Duyệt dải mã U+E001..U+F8FF để tìm điểm mã chưa dùng đầu tiên; trả về None nếu cạn kiệt.
         """
         if not text:
@@ -87,11 +109,9 @@ class MarkdownImporter(BaseImporter):
         if first_pua not in text:
             return first_pua
 
-        used_cps: set[int] = set()
-        for m in _PUA_RE.finditer(text):
-            used_cps.add(ord(m.group(0)))
-            if len(used_cps) == _FAKE_CLOSE_PUA_COUNT:
-                return None
+        used_cps = cls._collect_used_pua_codepoints(text)
+        if len(used_cps) == _FAKE_CLOSE_PUA_COUNT:
+            return None
 
         for cp in range(_FAKE_CLOSE_PUA_START + 1, _FAKE_CLOSE_PUA_END + 1):
             if cp not in used_cps:

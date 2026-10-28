@@ -1147,4 +1147,67 @@ def test_pua_memory_bounded_multilingual(importer: MarkdownImporter):
     assert "\ue000 Đoạn văn chứa PUA người dùng" in all_para_text
 
 
+def test_pua_codepoint_collection_direct_and_bounded():
+    """[065-US1] Kiểm chứng trực tiếp số lượng phần tử và miền giá trị của tập hợp điểm mã PUA:
+    - Ca 1: Văn bản chứa 10.000 ký tự chữ Hán/Nôm và 1 ký tự \\ue000 -> used_cps chỉ có đúng 1 phần tử {0xE000}.
+    - Ca 2: Văn bản chứa 10.000 ký tự đa ngữ và 10 ký tự PUA (\\ue000..\\ue009) -> used_cps có đúng 10 phần tử.
+    - Ca 3: Văn bản chứa toàn bộ 6.400 ký tự PUA xen kẽ văn bản đa ngữ -> used_cps đạt đúng 6.400 phần tử.
+    - Ca 4: Văn bản không chứa ký tự PUA nào -> used_cps là tập hợp rỗng set().
+    """
+    han_nom_chars = "".join(chr(0x4E00 + i) for i in range(10000))
+
+    # Ca 1: 10.000 ký tự chữ Nôm + \ue000
+    text_c1 = f"{han_nom_chars}\ue000 văn bản chữ Nôm"
+    used_c1 = MarkdownImporter._collect_used_pua_codepoints(text_c1)
+    assert used_c1 == {0xE000}
+    assert len(used_c1) == 1
+
+    # Ca 2: 10.000 ký tự đa ngữ và 10 ký tự PUA liên tiếp
+    multi_pua = "".join(chr(0xE000 + i) for i in range(10))
+    text_c2 = f"{han_nom_chars}{multi_pua}"
+    used_c2 = MarkdownImporter._collect_used_pua_codepoints(text_c2)
+    assert len(used_c2) == 10
+    assert used_c2 == set(range(0xE000, 0xE00A))
+
+    # Ca 3: 6.400 ký tự PUA kèm văn bản lớn phía sau
+    all_pua = "".join(chr(cp) for cp in range(0xE000, 0xF8FF + 1))
+    text_c3 = f"{all_pua}{han_nom_chars * 2}"
+    used_c3 = MarkdownImporter._collect_used_pua_codepoints(text_c3)
+    assert len(used_c3) == 6400
+    assert all(0xE000 <= cp <= 0xF8FF for cp in used_c3)
+
+    # Ca 4: Văn bản thuần túy không có ký tự PUA
+    text_c4 = f"{han_nom_chars} văn bản hoàn toàn không chứa PUA"
+    used_c4 = MarkdownImporter._collect_used_pua_codepoints(text_c4)
+    assert used_c4 == set()
+    assert len(used_c4) == 0
+
+
+def test_pua_memory_allocation_bounded_tracemalloc():
+    """[065-US1] Đo lường định lượng bộ nhớ đỉnh phân bổ (tracemalloc) khi trích xuất PUA:
+    - Xác nhận khi xử lý văn bản lớn chứa 10.000 ký tự phân biệt và ký tự PUA va chạm,
+      mức tăng bộ nhớ đỉnh phân bổ luôn duy trì <= 50KB, hoàn toàn không bùng nổ theo quy mô bảng chữ cái.
+    - Đảm bảo dọn dẹp an toàn qua khối try...finally để tránh rò rỉ trạng thái tracing.
+    """
+    import gc
+    import tracemalloc
+
+    han_nom_chars = "".join(chr(0x4E00 + i) for i in range(10000))
+    # Tạo văn bản ~100.000 ký tự với 10.001 ký tự phân biệt
+    text_large = f"{han_nom_chars}\ue000" * 10
+
+    gc.collect()
+    tracemalloc.start()
+    try:
+        used_cps = MarkdownImporter._collect_used_pua_codepoints(text_large)
+        _, peak_memory = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    assert used_cps == {0xE000}
+    peak_kb = peak_memory / 1024
+    assert peak_kb <= 50.0, f"Mức tăng bộ nhớ đỉnh ({peak_kb:.2f} KB) vượt ngưỡng an toàn 50 KB"
+
+
+
 
