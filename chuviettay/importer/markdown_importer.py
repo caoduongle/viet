@@ -54,6 +54,7 @@ _HTML_TAG = re.compile(
 # Miền ký tự Private Use Area của BMP (U+E000..U+F8FF, 6.400 điểm mã) dùng làm dấu giữ chỗ nội bộ
 _FAKE_CLOSE_PUA_START = 0xE000
 _FAKE_CLOSE_PUA_END = 0xF8FF
+_FAKE_CLOSE_PUA_COUNT = _FAKE_CLOSE_PUA_END - _FAKE_CLOSE_PUA_START + 1
 
 
 class MarkdownImporter(BaseImporter):
@@ -67,13 +68,27 @@ class MarkdownImporter(BaseImporter):
     @classmethod
     def _choose_fake_close_placeholder(cls, text: str) -> str | None:
         """Chọn ký tự giữ chỗ cho dấu đóng giả từ vùng Private Use Area của BMP (U+E000..U+F8FF).
-        Trả về ký tự đầu tiên không xuất hiện trong text, hoặc None nếu cạn kiệt."""
+
+        Tối ưu hóa:
+        1. Fast-path O(1): Nếu text rỗng hoặc U+E000 không có trong text, trả về U+E000 ngay lập tức.
+        2. Slow-path: Khi U+E000 có trong text (va chạm), gom các ký tự PUA bằng C qua set(text),
+           kiểm tra thoát sớm O(1) nếu cạn kiệt toàn bộ 6.400 ký tự (_FAKE_CLOSE_PUA_COUNT),
+           sau đó duyệt dải mã và tra cứu trên tập số nguyên used_cps để tìm ký tự chưa dùng.
+        """
         if not text:
             return chr(_FAKE_CLOSE_PUA_START)
-        for cp in range(_FAKE_CLOSE_PUA_START, _FAKE_CLOSE_PUA_END + 1):
-            ch = chr(cp)
-            if ch not in text:
-                return ch
+
+        first_pua = chr(_FAKE_CLOSE_PUA_START)
+        if first_pua not in text:
+            return first_pua
+
+        used_cps = {ord(c) for c in set(text) if _FAKE_CLOSE_PUA_START <= ord(c) <= _FAKE_CLOSE_PUA_END}
+        if len(used_cps) == _FAKE_CLOSE_PUA_COUNT:
+            return None
+
+        for cp in range(_FAKE_CLOSE_PUA_START + 1, _FAKE_CLOSE_PUA_END + 1):
+            if cp not in used_cps:
+                return chr(cp)
         return None
 
     @classmethod
