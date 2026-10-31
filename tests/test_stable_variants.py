@@ -946,3 +946,145 @@ def test_repetitive_words_seed_stability_large_corpus():
         assert token_occs[idx_in_edited] == expected_occ, (
             f"Token lặp ở đuôi index {idx_in_edited} bị đổi occ: {token_occs[idx_in_edited]} != {expected_occ}"
         )
+
+
+# ==============================================================================
+# Feature 068: Short prefix seed stability, multi-step alignment & Controller
+# ==============================================================================
+
+def test_align_document_seeds_short_prefix_no_overlap():
+    """T004 [US1]: Kiểm tra tiền tố ngắn 2 token không bị hậu tố quét đè khi có từ lặp."""
+    from chuviettay.document.ir import Document, Paragraph, Text, align_document_seeds
+
+    # Base text: 4 tokens ("là là đi học")
+    base_text = "là là đi học"
+    base_doc = Document(blocks=[Paragraph(inlines=[Text(base_text)])])
+    base_aligned = align_document_seeds(base_doc, base_doc)
+
+    # Edited text: chèn "mới là" ngay sau tiền tố 2 token
+    edited_text = "là là mới là đi học"
+    edited_doc = Document(blocks=[Paragraph(inlines=[Text(edited_text)])])
+
+    res_doc = align_document_seeds(base_aligned, edited_doc)
+    text_node = res_doc.blocks[0].inlines[0]
+    token_occs = getattr(text_node, "token_occurrences", None)
+
+    assert token_occs is not None
+    assert len(token_occs) == 6
+    # Hai từ "là" đầu tiên giữ nguyên occurrence 0 và 1 từ base
+    assert token_occs[0] == 0, f"Token 'là' đầu tiên bị đổi occ: {token_occs[0]} != 0"
+    assert token_occs[1] == 1, f"Token 'là' thứ hai bị đổi occ: {token_occs[1]} != 1"
+    # Từ "mới" là từ mới
+    assert token_occs[2] == 0
+    # Từ "là" thứ ba (mới chèn) phải nhận occurrence 2 (tiếp theo của 'là')
+    assert token_occs[3] == 2, f"Token 'là' mới chèn không nhận occ tiếp theo: {token_occs[3]} != 2"
+    # Hai từ "đi học" ở cuối giữ nguyên occurrence từ base
+    assert token_occs[4] == 0
+    assert token_occs[5] == 0
+
+
+def test_align_document_seeds_1_token_prefix_repeated_word():
+    """T004 [US1]: Kiểm tra tiền tố 1 token không bị hậu tố quét đè."""
+    from chuviettay.document.ir import Document, Paragraph, Text, align_document_seeds
+
+    base_text = "là đi học"
+    base_doc = Document(blocks=[Paragraph(inlines=[Text(base_text)])])
+    base_aligned = align_document_seeds(base_doc, base_doc)
+
+    edited_text = "là mới là đi học"
+    edited_doc = Document(blocks=[Paragraph(inlines=[Text(edited_text)])])
+
+    res_doc = align_document_seeds(base_aligned, edited_doc)
+    text_node = res_doc.blocks[0].inlines[0]
+    token_occs = getattr(text_node, "token_occurrences", None)
+
+    assert token_occs is not None
+    assert len(token_occs) == 5
+    assert token_occs[0] == 0  # 'là' đầu
+    assert token_occs[1] == 0  # 'mới'
+    assert token_occs[2] == 1  # 'là' thứ hai nhận occ tiếp theo
+    assert token_occs[3] == 0  # 'đi'
+    assert token_occs[4] == 0  # 'học'
+
+
+def test_align_document_seeds_multi_step_consecutive_edits():
+    """T005 [US1]: Kiểm tra chuỗi 3 lượt chỉnh sửa liên tiếp (D0 -> D1 -> D2 -> D3)."""
+    from chuviettay.document.ir import Document, Paragraph, Text, align_document_seeds
+
+    # Lượt 0: Văn bản gốc
+    d0 = Document(blocks=[Paragraph(inlines=[Text("hôm nay đi học vui vẻ")])])
+    d0_aligned = align_document_seeds(d0, d0)
+    occs_d0 = d0_aligned.blocks[0].inlines[0].token_occurrences
+    assert occs_d0 == [0, 0, 0, 0, 0, 0]
+
+    # Lượt 1: Chèn từ "rất" vào trước "vui vẻ"
+    d1 = Document(blocks=[Paragraph(inlines=[Text("hôm nay đi học rất vui vẻ")])])
+    d1_aligned = align_document_seeds(d0_aligned, d1)
+    occs_d1 = d1_aligned.blocks[0].inlines[0].token_occurrences
+    assert occs_d1 == [0, 0, 0, 0, 0, 0, 0]
+
+    # Lượt 2: Chèn lặp lại "hôm nay" ở cuối câu
+    d2 = Document(blocks=[Paragraph(inlines=[Text("hôm nay đi học rất vui vẻ hôm nay")])])
+    d2_aligned = align_document_seeds(d1_aligned, d2)
+    occs_d2 = d2_aligned.blocks[0].inlines[0].token_occurrences
+    assert len(occs_d2) == 9
+    # 7 token đầu giữ nguyên từ d1
+    assert occs_d2[:7] == [0, 0, 0, 0, 0, 0, 0]
+    # 2 token "hôm nay" mới ở cuối phải nhận occ = 1
+    assert occs_d2[7] == 1, f"Token 'hôm' thứ hai phải có occ=1, nhận {occs_d2[7]}"
+    assert occs_d2[8] == 1, f"Token 'nay' thứ hai phải có occ=1, nhận {occs_d2[8]}"
+
+    # Lượt 3: Chèn thêm một từ "học" vào giữa
+    d3 = Document(blocks=[Paragraph(inlines=[Text("hôm nay chăm học đi học rất vui vẻ hôm nay")])])
+    d3_aligned = align_document_seeds(d2_aligned, d3)
+    occs_d3 = d3_aligned.blocks[0].inlines[0].token_occurrences
+    assert len(occs_d3) == 11
+    # 'hôm': 0, 'nay': 0, 'chăm': 0, 'học': 1, 'đi': 0, 'học': 0, 'rất': 0, 'vui': 0, 'vẻ': 0, 'hôm': 1, 'nay': 1
+    # Từ 'đi học' cũ giữ nguyên occ = 0
+    assert occs_d3[0] == 0  # hôm
+    assert occs_d3[1] == 0  # nay
+    assert occs_d3[2] == 0  # chăm
+    assert occs_d3[4] == 0  # đi
+    assert occs_d3[5] == 0  # học cũ
+    assert occs_d3[9] == 1  # hôm đuôi
+    assert occs_d3[10] == 1  # nay đuôi
+
+
+def test_app_controller_stable_variants_workflow(tiny_bank_path, tmp_path):
+    """T005 [US1]: Kiểm tra luồng AppController.write_document duy trì nét vẽ qua nhiều lần gọi."""
+    from chuviettay.controller.app_controller import AppController
+    from chuviettay.model.composer import WriteOptions
+    from chuviettay.document.ir import Document, Paragraph, Text
+    import gzip
+    import xml.etree.ElementTree as ET
+
+    ctl = AppController(bank_path=str(tiny_bank_path))
+    ctl.load_bank()
+
+    opts = WriteOptions(stable_variants=True, seed=42)
+
+    doc1 = Document(blocks=[Paragraph(inlines=[Text("xin xin chào ba")])])
+    out1 = str(tmp_path / "out1.xopp")
+    res1 = ctl.write_document(doc1, opts, out1)
+    assert res1.n_tokens == 4
+
+    doc2 = Document(blocks=[Paragraph(inlines=[Text("xin xin chào chào ba")])])
+    out2 = str(tmp_path / "out2.xopp")
+    res2 = ctl.write_document(doc2, opts, out2)
+    assert res2.n_tokens == 5
+    assert getattr(doc2.blocks[0].inlines[0], "token_occurrences", None) is not None
+
+    # Đọc stroke data từ 2 file xopp để kiểm chứng hình học nét vẽ của 2 từ "xin" đầu tiên
+    with gzip.open(out1, "rt", encoding="utf-8") as f:
+        xml1 = f.read()
+    with gzip.open(out2, "rt", encoding="utf-8") as f:
+        xml2 = f.read()
+
+    root1 = ET.fromstring(xml1)
+    root2 = ET.fromstring(xml2)
+    strokes1 = [s.text.strip() for s in root1.findall(".//stroke") if s.text]
+    strokes2 = [s.text.strip() for s in root2.findall(".//stroke") if s.text]
+
+    assert len(strokes1) > 0 and len(strokes2) > 0
+    # Các stroke của từ "xin" đầu tiên trong out1 và out2 phải trùng khớp
+    assert strokes1[0] == strokes2[0], "Nét chữ của từ 'xin' đầu tiên bị thay đổi giữa 2 lần render"

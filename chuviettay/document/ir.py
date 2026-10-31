@@ -177,9 +177,17 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
                     for inline in block.inlines:
                         if isinstance(inline, Text):
                             norm = _normalize_text(inline.text or "")
+                            tok_occurrences = getattr(inline, "token_occurrences", None)
                             for tok_idx, tok in enumerate(norm.split()):
-                                occ = counts.get((blk_prefix, tok), 0)
-                                counts[(blk_prefix, tok)] = occ + 1
+                                if (
+                                    tok_occurrences is not None
+                                    and tok_idx < len(tok_occurrences)
+                                    and tok_occurrences[tok_idx] is not None
+                                ):
+                                    occ = tok_occurrences[tok_idx]
+                                else:
+                                    occ = counts.get((blk_prefix, tok), 0)
+                                counts[(blk_prefix, tok)] = max(counts.get((blk_prefix, tok), 0), occ + 1)
                                 elements.append({
                                     "content_type": blk_prefix,
                                     "element_id": tok,
@@ -188,8 +196,11 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
                                     "tok_idx": tok_idx,
                                 })
                         elif isinstance(inline, Symbol):
-                            occ = counts.get(("sym", inline.symbol), 0)
-                            counts[("sym", inline.symbol)] = occ + 1
+                            if getattr(inline, "occurrence", None) is not None:
+                                occ = inline.occurrence
+                            else:
+                                occ = counts.get(("sym", inline.symbol), 0)
+                            counts[("sym", inline.symbol)] = max(counts.get(("sym", inline.symbol), 0), occ + 1)
                             elements.append({
                                 "content_type": "sym",
                                 "element_id": inline.symbol,
@@ -197,8 +208,11 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
                                 "node": inline,
                             })
                         elif isinstance(inline, MathInline):
-                            occ = counts.get(("math_inline", inline.latex), 0)
-                            counts[("math_inline", inline.latex)] = occ + 1
+                            if getattr(inline, "occurrence", None) is not None:
+                                occ = inline.occurrence
+                            else:
+                                occ = counts.get(("math_inline", inline.latex), 0)
+                            counts[("math_inline", inline.latex)] = max(counts.get(("math_inline", inline.latex), 0), occ + 1)
                             elements.append({
                                 "content_type": "math_inline",
                                 "element_id": inline.latex,
@@ -209,8 +223,11 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
                     for item_blocks in block.items:
                         _extract_blocks(item_blocks, context_prefix=context_prefix)
                 elif isinstance(block, MathBlock):
-                    occ = counts.get(("math_block", block.latex), 0)
-                    counts[("math_block", block.latex)] = occ + 1
+                    if getattr(block, "occurrence", None) is not None:
+                        occ = block.occurrence
+                    else:
+                        occ = counts.get(("math_block", block.latex), 0)
+                    counts[("math_block", block.latex)] = max(counts.get(("math_block", block.latex), 0), occ + 1)
                     elements.append({
                         "content_type": "math_block",
                         "element_id": block.latex,
@@ -229,8 +246,11 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
                                             first_row_texts.append(inl.text.strip())
                     first_row_sig = "-".join(first_row_texts)[:30]
                     tbl_sig = f"tbl:cols:{num_cols}|r0:{first_row_sig}"
-                    occ = counts.get(("table", tbl_sig), 0)
-                    counts[("table", tbl_sig)] = occ + 1
+                    if getattr(block, "occurrence", None) is not None:
+                        occ = block.occurrence
+                    else:
+                        occ = counts.get(("table", tbl_sig), 0)
+                    counts[("table", tbl_sig)] = max(counts.get(("table", tbl_sig), 0), occ + 1)
                     elements.append({
                         "content_type": "table",
                         "element_id": tbl_sig,
@@ -254,23 +274,34 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
     n_edited = len(edited_keys)
     assigned_occs: list[int | None] = [None] * n_edited
 
-    # Cắt bỏ tiền tố chung (common prefix) và hậu tố chung (common suffix) trong O(N)
-    # Áp dụng ngưỡng MIN_TRIM_LEN = 3 để tránh cắt tham lam khi phần tử biên ngẫu nhiên trùng khớp
-    MIN_TRIM_LEN = 3
+    # Cắt bỏ tiền tố chung (common prefix) và hậu tố chung (common suffix) trong O(N).
+    # 1. Nếu toàn bộ tài liệu gốc là hậu tố của tài liệu mới (thao tác chèn vào đầu):
+    #    ưu tiên giữ nguyên toàn bộ hậu tố.
+    # 2. Ngược lại, tiền tố thực tế (p) được bảo toàn và hậu tố không được quét chồng lên p.
     min_len = min(n_base, n_edited)
+
+    # Kiểm tra trường hợp chèn khối vào đầu (toàn bộ base là hậu tố của edited và vượt trội tiền tố)
+    s_full = 0
+    while s_full < min_len and base_keys[n_base - 1 - s_full] == edited_keys[n_edited - 1 - s_full]:
+        s_full += 1
 
     p = 0
     while p < min_len and base_keys[p] == edited_keys[p]:
         p += 1
-    prefix_len = p if p >= MIN_TRIM_LEN else 0
 
-    s = 0
-    while (
-        s < min_len - prefix_len
-        and base_keys[n_base - 1 - s] == edited_keys[n_edited - 1 - s]
-    ):
-        s += 1
-    suffix_len = s if s >= MIN_TRIM_LEN else 0
+    if s_full == n_base and (s_full - p) >= 3:
+        prefix_len = 0
+        suffix_len = n_base
+    else:
+        prefix_len = p
+        max_suffix = min_len - p
+        s = 0
+        while (
+            s < max_suffix
+            and base_keys[n_base - 1 - s] == edited_keys[n_edited - 1 - s]
+        ):
+            s += 1
+        suffix_len = s
 
     # 1. Gán occurrence cho tiền tố chung
     for i in range(prefix_len):
@@ -315,10 +346,16 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
         elif isinstance(node, (Symbol, MathInline, MathBlock, Table)):
             node.occurrence = occ
 
+    seen_text_nodes: set[int] = set()
     for e in edited_elems:
         node = e["node"]
-        if isinstance(node, Text) and id(node) in text_token_maps:
-            pairs = sorted(text_token_maps[id(node)], key=lambda x: x[0])
-            node.token_occurrences = [p[1] for p in pairs]
+        nid = id(node)
+        if isinstance(node, Text) and nid in text_token_maps and nid not in seen_text_nodes:
+            seen_text_nodes.add(nid)
+            token_map = dict(text_token_maps[nid])
+            norm = _normalize_text(node.text or "")
+            node.token_occurrences = [
+                token_map.get(i, i) for i in range(len(norm.split()))
+            ]
 
     return result_doc

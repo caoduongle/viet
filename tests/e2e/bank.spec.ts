@@ -133,4 +133,36 @@ test.describe("User Story 4: Quản lý Kho mẫu chữ (E2E)", () => {
     // 11. Khẳng định tuyệt đối Zero Remote CDN
     expect(externalRequests).toHaveLength(0);
   });
+
+  test("thanh thông báo lỗi hiển thị an toàn với thông điệp chứa thẻ HTML (P2 / XSS prevention)", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator("#splash-screen")).toBeHidden({ timeout: 30000 });
+
+    const welcomeModal = page.locator("#welcome-modal");
+    try {
+      await welcomeModal.waitFor({ state: "visible", timeout: 3000 });
+      await page.click("#btn-welcome-create");
+      await expect(welcomeModal).toBeHidden({ timeout: 10000 });
+    } catch {
+      // Bỏ qua nếu không xuất hiện modal chào
+    }
+
+    await page.click('[data-tab="bank"]');
+
+    // Gọi trực tiếp showBankErrorBanner với chuỗi chứa thẻ HTML
+    await page.evaluate(async () => {
+      const bankModule = await import("/js/bank.js");
+      bankModule.showBankErrorBanner("<b id='xss-test-payload'>injection</b><img src=x onerror=alert(1)>");
+    });
+
+    const banner = page.locator("#bank-error-banner");
+    await expect(banner).toBeVisible();
+    // Khẳng định nội dung thẻ HTML không được parse thành DOM elements mà hiển thị nguyên bản dạng text
+    await expect(banner).toContainText("<b id='xss-test-payload'>injection</b>");
+    expect(await page.locator("#xss-test-payload").count()).toBe(0);
+
+    // Bấm nút Đóng
+    await banner.locator("button", { hasText: "Đóng" }).click();
+    await expect(banner).toBeHidden();
+  });
 });

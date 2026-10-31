@@ -321,9 +321,14 @@ _docx_res = _bridge.import_docx(_dbytes)
       if (diskGzBytes && diskGzBytes.length > 0) {
         const uint8 = new Uint8Array(diskGzBytes);
         pyodide.FS.writeFile("/tmp/active_bank.json.gz", uint8);
+        pyodide.runPython(`
+with open('/tmp/active_bank.json.gz', 'rb') as f:
+    _bridge.load_bank(f.read(), create_if_missing=True)
+`);
       }
       pyodide.runPython(`
 _bridge.flush_save()
+_bridge.bank_revision += 1
 _synced_bytes = _bridge.export_bank()
 `);
       const pyBytes = pyodide.globals.get("_synced_bytes").toJs();

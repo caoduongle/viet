@@ -226,3 +226,21 @@ def test_bank_revision_tracking(bridge_with_tiny_bank, tmp_path):
     s2 = bridge_with_tiny_bank.get_bank_snapshot()
     rev2 = s2["data"]["revision"]
     assert rev2 > rev1, f"Revision không tăng sau khi xóa mẫu ({rev2} <= {rev1})"
+
+
+def test_get_bank_snapshot_includes_worker_epoch(bridge_with_tiny_bank):
+    """T011 [US2]: Kiểm tra get_bank_snapshot trả về worker_epoch duy nhất."""
+    snapshot = bridge_with_tiny_bank.get_bank_snapshot()
+    assert snapshot["ok"] is True
+    assert "worker_epoch" in snapshot["data"]
+    epoch = snapshot["data"]["worker_epoch"]
+    assert isinstance(epoch, str) and len(epoch) > 0
+    assert epoch == bridge_with_tiny_bank.worker_epoch
+
+
+def test_get_bank_snapshot_atomicity_on_subquery_failure(bridge_with_tiny_bank, monkeypatch):
+    """T016 [US3]: Kiểm tra tính nguyên tử: nếu truy vấn con lỗi thì snapshot trả về lỗi."""
+    monkeypatch.setattr(bridge_with_tiny_bank, "list_letters", lambda: {"ok": False, "error": "Lỗi truy vấn chữ cái"})
+    res = bridge_with_tiny_bank.get_bank_snapshot()
+    assert res["ok"] is False
+    assert "Lỗi truy vấn chữ cái" in res.get("error", "")

@@ -161,9 +161,9 @@ function setupDetailModal(options = {}) {
 // -------------------------------------------------------------
 // Nạp kho & Cập nhật Giao diện
 // -------------------------------------------------------------
-let lastBankSnapshotCache = { revision: null, profileId: null };
+let lastBankSnapshotCache = { epoch: null, revision: null, profileId: null };
 
-function showBankErrorBanner(message) {
+export function showBankErrorBanner(message) {
   let banner = document.getElementById("bank-error-banner");
   if (!banner) {
     const summary = document.getElementById("bank-summary");
@@ -177,7 +177,17 @@ function showBankErrorBanner(message) {
   }
   if (banner) {
     if (message) {
-      banner.innerHTML = `<span>⚠️ ${message}</span><button class="btn btn-sm btn-link" style="color: inherit; text-decoration: underline; background: none; border: none; cursor: pointer;" onclick="this.parentElement.style.display='none'">Đóng</button>`;
+      banner.replaceChildren();
+      const span = document.createElement("span");
+      span.textContent = `⚠️ ${message}`;
+      const closeBtn = document.createElement("button");
+      closeBtn.className = "btn btn-sm btn-link";
+      closeBtn.style.cssText = "color: inherit; text-decoration: underline; background: none; border: none; cursor: pointer;";
+      closeBtn.textContent = "Đóng";
+      closeBtn.onclick = () => {
+        banner.style.display = "none";
+      };
+      banner.append(span, closeBtn);
       banner.style.display = "flex";
     } else {
       banner.style.display = "none";
@@ -191,7 +201,7 @@ export async function refreshBankView(force = false) {
   try {
     // 1. Cập nhật thông tin hồ sơ
     await updateProfileChip();
-    const activeProfileId = currentProfileId || "default";
+    const activeProfileId = (await storage.getSetting("active_profile_id", "default_profile")) || "default_profile";
 
     // 2. Lấy toàn bộ snapshot kho mẫu trong 1 lượt gọi duy nhất
     const snapRes = await sendWorkerFn("get_bank_snapshot", { profileId: activeProfileId });
@@ -205,12 +215,18 @@ export async function refreshBankView(force = false) {
 
     const snapshot = snapRes.data || {};
     const rev = snapshot.revision;
+    const epoch = snapshot.worker_epoch || "";
 
-    // Kiểm tra cache nếu không force và revision + profileId không đổi
-    if (!force && lastBankSnapshotCache.revision === rev && lastBankSnapshotCache.profileId === activeProfileId) {
+    // Kiểm tra cache nếu không force và epoch + revision + profileId không đổi
+    if (
+      !force &&
+      lastBankSnapshotCache.epoch === epoch &&
+      lastBankSnapshotCache.revision === rev &&
+      lastBankSnapshotCache.profileId === activeProfileId
+    ) {
       return;
     }
-    lastBankSnapshotCache = { revision: rev, profileId: activeProfileId };
+    lastBankSnapshotCache = { epoch, revision: rev, profileId: activeProfileId };
 
     const stats = snapshot.stats || {};
     const summary = document.getElementById("bank-summary");

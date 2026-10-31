@@ -44,6 +44,26 @@ _log = logging.getLogger(__name__)
 TONE_NAMES = ("huyền", "sắc", "ngã", "hỏi", "nặng")
 
 
+def _sync_occurrences(src_blocks: list[Any], dst_blocks: list[Any]) -> None:
+    """Sao chép đệ quy chỉ số occurrence và token_occurrences từ khối nguồn sang khối đích."""
+    for b_src, b_dst in zip(src_blocks, dst_blocks):
+        if hasattr(b_src, "occurrence") and hasattr(b_dst, "occurrence"):
+            b_dst.occurrence = b_src.occurrence
+        if hasattr(b_src, "inlines") and hasattr(b_dst, "inlines"):
+            for inl_src, inl_dst in zip(b_src.inlines, b_dst.inlines):
+                if hasattr(inl_src, "token_occurrences") and hasattr(inl_dst, "token_occurrences"):
+                    inl_dst.token_occurrences = inl_src.token_occurrences
+                if hasattr(inl_src, "occurrence") and hasattr(inl_dst, "occurrence"):
+                    inl_dst.occurrence = inl_src.occurrence
+        if hasattr(b_src, "items") and hasattr(b_dst, "items"):
+            for item_src, item_dst in zip(b_src.items, b_dst.items):
+                _sync_occurrences(item_src, item_dst)
+        if hasattr(b_src, "rows") and hasattr(b_dst, "rows"):
+            for row_src, row_dst in zip(b_src.rows, b_dst.rows):
+                for cell_src, cell_dst in zip(row_src.cells, row_dst.cells):
+                    _sync_occurrences(cell_src.blocks, cell_dst.blocks)
+
+
 class AppController:
     """Giữ trạng thái ứng dụng (kho mẫu đang mở + hệ số cỡ tay của phiên dạy hiện tại)
     và cung cấp các thao tác nghiệp vụ. Một Controller cho mỗi tiến trình: CLI tạo mới
@@ -65,7 +85,14 @@ class AppController:
         self._save_lock = threading.Lock()
         self._save_event = threading.Event()
         self._save_event.set()
+        self._last_doc: Document | None = None
+        self._last_seed: int | None = None
         _log.debug("Khởi tạo AppController (bank_path=%s)", self.bank_path)
+
+    def clear_document_history(self) -> None:
+        """Đặt lại tài liệu và hạt giống đã căn chỉnh của lượt trước."""
+        self._last_doc = None
+        self._last_seed = None
 
     # ------------------------------------------------------------------ debounce save (US7)
     def schedule_save(self) -> None:
@@ -122,6 +149,7 @@ class AppController:
         self.bank = bank
         self.bank_path = target
         self.session_scale = 1.0
+        self.clear_document_history()
         _log.info("Đã mở kho mẫu: %s (%d từ)", target, len(bank.words))
         return bank
 
@@ -183,8 +211,29 @@ class AppController:
         """Đổi Document IR thành file .xopp nét viết tay qua DocumentLayoutEngine."""
         opts.validate()
         bank = self._require_bank()
+
+        if not document.blocks:
+            self.clear_document_history()
+            doc_to_render = document
+        elif opts.stable_variants:
+            from chuviettay.document.ir import align_document_seeds
+
+            if self._last_doc is not None and self._last_seed == opts.seed:
+                doc_to_render = align_document_seeds(self._last_doc, document)
+            else:
+                doc_to_render = align_document_seeds(document, document)
+        else:
+            self.clear_document_history()
+            doc_to_render = document
+
         engine = DocumentLayoutEngine(bank, opts, token_layout_callback=token_layout_callback)
-        result = engine.render(document, out_path)
+        result = engine.render(doc_to_render, out_path)
+
+        if opts.stable_variants and document.blocks:
+            self._last_doc = doc_to_render
+            self._last_seed = opts.seed
+            _sync_occurrences(doc_to_render.blocks, document.blocks)
+
         _log.info("Viết document %s: %d dòng, %d nét, thiếu mẫu %d/%d token",
                   out_path, result.n_lines, result.n_strokes,
                   result.n_missing_tokens, result.n_tokens)

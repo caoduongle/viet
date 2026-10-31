@@ -89,6 +89,60 @@ def test_ci_invariant_bank_snapshot_latency(bridge_with_tiny_bank):
     assert elapsed_ms < 100.0, f"get_bank_snapshot vượt ngưỡng 100ms: {elapsed_ms:.2f} ms"
 
 
+def test_bank_snapshot_large_scale_performance(tmp_path):
+    """[Feature 068 / US4] Kiểm tra thời gian tạo snapshot trên kho mẫu quy mô lớn (1.000+ nhãn) < 200ms."""
+    import gzip
+    import json
+    from chuviettay.browser.bridge import BrowserBridge
+
+    bank_file = tmp_path / "large_bank.json.gz"
+    # Khởi tạo một kho mẫu lớn với hơn 1.000 nhãn từ/ký tự
+    words_dict = {f"word_{i}": [{"w": 10.0, "s": [[0, 0, 5, -5]], "inst_w": 10.0}] for i in range(700)}
+    letters_dict = {f"ch_{i}": [{"w": 5.0, "s": [[0, 0, 3, -4]], "inst_w": 5.0}] for i in range(300)}
+    digits_dict = {str(i % 10): [{"w": 4.0, "s": [[0, 0, 2, -3]], "inst_w": 4.0}] for i in range(10)}
+    symbols_dict = {f"\\sym{i}": [{"w": 6.0, "s": [[0, 0, 4, -4]], "inst_w": 6.0}] for i in range(20)}
+
+    raw_bank_data = {
+        "v": 1,
+        "xh": 7.94,
+        "wgaps": [11.0],
+        "dgaps": [3.5],
+        "line": 24.0,
+        "x0": 78.0,
+        "width": 500.0,
+        "ratio": 6.6,
+        "pen": {"tool": "pen", "color": "#000000ff", "width": "1.41", "capStyle": "round"},
+        "words": words_dict,
+        "letters": letters_dict,
+        "digits": digits_dict,
+        "punct": {".": [{"w": 1.0, "s": [[0, 0, 0.5, 0.5]], "inst_w": 1.0}]},
+        "symbols": symbols_dict,
+        "marks": {},
+    }
+
+    with gzip.open(bank_file, "wt", encoding="utf-8") as f:
+        json.dump(raw_bank_data, f)
+
+    bridge = BrowserBridge(bank_path=str(bank_file))
+    init_res = bridge.init()
+    assert init_res["ok"] is True, f"Init failed: {init_res}"
+
+    # Lần gọi đầu làm nóng dữ liệu
+    bridge.get_bank_snapshot()
+
+    t0 = time.perf_counter()
+    res = bridge.get_bank_snapshot(profile_id="large_scale_profile")
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+    print(f"\n[BENCHMARK] get_bank_snapshot 1.000+ nhãn hoàn tất trong: {elapsed_ms:.2f} ms")
+
+    assert res["ok"] is True, f"Failed: {res}"
+    data = res["data"]
+    assert data["profile_id"] == "large_scale_profile"
+    assert "worker_epoch" in data
+    assert len(data["letters"]) >= 300
+    assert elapsed_ms < 200.0, f"get_bank_snapshot trên 1.000+ nhãn vượt ngưỡng 200ms: {elapsed_ms:.2f} ms"
+
+
 def test_ci_invariant_markdown_import_moderate():
     """[CI-Invariant] Kiểm tra nạp tài liệu Markdown kích thước trung bình 10 KB < 100ms."""
     importer = MarkdownImporter()
@@ -175,7 +229,7 @@ def test_benchmark_bank_snapshot_throughput(bridge_with_tiny_bank):
     t0 = time.perf_counter()
     for _ in range(n_calls):
         res = bridge_with_tiny_bank.get_bank_snapshot(profile_id="default")
-        assert res["ok"] is True
+        assert res["ok"] is True, f"Failed: {res}"
     elapsed_ms = (time.perf_counter() - t0) * 1000
     avg_ms = elapsed_ms / n_calls
 

@@ -14,6 +14,7 @@ import os
 import re
 import tempfile
 from typing import Any
+import uuid
 
 from chuviettay.controller.app_controller import AppController
 from chuviettay.controller.results import WriteOptions
@@ -57,6 +58,7 @@ class BrowserBridge:
     def __init__(self, bank_path: str | None = None):
         self.bank_path: str = bank_path or "/tmp/active_bank.json.gz"
         self.bank_revision: int = 1
+        self.worker_epoch: str = str(uuid.uuid4())
         self._ctl: AppController = AppController(
             bank_path=self.bank_path,
             timer_factory=lambda *a, **k: None,  # Môi trường Web Worker không tạo thread Timer
@@ -158,11 +160,18 @@ class BrowserBridge:
             stats = stats_res.get("data", {})
 
             letters_res = self.list_letters()
+            if not letters_res.get("ok"):
+                return letters_res
             symbols_res = self.list_category_items("symbols")
+            if not symbols_res.get("ok"):
+                return symbols_res
             marks_res = self.list_category_items("marks")
+            if not marks_res.get("ok"):
+                return marks_res
 
             data = {
                 "revision": self.bank_revision,
+                "worker_epoch": self.worker_epoch,
                 "profile_id": str(profile_id),
                 "stats": stats,
                 "letters": letters_res.get("data", []),
