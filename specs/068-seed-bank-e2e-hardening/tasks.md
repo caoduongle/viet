@@ -64,11 +64,11 @@ description: "Danh sách nhiệm vụ thực thi TDD cho tính năng 068-seed-ba
 
 **Goal**: Khắc phục lỗi `ReferenceError: currentProfileId`, đồng bộ số hiệu phiên bản kho mẫu hai thành phần (`worker_epoch`, `bank_revision`) qua thao tác lưu/khởi tạo lại tiến trình, đưa 100% bài test Playwright E2E về trạng thái PASS.
 
-**Independent Test**: Chạy `npx playwright test` xác nhận 19/19 bài test E2E vượt qua, `#bank-summary` hiển thị số lượng mẫu chữ chuẩn xác và không còn lỗi ReferenceError trong browser console.
+**Independent Test**: Chạy `npx playwright test` xác nhận 20/20 bài test E2E vượt qua, `#bank-summary` hiển thị số lượng mẫu chữ chuẩn xác và không còn lỗi ReferenceError trong browser console.
 
 ### Tests cho User Story 2 (TDD - Viết test trước) 🧪
 
-- [x] T011 [P] [US2] Viết kiểm thử đơn vị cho việc tăng `bank_revision` khi gọi `sync_save` và kiểm tra trường `worker_epoch` trong `tests/test_browser_bridge.py`
+- [x] T011 [P] [US2] Viết kiểm thử đơn vị cho việc tăng `bank_revision` khi gọi `sync_save` và kiểm tra trường `worker_epoch` trong `tests/test_bridge.py`
 
 ### Implementation cho User Story 2
 
@@ -89,7 +89,7 @@ description: "Danh sách nhiệm vụ thực thi TDD cho tính năng 068-seed-ba
 
 ### Tests cho User Story 3 (TDD - Viết test trước) 🧪
 
-- [x] T016 [P] [US3] Viết unit test cho tính nguyên tử của `get_bank_snapshot` khi một truy vấn danh mục con thất bại trong `tests/test_browser_bridge.py`
+- [x] T016 [P] [US3] Viết unit test cho tính nguyên tử của `get_bank_snapshot` khi một truy vấn danh mục con thất bại trong `tests/test_bridge.py`
 - [x] T017 [P] [US3] Viết E2E test xác nhận `showBankErrorBanner` hiển thị an toàn với thông điệp chứa thẻ HTML trong `tests/e2e/bank.spec.ts`
 
 ### Implementation cho User Story 3
@@ -172,6 +172,6 @@ description: "Danh sách nhiệm vụ thực thi TDD cho tính năng 068-seed-ba
 
 ### Incremental Delivery
 1. Sau khi MVP (US1) xanh $\to$ Chuyển sang User Story 2 (Khắc phục E2E Playwright và đồng bộ revision).
-2. Sau khi US2 xanh (19/19 E2E pass) $\to$ Chuyển sang User Story 3 (Tính nguyên tử snapshot & an toàn DOM).
+2. Sau khi US2 xanh (20/20 E2E pass) $\to$ Chuyển sang User Story 3 (Tính nguyên tử snapshot & an toàn DOM).
 3. Sau khi US3 xanh $\to$ Chuyển sang User Story 4 (Đo kiểm hiệu năng snapshot 1.000+ nhãn).
 4. Thực thi Phase 7 (Polish & Cross-cutting verification).

@@ -187,7 +187,8 @@ export function showBankErrorBanner(message) {
       closeBtn.onclick = () => {
         banner.style.display = "none";
       };
-      banner.append(span, closeBtn);
+      banner.appendChild(span);
+      banner.appendChild(closeBtn);
       banner.style.display = "flex";
     } else {
       banner.style.display = "none";
@@ -226,7 +227,7 @@ export async function refreshBankView(force = false) {
     ) {
       return;
     }
-    lastBankSnapshotCache = { epoch, revision: rev, profileId: activeProfileId };
+    const pendingCacheKey = { epoch, revision: rev, profileId: activeProfileId };
 
     const stats = snapshot.stats || {};
     const summary = document.getElementById("bank-summary");
@@ -286,7 +287,9 @@ export async function refreshBankView(force = false) {
 
     // 4. Render danh sách ra lưới
     applyFiltersAndRender();
+    lastBankSnapshotCache = pendingCacheKey;
   } catch (err) {
+    lastBankSnapshotCache = { epoch: null, revision: null, profileId: null };
     showBankErrorBanner(`Lỗi hệ thống khi tải kho mẫu: ${err.message}`);
     console.error("Lỗi cập nhật kho mẫu:", err);
   }
@@ -308,7 +311,9 @@ function updateCategoryCounts() {
 
 function applyFiltersAndRender() {
   const grid = document.getElementById("bank-cards-grid");
-  if (!grid) return;
+  if (!grid) {
+    throw new Error("Không tìm thấy vùng hiển thị thẻ mẫu (#bank-cards-grid).");
+  }
 
   grid.innerHTML = "";
 
@@ -1069,4 +1074,12 @@ export function createSvgFromStrokes(strokes, width = 100, height = 50, options 
   }
 
   return `<svg viewBox="${vbX} ${vbY} ${targetW} ${targetH}" width="${width}" height="${height}" style="max-width: 100%; max-height: 100%; display: block; margin: auto;">${guidesHtml}${polylines}</svg>`;
+}
+
+export function getBankSnapshotCacheForTesting() {
+  return { ...lastBankSnapshotCache };
+}
+
+export function resetBankSnapshotCacheForTesting() {
+  lastBankSnapshotCache = { epoch: null, revision: null, profileId: null };
 }

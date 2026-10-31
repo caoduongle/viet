@@ -1044,8 +1044,12 @@ def test_align_document_seeds_multi_step_consecutive_edits():
     assert occs_d3[0] == 0  # hôm
     assert occs_d3[1] == 0  # nay
     assert occs_d3[2] == 0  # chăm
+    assert occs_d3[3] == 1, f"Token 'học' mới chèn phải nhận occ=1, nhận {occs_d3[3]}"
     assert occs_d3[4] == 0  # đi
     assert occs_d3[5] == 0  # học cũ
+    assert occs_d3[6] == 0  # rất
+    assert occs_d3[7] == 0  # vui
+    assert occs_d3[8] == 0  # vẻ
     assert occs_d3[9] == 1  # hôm đuôi
     assert occs_d3[10] == 1  # nay đuôi
 
@@ -1074,7 +1078,7 @@ def test_app_controller_stable_variants_workflow(tiny_bank_path, tmp_path):
     assert res2.n_tokens == 5
     assert getattr(doc2.blocks[0].inlines[0], "token_occurrences", None) is not None
 
-    # Đọc stroke data từ 2 file xopp để kiểm chứng hình học nét vẽ của 2 từ "xin" đầu tiên
+    # Đọc stroke data từ 2 file xopp để kiểm chứng hình học nét vẽ của tất cả các từ được giữ lại
     with gzip.open(out1, "rt", encoding="utf-8") as f:
         xml1 = f.read()
     with gzip.open(out2, "rt", encoding="utf-8") as f:
@@ -1085,6 +1089,27 @@ def test_app_controller_stable_variants_workflow(tiny_bank_path, tmp_path):
     strokes1 = [s.text.strip() for s in root1.findall(".//stroke") if s.text]
     strokes2 = [s.text.strip() for s in root2.findall(".//stroke") if s.text]
 
-    assert len(strokes1) > 0 and len(strokes2) > 0
-    # Các stroke của từ "xin" đầu tiên trong out1 và out2 phải trùng khớp
-    assert strokes1[0] == strokes2[0], "Nét chữ của từ 'xin' đầu tiên bị thay đổi giữa 2 lần render"
+    assert len(strokes1) == 13 and len(strokes2) == 18
+
+    # 1. Toàn bộ các nét của từ "xin" đầu tiên (strokes 0..2) phải trùng khớp tuyệt đối
+    assert strokes1[0:3] == strokes2[0:3], "Toàn bộ nét chữ của từ 'xin' đầu tiên bị thay đổi giữa 2 lần render"
+
+    # 2. Toàn bộ các nét của từ "xin" thứ hai (strokes 3..5) phải trùng khớp tuyệt đối
+    assert strokes1[3:6] == strokes2[3:6], "Toàn bộ nét chữ của từ 'xin' thứ hai bị thay đổi giữa 2 lần render"
+
+    # 3. Toàn bộ các nét của từ "chào" đầu tiên (strokes 6..10) phải trùng khớp tuyệt đối
+    assert strokes1[6:11] == strokes2[6:11], "Toàn bộ nét chữ của từ 'chào' đầu tiên bị thay đổi giữa 2 lần render"
+
+    # 4. Kiểm tra từ "ba" ở cuối câu (strokes 11..12 ở doc1, 16..17 ở doc2):
+    # Dù bị đẩy sang phải do từ "chào" thứ hai chèn vào, hình thái hình học (relative stroke structure)
+    # và tọa độ tương đối giữa các điểm phải giữ nguyên 100%.
+    def _relative_stroke_coords(stroke_str: str) -> list[tuple[float, float]]:
+        nums = [float(x) for x in stroke_str.split()]
+        x0, y0 = nums[0], nums[1]
+        return [(round(nums[i] - x0, 3), round(nums[i + 1] - y0, 3)) for i in range(0, len(nums), 2)]
+
+    ba_strokes1_rel = [_relative_stroke_coords(s) for s in strokes1[11:13]]
+    ba_strokes2_rel = [_relative_stroke_coords(s) for s in strokes2[16:18]]
+    assert ba_strokes1_rel == ba_strokes2_rel, (
+        "Hình thái hình học các nét vẽ của từ 'ba' bị thay đổi sau khi chèn từ phía trước!"
+    )

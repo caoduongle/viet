@@ -57,11 +57,11 @@ pytest tests/test_stable_variants.py -k "multi_step or consecutive_edits" -v
 ## 4. Kịch bản kiểm chứng 3: Bộ kiểm thử Playwright E2E trên trình duyệt (P1 - SC-002)
 
 ### Mục tiêu
-Xác nhận sửa lỗi `ReferenceError: currentProfileId` trong `bank.js`, đưa toàn bộ 19 bài kiểm thử E2E (trong đó có 6 bài kiểm thử từng bị lỗi: `bank.spec.ts`, `grid-import.spec.ts`, `multitab.spec.ts`, `offline.spec.ts`) về trạng thái PASS 100%.
+Xác nhận sửa lỗi `ReferenceError: currentProfileId` trong `bank.js`, đưa toàn bộ 20 bài kiểm thử E2E (trong đó có 6 bài kiểm thử từng bị lỗi: `bank.spec.ts`, `grid-import.spec.ts`, `multitab.spec.ts`, `offline.spec.ts`) về trạng thái PASS 100%.
 
 ### Lệnh thực thi
 ```powershell
-# Chạy toàn bộ 19 bài test E2E Playwright với máy chủ cục bộ
+# Chạy toàn bộ 20 bài test E2E Playwright với máy chủ cục bộ
 npx playwright test
 ```
 
@@ -71,7 +71,7 @@ npx playwright test tests/e2e/bank.spec.ts tests/e2e/grid-import.spec.ts tests/e
 ```
 
 ### Kỳ vọng (Expected Outcome)
-- Toàn bộ 19 bài kiểm thử E2E kết thúc thành công: `19 passed`.
+- Toàn bộ 20 bài kiểm thử E2E kết thúc thành công: `20 passed`.
 - Bảng điều khiển Console của trình duyệt không ghi nhận bất kỳ `ReferenceError` hoặc `TypeError` nào.
 - Dòng tóm tắt kho mẫu `#bank-summary` hiển thị số lượng chữ cái và mẫu nét chuẩn xác ngay sau khi nạp kho.
 
@@ -84,7 +84,7 @@ Xác nhận `get_bank_snapshot` trả về lỗi tường minh khi một danh m�
 
 ### Lệnh thực thi
 ```powershell
-pytest tests/test_browser_bridge.py -k "bank_snapshot" -v
+pytest tests/test_bridge.py -k "bank_snapshot" -v
 npx playwright test tests/e2e/bank.spec.ts -g "error banner"
 ```
 
@@ -132,5 +132,5 @@ Tất cả các kiểm thử phải đạt trạng thái xanh (ALL PASS).
 | **Kịch bản 3** (Playwright E2E Web Client) | `npx playwright test` | 20 passed in 3.0m (Không có ReferenceError, toàn bộ kịch bản E2E xanh) | ✅ PASS |
 | **Kịch bản 4** (Atomic Snapshot & XSS Protection) | `pytest tests/test_bridge.py` & `npx playwright test tests/e2e/bank.spec.ts` | 15 passed in bridge.py, 2 passed in bank.spec.ts (DOM API chống chèn script) | ✅ PASS |
 | **Kịch bản 5** (Large-scale Bank Performance) | `pytest tests/test_performance_regression.py -k "large_scale"` | 1 passed in 1.69 ms (Ngưỡng yêu cầu < 200 ms, biên độ an toàn > 100x) | ✅ PASS |
-| **Hồi quy toàn diện Python** | `pytest` | 1426 passed | ✅ PASS |
+| **Hồi quy toàn diện Python** | `pytest` | **Local (Windows):** 1.426 passed (đầy đủ Windows Word COM & Tkinter)<br>**CI (Linux Python 3.12/3.13):** 1.405 passed · 14 skipped · 7 deselected (bỏ qua Windows Word COM & Tkinter display) | ✅ PASS |
 

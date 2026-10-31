@@ -277,6 +277,14 @@ class BrowserBridge:
         except Exception as e:
             return _err_res(e)
 
+    def clear_document_history(self) -> dict[str, Any]:
+        """Đặt lại tài liệu và hạt giống đã căn chỉnh của lượt trước trong AppController."""
+        try:
+            self._ctl.clear_document_history()
+            return {"ok": True}
+        except Exception as e:
+            return _err_res(e)
+
     def teach_sample(
         self,
         label: str,

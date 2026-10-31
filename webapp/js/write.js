@@ -147,6 +147,7 @@ export function triggerPreviewImmediate() {
   const text = textarea.value;
   if (!text.trim()) {
     clearPreview();
+    sendWorkerMessage("clear_document_history").catch((e) => console.warn("Lỗi xóa lịch sử seed:", e));
     return;
   }
 
@@ -243,6 +244,15 @@ async function requestRender(params) {
 
   try {
     const res = await sendWorkerMessage("write_text", params);
+
+    // Kiểm tra nếu ô soạn thảo đã bị xóa trắng trong lúc render thì hủy cập nhật DOM
+    const textarea = typeof document !== "undefined" ? document.getElementById("editor-text") : null;
+    const currentVal = textarea?.value?.trim() || "";
+    if (!currentVal) {
+      clearPreview();
+      return;
+    }
+
     if (res && res.ok) {
       currentXoppBase64 = res.xopp_base64;
       currentMissingBoxes = res.missing_token_boxes || [];
@@ -293,6 +303,8 @@ async function requestRender(params) {
 }
 
 function clearPreview() {
+  hasPendingRequest = false;
+  pendingParams = null;
   const wrapper = document.getElementById("paper-svg-wrapper");
   const placeholder = document.getElementById("preview-placeholder");
   if (wrapper) wrapper.innerHTML = "";
@@ -647,6 +659,7 @@ async function handleFileImport(file, textarea) {
   if (name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".markdown")) {
     pendingImportNotices = [];
     const text = await file.text();
+    await sendWorkerMessage("clear_document_history").catch((e) => console.warn("Lỗi xóa lịch sử seed:", e));
     textarea.value = text;
     const selectFormat = document.getElementById("select-format");
     if (selectFormat) {
@@ -660,6 +673,7 @@ async function handleFileImport(file, textarea) {
       const buffer = await file.arrayBuffer();
       const res = await sendWorkerMessage("import_docx", { bytes: buffer });
       if (res && res.ok) {
+        await sendWorkerMessage("clear_document_history").catch((e) => console.warn("Lỗi xóa lịch sử seed:", e));
         textarea.value = res.markdown_text || res.text || "";
         const selectFormat = document.getElementById("select-format");
         if (selectFormat) {

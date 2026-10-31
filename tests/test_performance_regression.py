@@ -90,17 +90,40 @@ def test_ci_invariant_bank_snapshot_latency(bridge_with_tiny_bank):
 
 
 def test_bank_snapshot_large_scale_performance(tmp_path):
-    """[Feature 068 / US4] Kiểm tra thời gian tạo snapshot trên kho mẫu quy mô lớn (1.000+ nhãn) < 200ms."""
+    """[Feature 068 / US4] Kiểm tra thời gian tạo snapshot trên kho mẫu quy mô lớn (1.050+ nhãn, 3.400+ mẫu nét đa biến thể) < 200ms."""
     import gzip
     import json
     from chuviettay.browser.bridge import BrowserBridge
 
     bank_file = tmp_path / "large_bank.json.gz"
-    # Khởi tạo một kho mẫu lớn với hơn 1.000 nhãn từ/ký tự
-    words_dict = {f"word_{i}": [{"w": 10.0, "s": [[0, 0, 5, -5]], "inst_w": 10.0}] for i in range(700)}
-    letters_dict = {f"ch_{i}": [{"w": 5.0, "s": [[0, 0, 3, -4]], "inst_w": 5.0}] for i in range(300)}
-    digits_dict = {str(i % 10): [{"w": 4.0, "s": [[0, 0, 2, -3]], "inst_w": 4.0}] for i in range(10)}
-    symbols_dict = {f"\\sym{i}": [{"w": 6.0, "s": [[0, 0, 4, -4]], "inst_w": 6.0}] for i in range(20)}
+    # Khởi tạo một kho mẫu lớn đa biến thể:
+    # - 700 từ x 3 biến thể = 2.100 mẫu
+    # - 300 chữ cái x 4 biến thể = 1.200 mẫu
+    # - 20 ký hiệu x 2 biến thể = 40 mẫu
+    # - 30 dấu thanh x 2 biến thể = 60 mẫu
+    # - 10 chữ số x 2 biến thể = 20 mẫu
+    # Tổng cộng: 1.050+ nhãn và 3.420 mẫu nét
+    words_dict = {
+        f"word_{i}": [{"w": 10.0 + v * 0.1, "s": [[0, 0, 5, -5 + v * 0.2]], "inst_w": 10.0} for v in range(3)]
+        for i in range(700)
+    }
+    letters_dict = {
+        f"ch_{i}": [{"w": 5.0 + v * 0.1, "s": [[0, 0, 3, -4 + v * 0.2]], "inst_w": 5.0} for v in range(4)]
+        for i in range(300)
+    }
+    digits_dict = {
+        str(i % 10): [{"w": 4.0 + v * 0.1, "s": [[0, 0, 2, -3 + v * 0.2]], "inst_w": 4.0} for v in range(2)]
+        for i in range(10)
+    }
+    symbols_dict = {
+        f"\\sym{i}": [{"w": 6.0 + v * 0.1, "s": [[0, 0, 4, -4 + v * 0.2]], "inst_w": 6.0} for v in range(2)]
+        for i in range(50)
+    }
+    from chuviettay.model.bank import TONES
+    marks_dict = {
+        t: [{"s": [[0, 0, 1, 1]], "dx": 0.0, "dy": -2.0} for _ in range(20)]
+        for t in TONES
+    }
 
     raw_bank_data = {
         "v": 1,
@@ -117,7 +140,7 @@ def test_bank_snapshot_large_scale_performance(tmp_path):
         "digits": digits_dict,
         "punct": {".": [{"w": 1.0, "s": [[0, 0, 0.5, 0.5]], "inst_w": 1.0}]},
         "symbols": symbols_dict,
-        "marks": {},
+        "marks": marks_dict,
     }
 
     with gzip.open(bank_file, "wt", encoding="utf-8") as f:
@@ -133,14 +156,29 @@ def test_bank_snapshot_large_scale_performance(tmp_path):
     t0 = time.perf_counter()
     res = bridge.get_bank_snapshot(profile_id="large_scale_profile")
     elapsed_ms = (time.perf_counter() - t0) * 1000
-    print(f"\n[BENCHMARK] get_bank_snapshot 1.000+ nhãn hoàn tất trong: {elapsed_ms:.2f} ms")
+    print(f"\n[BENCHMARK] get_bank_snapshot 1.050+ nhãn và 3.400+ biến thể hoàn tất trong: {elapsed_ms:.2f} ms")
 
     assert res["ok"] is True, f"Failed: {res}"
     data = res["data"]
     assert data["profile_id"] == "large_scale_profile"
     assert "worker_epoch" in data
     assert len(data["letters"]) >= 300
-    assert elapsed_ms < 200.0, f"get_bank_snapshot trên 1.000+ nhãn vượt ngưỡng 200ms: {elapsed_ms:.2f} ms"
+    assert len(data["symbols"]) >= 50
+    assert len(data["marks"]) == 5
+    total_bank_samples = (
+        sum(len(v) for v in raw_bank_data["words"].values())
+        + sum(len(v) for v in raw_bank_data["letters"].values())
+        + sum(len(v) for v in raw_bank_data["symbols"].values())
+        + sum(len(v) for v in raw_bank_data["marks"].values())
+        + sum(len(v) for v in raw_bank_data["digits"].values())
+    )
+    assert total_bank_samples >= 3400
+    assert data["stats"]["n_words"] >= 700
+    assert data["stats"]["n_letters"] >= 300
+    assert data["stats"]["n_samples"] >= 1400  # Tổng mẫu ký tự nguyên tử (letters + symbols + marks + digits)
+    assert elapsed_ms < 200.0, (
+        f"get_bank_snapshot trên 1.050+ nhãn và 3.400+ biến thể vượt ngưỡng 200ms: {elapsed_ms:.2f} ms"
+    )
 
 
 def test_ci_invariant_markdown_import_moderate():

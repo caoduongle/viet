@@ -129,4 +129,72 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
     expect(val).toContain("| R1C1 | R1C2 | R1C3 |");
     expect(val).toContain("| R2C1 | R2C2 | R2C3 |");
   });
+
+  test("xóa trắng hoặc mở file mới tự động đặt lại lịch sử hạt giống, không kế thừa occurrence cũ", async ({ page }) => {
+    test.setTimeout(60000);
+    await page.goto("/");
+    await expect(page.locator("#splash-screen")).toBeHidden({ timeout: 30000 });
+
+    const welcomeModal = page.locator("#welcome-modal");
+    if (await welcomeModal.isVisible()) {
+      const bankFilePath = path.resolve("tests/data/kho_mau_tong_hop.json.gz");
+      const fileChooserPromise = page.waitForEvent("filechooser");
+      await page.click("#btn-welcome-import");
+      const fileChooser = await fileChooserPromise;
+      await fileChooser.setFiles(bankFilePath);
+      await expect(welcomeModal).toBeHidden({ timeout: 15000 });
+    }
+
+    await page.click('[data-tab="write"]');
+    const textarea = page.locator("#editor-text");
+    await expect(textarea).toBeVisible();
+
+    const svgWrapper = page.locator("#paper-svg-wrapper");
+
+    // 1. Gõ văn bản A gồm 2 từ lặp "xin xin chào ba"
+    await textarea.fill("xin xin chào ba");
+    await page.waitForTimeout(600);
+    await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
+
+    // Thu thập danh sách stroke điểm vẽ của lượt 1
+    const strokesRound1 = await svgWrapper.locator("polyline").evaluateAll((elements) =>
+      elements.map((el) => el.getAttribute("points") || "")
+    );
+    expect(strokesRound1.length).toBeGreaterThan(0);
+
+    // 2. Xóa sạch ô soạn thảo
+    await textarea.fill("");
+    await page.waitForTimeout(400);
+
+    // Xác nhận wrapper trống và placeholder hiển thị
+    await expect(svgWrapper.locator("svg")).toBeHidden();
+    await expect(page.locator("#preview-placeholder")).toBeVisible();
+
+    // 3. Gõ lại y nguyên văn bản A
+    await textarea.fill("xin xin chào ba");
+    await page.waitForTimeout(600);
+    await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
+
+    const strokesRound2 = await svgWrapper.locator("polyline").evaluateAll((elements) =>
+      elements.map((el) => el.getAttribute("points") || "")
+    );
+
+    // Khẳng định hình thái nét chữ của văn bản A sau khi xóa trắng trùng khớp 100% với lần 1
+    expect(strokesRound2).toEqual(strokesRound1);
+
+    // 4. Mở tệp mới (accept_sample.txt)
+    const fileChooserPromise = page.waitForEvent("filechooser");
+    await page.click("#btn-open-file");
+    const fileChooser = await fileChooserPromise;
+    const sampleFilePath = path.resolve("tests/data/accept_sample.txt");
+    await fileChooser.setFiles(sampleFilePath);
+
+    await page.waitForTimeout(600);
+    await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
+
+    const strokesAfterImport = await svgWrapper.locator("polyline").evaluateAll((elements) =>
+      elements.map((el) => el.getAttribute("points") || "")
+    );
+    expect(strokesAfterImport.length).toBeGreaterThan(0);
+  });
 });

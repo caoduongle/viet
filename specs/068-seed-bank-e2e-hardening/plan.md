@@ -31,7 +31,7 @@ Nâng cấp độ ổn định và tính toàn vẹn của hệ sinh thái `viet
 
 **Testing**:
 - Python: `pytest` (hơn 1.410 bài test đơn vị, tích hợp, hồi quy hiệu năng).
-- Web Client: `npx playwright test` (19 bài kiểm thử tự động đầu-cuối E2E trên trình duyệt).
+- Web Client: `npx playwright test` (20 bài kiểm thử tự động đầu-cuối E2E trên trình duyệt).
 
 **Target Platform**: Đa nền tảng: Linux, macOS, Windows (Python CLI/Backend) và Trình duyệt Web hiện đại (Chromium, Firefox, Safari qua WebAssembly Pyodide).
 
@@ -40,7 +40,7 @@ Nâng cấp độ ổn định và tính toàn vẹn của hệ sinh thái `viet
 **Performance Goals**:
 - `align_document_seeds`: Thực thi dưới 200ms cho tài liệu 1.000 từ lặp.
 - `get_bank_snapshot`: Tổng hợp dữ liệu kho mẫu lớn (1.000+ nhãn) dưới 200ms.
-- E2E Test Suite: Toàn bộ 19 bài kiểm thử hoàn thành dưới 60 giây.
+- E2E Test Suite: Toàn bộ 20 bài kiểm thử hoàn thành dưới 60 giây.
 
 **Constraints**:
 - Chạy offline hoàn toàn trên trình duyệt, không phụ thuộc server bên ngoài.
@@ -59,7 +59,7 @@ Nâng cấp độ ổn định và tính toàn vẹn của hệ sinh thái `viet
 |------------------------|-------------------|-----------------------------|
 | **I. Maintainability & Code Cleanliness** | **PASS** | Logic đối chiếu hạt giống, quản lý phiên bản và an toàn DOM được viết rõ ràng, có chú thích giải thích lý do toán học ($p + s \le \min(len)$). Không phát sinh nợ kỹ thuật. |
 | **II. Simple Architecture (KISS & YAGNI)** | **PASS** | Tận dụng trực tiếp các thuộc tính sẵn có trên `Document IR` (`token_occurrences`, `occurrence`) và `AppController` (`_last_doc`, `_last_seed`). Không tạo thêm lớp trung gian hay dịch vụ phức tạp thừa thãi. |
-| **III. Comprehensive Automated Testing** | **PASS** | Bổ sung các bài kiểm thử đơn vị cho tiền tố ngắn 1, 2, 3 token kèm từ lặp; kiểm thử chuỗi nhiều lượt sửa liên tiếp; kiểm thử an toàn DOM; kiểm thử hiệu năng 1.000 nhãn; và xác thực toàn bộ 19 bài kiểm thử E2E Playwright. |
+| **III. Comprehensive Automated Testing** | **PASS** | Bổ sung các bài kiểm thử đơn vị cho tiền tố ngắn 1, 2, 3 token kèm từ lặp; kiểm thử chuỗi nhiều lượt sửa liên tiếp; kiểm thử an toàn DOM; kiểm thử hiệu năng 1.000 nhãn; và xác thực toàn bộ 20 bài kiểm thử E2E Playwright. |
 | **IV. Loose Coupling & High Cohesion** | **PASS** | Logic xử lý nghiệp vụ tài liệu nằm hoàn toàn tại Python Core (`ir.py`, `app_controller.py`); cầu nối `bridge.py` đóng vai trò giao tiếp I/O; `py-worker.js` chuyển tiếp thông điệp và quản lý tệp ảo MEMFS; `bank.js` dựng giao diện. Ranh giới giữa các tầng được giữ vững tuyệt đối. |
 
 *Gate Status: ALL GATES PASS. Không có vi phạm kiến trúc nào cần miễn trừ.*
@@ -101,7 +101,7 @@ webapp/
 │       └── py-worker.js             # Tăng _bridge.bank_revision và nạp lại kho trong sync_save
 tests/
 ├── test_stable_variants.py          # Bổ sung test tiền tố ngắn 1-3 token, từ lặp, multi-step consecutive edits
-├── test_browser_bridge.py           # Bổ sung test atomic get_bank_snapshot, worker_epoch
+├── test_bridge.py                   # Bổ sung test atomic get_bank_snapshot, worker_epoch
 ├── test_performance_regression.py   # Bổ sung benchmark get_bank_snapshot 1.000+ nhãn (< 200ms)
 └── e2e/
     ├── bank.spec.ts                 # Kiểm chứng E2E tab kho mẫu và error banner an toàn

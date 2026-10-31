@@ -244,3 +244,17 @@ def test_get_bank_snapshot_atomicity_on_subquery_failure(bridge_with_tiny_bank, 
     res = bridge_with_tiny_bank.get_bank_snapshot()
     assert res["ok"] is False
     assert "Lỗi truy vấn chữ cái" in res.get("error", "")
+
+
+def test_clear_document_history(bridge_with_tiny_bank):
+    """T004 [US1]: Kiểm tra clear_document_history đặt lại trạng thái lịch sử tài liệu trong AppController."""
+    res = bridge_with_tiny_bank.write_text("xin chào", options={"stable_variants": True, "seed": 42})
+    assert res["ok"] is True
+    assert bridge_with_tiny_bank._ctl._last_doc is not None
+    assert bridge_with_tiny_bank._ctl._last_seed == 42
+
+    clear_res = bridge_with_tiny_bank.clear_document_history()
+    assert clear_res["ok"] is True
+    assert bridge_with_tiny_bank._ctl._last_doc is None
+    assert bridge_with_tiny_bank._ctl._last_seed is None
+

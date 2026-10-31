@@ -335,6 +335,8 @@ _synced_bytes = _bridge.export_bank()
       result = pyBytes;
     } else if (method === "export_check") {
       result = pyodide.runPython(`_bridge.export_check()`).toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "clear_document_history") {
+      result = pyodide.runPython(`_bridge.clear_document_history()`).toJs({ dict_converter: Object.fromEntries });
     } else {
       throw new Error(`Phương thức không được hỗ trợ: ${method}`);
     }
