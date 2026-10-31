@@ -48,11 +48,22 @@ def get_environment_info() -> dict[str, str]:
     }
 
 
-def make_multilingual_text(distinct_count: int = 10000, target_length: int = 500000) -> str:
-    """Sinh chuỗi văn bản mẫu đa ngữ chứa nhiều ký tự phân biệt và ký tự PUA U+E000."""
-    nom_chars = "".join(chr(0x4E00 + i) for i in range(distinct_count))
-    repeat_count = (target_length // len(nom_chars)) + 1
-    return (nom_chars * repeat_count)[:target_length] + chr(_FAKE_CLOSE_PUA_START)
+def make_multilingual_text(target_length: int = 510000) -> str:
+    """Sinh chuỗi văn bản mẫu đa ngữ kết hợp 4 hệ chữ Unicode thực sự và ký tự PUA U+E000:
+    - CJK Unified Ideographs (chữ Hán/Nôm): U+4E00..U+6D3F (8.000 ký tự)
+    - Cyrillic (bảng chữ cái Slav): U+0410..U+0603 (500 ký tự)
+    - Greek & Coptic (chữ Hy Lạp toán học): U+0391..U+0584 (500 ký tự)
+    - Mathematical Operators (toán tử toán học): U+2200..U+25E7 (1.000 ký tự)
+    - Private Use Area: U+E000 (1 ký tự va chạm)
+    """
+    cjk = "".join(chr(0x4E00 + i) for i in range(8000))
+    cyrillic = "".join(chr(0x0410 + i) for i in range(500))
+    greek = "".join(chr(0x0391 + i) for i in range(500))
+    math_syms = "".join(chr(0x2200 + i) for i in range(1000))
+    alphabet = cjk + cyrillic + greek + math_syms
+
+    repeat_count = (target_length // len(alphabet)) + 1
+    return (alphabet * repeat_count)[:target_length] + chr(_FAKE_CLOSE_PUA_START)
 
 
 def benchmark_method(
@@ -93,9 +104,10 @@ def run_benchmarks(rounds: int = 5) -> dict[str, object]:
     """Thực thi đầy đủ các kịch bản benchmark."""
     env_info = get_environment_info()
 
-    # --- Kịch bản 1: Văn bản đa ngữ lớn (10.000 ký tự phân biệt, 1 PUA) ---
-    distinct_count = 10000
-    text_multi = make_multilingual_text(distinct_count=distinct_count, target_length=510000)
+    # --- Kịch bản 1: Văn bản đa ngữ lớn (4 hệ chữ Unicode, 1 PUA) ---
+    text_multi = make_multilingual_text(target_length=510000)
+    utf8_bytes = len(text_multi.encode("utf-8"))
+    size_human = f"{utf8_bytes / (1024 * 1024):.2f} MB"
 
     # Các hàm đại diện
     def run_set_text(txt: str) -> set[int]:
@@ -118,11 +130,11 @@ def run_benchmarks(rounds: int = 5) -> dict[str, object]:
         t = float(r["avg_time_ms"])
         r["speedup_vs_baseline"] = f"{base_time / max(t, 0.01):.2f}x"
 
-    # --- Kịch bản 2: Văn bản đối kháng lặp 100.000 ký tự PUA ---
+    # --- Kịch bản 2: Văn bản đối kháng lặp 100.000 ký tự PUA (Áp dụng rounds nhất quán) ---
     text_pua_heavy = chr(_FAKE_CLOSE_PUA_START) * 100000
     results_stress = [
-        benchmark_method("2. regex findall()", run_regex_findall, text_pua_heavy, rounds=3),
-        benchmark_method("3. regex finditer()", run_regex_finditer, text_pua_heavy, rounds=3),
+        benchmark_method("2. regex findall()", run_regex_findall, text_pua_heavy, rounds=rounds),
+        benchmark_method("3. regex finditer()", run_regex_finditer, text_pua_heavy, rounds=rounds),
     ]
 
     mem_findall = float(results_stress[0]["peak_memory_kb"])
@@ -133,7 +145,16 @@ def run_benchmarks(rounds: int = 5) -> dict[str, object]:
         "environment": env_info,
         "dataset_main": {
             "text_length": len(text_multi),
+            "text_bytes": utf8_bytes,
+            "text_size_human": size_human,
             "distinct_characters": len(set(text_multi)),
+            "character_families": [
+                "Han/Nom (CJK Unified Ideographs)",
+                "Cyrillic",
+                "Greek & Coptic",
+                "Mathematical Operators",
+                "Private Use Area (PUA)",
+            ],
             "pua_characters_in_text": 1,
             "rounds": rounds,
         },
@@ -141,6 +162,7 @@ def run_benchmarks(rounds: int = 5) -> dict[str, object]:
         "dataset_stress": {
             "text_length": len(text_pua_heavy),
             "description": "100,000 repeated PUA characters (Adversarial stress test)",
+            "rounds": rounds,
             "memory_reduction_ratio": mem_reduction,
         },
         "results_stress": results_stress,
@@ -162,8 +184,8 @@ def print_markdown_report(data: dict[str, object]) -> None:
     print(f"  - Processor:    {env['processor']}")
     print(f"  - Timestamp:    {env['timestamp']}")
     print("\nDataset (Multilingual):")
-    print(f"  - Text Length:         {ds['text_length']:,} characters (~1.0 MB UTF-8)")
-    print(f"  - Distinct Characters: {ds['distinct_characters']:,} characters (Han/Nom, Cyrillic, Math)")
+    print(f"  - Text Length:         {ds['text_length']:,} characters ({ds['text_bytes']:,} bytes ~ {ds['text_size_human']} UTF-8)")
+    print(f"  - Distinct Characters: {ds['distinct_characters']:,} characters ({', '.join(ds['character_families'])})")
     print(f"  - PUA Target:          {ds['pua_characters_in_text']} collision character (U+E000)")
     print(f"  - Measurement Rounds:  {ds['rounds']}")
     print("\nResults Summary:")
@@ -175,6 +197,7 @@ def print_markdown_report(data: dict[str, object]) -> None:
         )
 
     print("\nAdversarial Stress Test (100,000 PUA repeated chars):")
+    print(f"  - Rounds:           {stress_ds['rounds']}")
     print(f"  - Memory Reduction: finditer() consumes {stress_ds['memory_reduction_ratio']} less peak memory than findall()")
     print("| Method              | Avg Time (ms) | Peak Memory (KB) | Memory Behavior                     |")
     print("| :------------------ | ------------: | ---------------: | :---------------------------------- |")
@@ -190,13 +213,13 @@ def print_markdown_report(data: dict[str, object]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Benchmark tái lập hiệu năng và bộ nhớ PUA (Feature 065).",
+        description="Benchmark tái lập hiệu năng và bộ nhớ PUA (Feature 066).",
     )
     parser.add_argument(
         "--rounds",
         type=int,
         default=5,
-        help="Số lượt đo lặp lại cho mỗi phương pháp (Mặc định: 5)",
+        help="Số lượt đo lặp lại cho mỗi phương pháp trên cả kịch bản chính và đối kháng (Mặc định: 5)",
     )
     parser.add_argument(
         "--json",
@@ -209,7 +232,7 @@ def main() -> int:
     data = run_benchmarks(rounds=max(args.rounds, 1))
 
     if args.json:
-        print(json.dumps(data, indent=2, ensure_ascii=False))
+        print(json.dumps(data, indent=2))
     else:
         print_markdown_report(data)
 

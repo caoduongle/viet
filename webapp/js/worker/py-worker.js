@@ -116,6 +116,10 @@ self.onmessage = async (e) => {
       result = pyodide.runPython(`_bridge.get_write_defaults()`).toJs({ dict_converter: Object.fromEntries });
     } else if (method === "get_stats") {
       result = pyodide.runPython(`_bridge.get_stats()`).toJs({ dict_converter: Object.fromEntries });
+    } else if (method === "get_bank_snapshot") {
+      const { profileId } = params || {};
+      pyodide.globals.set("_prof_id", profileId || "default");
+      result = pyodide.runPython(`_bridge.get_bank_snapshot(profile_id=_prof_id)`).toJs({ dict_converter: Object.fromEntries });
     } else if (method === "load_bank") {
       const { gzBytes, createIfMissing } = params || {};
       const uint8 = new Uint8Array(gzBytes);

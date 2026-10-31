@@ -1211,3 +1211,53 @@ def test_pua_memory_allocation_bounded_tracemalloc():
 
 
 
+
+
+
+# ==============================================================================
+# Feature 067 / US2: PUA HTML entity collision avoidance (T010)
+# ==============================================================================
+
+@pytest.mark.parametrize(
+    "entity_str",
+    [
+        "&#xE000;",
+        "&#xe000;",
+        "&#57344;",
+        "&#x00E000;",
+        "&#057344;",
+    ],
+)
+def test_pua_html_entity_not_corrupted_to_dollars(importer: MarkdownImporter, entity_str: str):
+    """Xác nhận các biểu diễn HTML entity của U+E000 không bị biến thành '$$' khi có fake close."""
+    # Văn bản chứa bảng với công thức display kích hoạt fake_close_placeholder và chứa entity PUA
+    text = f"| Cột 1 | Cột 2 |\n|---|---|\n| {entity_str} | $$\\alpha + 1$$ |\n"
+    res = importer.import_text(text)
+
+    # Duyệt toàn bộ khối và text sinh ra, đảm bảo entity_str (hoặc chr(0xE000)) không bị biến thành $$
+    # chr(0xE000) có thể được giữ nguyên hoặc xuất hiện trong Text, nhưng không được phép có chuỗi '$$' thừa
+    found_table = False
+    for block in res.document.blocks:
+        if isinstance(block, Table):
+            found_table = True
+            for row in block.rows:
+                for cell in row.cells:
+                    for blk in cell.blocks:
+                        if isinstance(blk, Paragraph):
+                            for inline in blk.inlines:
+                                if isinstance(inline, Text):
+                                    assert "$$" not in inline.text, f"Entity {entity_str} bị biến thành '$$' trong Text inline!"
+    assert found_table, "Không tìm thấy Table trong kết quả import"
+
+
+def test_choose_fake_close_avoids_entity_pua():
+    """Kiểm tra _choose_fake_close_placeholder không chọn U+E000 nếu văn bản có entity của U+E000."""
+    text_hex = "Tài liệu chứa &#xE000; và $$x$$"
+    ph_hex = MarkdownImporter._choose_fake_close_placeholder(text_hex)
+    assert ph_hex is not None
+    assert ph_hex != "\ue000", "Placeholder không được trùng với entity hex &#xE000;!"
+
+    text_dec = "Tài liệu chứa &#57344; và $$x$$"
+    ph_dec = MarkdownImporter._choose_fake_close_placeholder(text_dec)
+    assert ph_dec is not None
+    assert ph_dec != "\ue000", "Placeholder không được trùng với entity dec &#57344;!"

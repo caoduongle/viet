@@ -187,3 +187,88 @@ def test_markdown_ordered_list_resilient_attributes():
     tok_none = DummyToken(attrs=None)
     assert importer._extract_list_start(tok_none) == 1
 
+
+
+def test_markdown_image_unsupported_and_alt_text():
+    """Kiểm tra hình ảnh Markdown được ghi nhận vào unsupported và giữ lại alt text làm Text node."""
+    importer = MarkdownImporter()
+    md = "Trước ảnh ![Sơ đồ mạch điện](circuit.png) sau ảnh.\n\n![](no_alt.png)"
+    res = importer.import_text(md)
+    doc = res.document
+
+    # Kiểm tra alt text được giữ trong Paragraph inlines
+    assert len(doc.blocks) >= 1
+    p1 = doc.blocks[0]
+    p1_text = "".join(getattr(i, "text", "") for i in p1.inlines)
+    assert "Sơ đồ mạch điện" in p1_text
+
+    # Kiểm tra danh sách unsupported
+    assert any("image: Sơ đồ mạch điện" in u for u in res.unsupported)
+    assert any(u == "image" for u in res.unsupported)
+
+
+def test_markdown_blockquote_warning():
+    """Khối trích dẫn (blockquote) được làm phẳng thành Paragraph và ghi nhận cảnh báo vào warnings."""
+    importer = MarkdownImporter()
+    md = "> Đây là đoạn trích dẫn quan trọng.\n> Dòng thứ hai của trích dẫn."
+    res = importer.import_text(md)
+
+    # Đảm bảo khối con vẫn được nạp thành Paragraph
+    assert len(res.document.blocks) >= 1
+    p = res.document.blocks[0]
+    p_text = "".join(getattr(i, "text", "") for i in p.inlines)
+    assert "Đoạn trích dẫn quan trọng" in p_text or "Đây là đoạn trích dẫn" in p_text
+
+    # Cảnh báo xuất hiện trong warnings và không làm ô nhiễm unsupported
+    assert any("Khối trích dẫn (blockquote)" in w for w in res.warnings)
+    assert not any("blockquote" in u for u in res.unsupported)
+
+
+
+# ==============================================================================
+# Feature 067 / US2: Backslash Parity & Control Space Delimiter Tests (T011)
+# ==============================================================================
+
+@pytest.mark.parametrize(
+    ("markdown_input", "should_have_math"),
+    [
+        (r"\(x\)", True),                 # 0 backslashes before \( -> MathInline
+        (r"\\(x\)", False),               # 1 backslash before ( -> Escaped \( -> Text
+        (r"\\\(x\)", True),               # 2 backslashes before \( -> Valid \( delimiter
+        (r"\\\\(x\)", False),             # 3 backslashes before ( -> Escaped \(
+        (r"\\\\\(x\)", True),             # 4 backslashes before \( -> Valid \( delimiter
+    ],
+)
+def test_math_delimiter_backslash_parity_opener(markdown_input: str, should_have_math: bool):
+    """Kiểm tra quy tắc chẵn/lẻ dấu gạch chéo ngược trước dấu mở công thức \\(."""
+    importer = MarkdownImporter()
+    res = importer.import_text(markdown_input)
+    has_math = any(
+        isinstance(inline, MathInline)
+        for block in res.document.blocks
+        if isinstance(block, Paragraph)
+        for inline in block.inlines
+    )
+    assert has_math == should_have_math, f"Sai nhận diện math inline cho chuỗi {markdown_input!r}"
+
+
+def test_math_delimiter_backslash_parity_closer():
+    """Kiểm tra dấu đóng \\) khi có 2 dấu gạch chéo ngược đứng trước: \\(x\\\\\\) (2 backslashes trước \\))."""
+    # \\(x\\\\) : opener \(, nội dung x, 2 backslashes \\, rồi closer \)
+    # Với 2 dấu backslash trước \), closer \) là hợp lệ (không bị escape bởi số chẵn backslashes)
+    importer = MarkdownImporter()
+    text = r"\(x\\\) sau đó"
+    res = importer.import_text(text)
+    inlines = res.document.blocks[0].inlines
+    math_inlines = [inl for inl in inlines if isinstance(inl, MathInline)]
+    assert len(math_inlines) == 1, "Closer với số chẵn dấu gạch chéo ngược phải được nhận diện thành công"
+
+
+def test_math_delimiter_control_space_preserved():
+    """Kiểm tra công thức kết thúc bằng control space \\(x\\ \\) không bị dollarmath coi là \\$."""
+    importer = MarkdownImporter()
+    text = r"Công thức \(x\ \) trong dòng."
+    res = importer.import_text(text)
+    inlines = res.document.blocks[0].inlines
+    math_inlines = [inl for inl in inlines if isinstance(inl, MathInline)]
+    assert len(math_inlines) == 1, "Công thức LaTeX có control space ở cuối không được làm vỡ MathInline"

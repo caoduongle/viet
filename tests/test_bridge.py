@@ -26,6 +26,31 @@ def is_json_serializable(obj) -> bool:
         return False
 
 
+def assert_valid_bank_snapshot(res: dict) -> None:
+    """Helper kiểm tra tính hợp lệ và cấu trúc chuẩn của snapshot kho mẫu."""
+    assert is_json_serializable(res)
+    assert res.get("ok") is True
+    assert "data" in res
+    data = res["data"]
+    assert "revision" in data and isinstance(data["revision"], int)
+    assert "stats" in data and isinstance(data["stats"], dict)
+    assert "letters" in data and isinstance(data["letters"], list)
+    assert "digits" in data and isinstance(data["digits"], dict)
+    assert "punct" in data and isinstance(data["punct"], dict)
+    assert "symbols" in data and isinstance(data["symbols"], list)
+    assert "marks" in data and isinstance(data["marks"], list)
+
+
+def assert_valid_write_response(res: dict) -> None:
+    """Helper kiểm tra tính hợp lệ và cấu trúc chuẩn của kết quả write_text."""
+    assert is_json_serializable(res)
+    assert res.get("ok") is True
+    assert "xopp_base64" in res
+    assert "warnings" in res and isinstance(res["warnings"], list)
+    assert "unsupported" in res and isinstance(res["unsupported"], list)
+
+
+
 @pytest.fixture
 def bridge_with_tiny_bank(tmp_path):
     bank_path = str(tmp_path / "bridge_bank.json.gz")
@@ -155,3 +180,49 @@ def test_error_handling_returns_standard_dict():
     assert "error" in res
     assert "error_type" in res
     assert is_json_serializable(res)
+
+
+def test_write_text_forwards_unsupported(bridge_with_tiny_bank):
+    """Kiểm tra write_text chuyển tiếp đầy đủ cả warnings và unsupported sang JSON response."""
+    md_text = "Văn bản\n\n```python\nprint(1)\n```\n\n---\n\n![Anh minh hoa](sample.png)"
+    res = bridge_with_tiny_bank.write_text(md_text, {"seed": 1}, fmt="md")
+    assert_valid_write_response(res)
+    assert "unsupported" in res
+    assert isinstance(res["unsupported"], list)
+    assert any("code_block" in u for u in res["unsupported"])
+    assert any("hr" in u for u in res["unsupported"])
+    assert any("image" in u for u in res["unsupported"])
+
+
+
+# ==============================================================================
+# Feature 067 / US4: Bank snapshot and revision tracking tests (T019)
+# ==============================================================================
+
+def test_get_bank_snapshot_structure(bridge_with_tiny_bank):
+    """Kiểm tra get_bank_snapshot trả về đầy đủ cấu trúc và serializable sang JSON."""
+    snapshot = bridge_with_tiny_bank.get_bank_snapshot(profile_id="test_profile")
+    assert_valid_bank_snapshot(snapshot)
+    assert snapshot["data"]["profile_id"] == "test_profile"
+    assert is_json_serializable(snapshot)
+
+
+def test_bank_revision_tracking(bridge_with_tiny_bank, tmp_path):
+    """Kiểm tra bank_revision tăng lên khi thay đổi kho mẫu."""
+    s0 = bridge_with_tiny_bank.get_bank_snapshot()
+    rev0 = s0["data"]["revision"]
+
+    # Thêm một ký tự mẫu mới
+    stroke = [[0.0, 0.0, 5.0, -10.0]]
+    res = bridge_with_tiny_bank.teach_char("z", stroke, 10.0)
+    assert res["ok"] is True
+    s1 = bridge_with_tiny_bank.get_bank_snapshot()
+    rev1 = s1["data"]["revision"]
+    assert rev1 > rev0, f"Revision không tăng sau khi thêm mẫu ({rev1} <= {rev0})"
+
+    # Xóa ký tự mẫu
+    del_res = bridge_with_tiny_bank.drop_chars(["z"])
+    assert del_res["ok"] is True
+    s2 = bridge_with_tiny_bank.get_bank_snapshot()
+    rev2 = s2["data"]["revision"]
+    assert rev2 > rev1, f"Revision không tăng sau khi xóa mẫu ({rev2} <= {rev1})"

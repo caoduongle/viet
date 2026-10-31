@@ -56,6 +56,7 @@ class BrowserBridge:
 
     def __init__(self, bank_path: str | None = None):
         self.bank_path: str = bank_path or "/tmp/active_bank.json.gz"
+        self.bank_revision: int = 1
         self._ctl: AppController = AppController(
             bank_path=self.bank_path,
             timer_factory=lambda *a, **k: None,  # Môi trường Web Worker không tạo thread Timer
@@ -134,6 +135,7 @@ class BrowserBridge:
             with open(self.bank_path, "wb") as f:
                 f.write(gz_bytes)
             self._ctl.load_bank(self.bank_path, create_if_missing=create_if_missing)
+            self.bank_revision += 1
             stats = self.get_stats()
             return {"ok": True, "stats": stats.get("data", {})}
         except Exception as e:
@@ -146,6 +148,35 @@ class BrowserBridge:
             with open(self.bank_path, "rb") as f:
                 return f.read()
         return b""
+
+    def get_bank_snapshot(self, profile_id: str = "default") -> dict[str, Any]:
+        """Cung cấp toàn bộ dữ liệu snapshot của kho mẫu trong một lượt gọi duy nhất."""
+        try:
+            stats_res = self.get_stats()
+            if not stats_res.get("ok"):
+                return stats_res
+            stats = stats_res.get("data", {})
+
+            letters_res = self.list_letters()
+            symbols_res = self.list_category_items("symbols")
+            marks_res = self.list_category_items("marks")
+
+            data = {
+                "revision": self.bank_revision,
+                "profile_id": str(profile_id),
+                "stats": stats,
+                "letters": letters_res.get("data", []),
+                "digits": stats.get("digit_counts", {}),
+                "punct": stats.get("punct_counts", {}),
+                "symbols": symbols_res.get("data", []),
+                "marks": marks_res.get("data", []),
+            }
+            return {
+                "ok": True,
+                "data": _clean_json(data),
+            }
+        except Exception as exc:
+            return _err_res(exc)
 
     def get_stats(self) -> dict[str, Any]:
         """Thống kê chi tiết số từ, mẫu, ký tự, dấu thanh trong kho."""
@@ -182,6 +213,7 @@ class BrowserBridge:
 
             try:
                 warnings_list: list[str] = []
+                unsupported_list: list[str] = []
                 # Xử lý ngắt trang nếu là định dạng markdown hoặc có chứa cú pháp ngắt trang
                 if fmt == "md" or PAGEBREAK_RE.search(text):
                     chunks = PAGEBREAK_RE.split(text)
@@ -193,6 +225,7 @@ class BrowserBridge:
                             res = md_importer.import_text(clean_chunk)
                             all_blocks.extend(res.document.blocks)
                             warnings_list.extend(res.warnings)
+                            unsupported_list.extend(res.unsupported)
                         if idx < len(chunks) - 1:
                             all_blocks.append(PageBreak())
                     doc = Document(blocks=all_blocks)
@@ -202,6 +235,8 @@ class BrowserBridge:
 
                 if getattr(result, "warnings", None):
                     warnings_list.extend(result.warnings)
+                if getattr(result, "unsupported", None):
+                    unsupported_list.extend(result.unsupported)
 
                 with open(out_path, "rb") as f:
                     xopp_bytes = f.read()
@@ -219,6 +254,7 @@ class BrowserBridge:
                     "missing_sorted": missing_sorted,
                     "missing_token_boxes": missing_token_boxes,
                     "warnings": warnings_list,
+                    "unsupported": unsupported_list,
                     "seed_used": getattr(result, "seed_used", None),
                     "ignored_options": ignored_options,
                 }
@@ -261,6 +297,7 @@ class BrowserBridge:
                 recompute=recompute_fn,
                 deferred_save=deferred_save,
             )
+            self.bank_revision += 1
 
             res = {
                 "ok": True,
@@ -289,6 +326,7 @@ class BrowserBridge:
         """Nạp file .xopp lưới ô tập viết và cập nhật kho ký tự mẫu."""
         try:
             res = self._ctl.import_grid(xopp_bytes, dedup=dedup)
+            self.bank_revision += 1
             return {
                 "ok": True,
                 "data": _clean_json(res),
@@ -324,6 +362,7 @@ class BrowserBridge:
                 recompute=recompute_fn,
                 deferred_save=deferred_save,
             )
+            self.bank_revision += 1
             return {
                 "ok": True,
                 "label": outcome.label,
@@ -465,6 +504,7 @@ class BrowserBridge:
                 res = self._ctl.drop_char(label)
             else:
                 res = self._ctl.drop_words([label], category=category)
+            self.bank_revision += 1
             return {"ok": True, "data": _clean_json(res)}
         except Exception as e:
             return _err_res(e)
@@ -473,6 +513,7 @@ class BrowserBridge:
         """Xoá hàng loạt danh sách các ký tự khỏi kho mẫu."""
         try:
             res = self._ctl.drop_chars(chars)
+            self.bank_revision += 1
             return {
                 "ok": True,
                 "data": _clean_json(res),
@@ -491,6 +532,7 @@ class BrowserBridge:
         """Xoá các biến thể mẫu nét cụ thể của một nhãn."""
         try:
             res = self._ctl.drop_label_samples(label, indices, category=category)
+            self.bank_revision += 1
             return {"ok": True, "data": _clean_json(res)}
         except Exception as e:
             return _err_res(e)

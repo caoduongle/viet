@@ -56,6 +56,7 @@ _FAKE_CLOSE_PUA_START = 0xE000
 _FAKE_CLOSE_PUA_END = 0xF8FF
 _FAKE_CLOSE_PUA_COUNT = _FAKE_CLOSE_PUA_END - _FAKE_CLOSE_PUA_START + 1
 _PUA_RE = re.compile(r"[\uE000-\uF8FF]")
+_HTML_NUM_ENTITY_RE = re.compile(r"&#(?:[xX]([0-9a-fA-F]{1,6})|([0-9]{1,7}));")
 
 
 class MarkdownImporter(BaseImporter):
@@ -72,6 +73,7 @@ class MarkdownImporter(BaseImporter):
 
         Cơ chế và độ phức tạp:
         - Quét văn bản ở tầng C bằng _PUA_RE.finditer(text), không cấp phát danh sách hay tập hợp toàn bộ tài liệu.
+        - Khi có chuỗi '&#', quét thêm các thực thể HTML số để tránh va chạm sau khi giải mã.
         - Bộ nhớ phụ khống chế nghiêm ngặt <= 6.400 phần tử (tương đương _FAKE_CLOSE_PUA_COUNT).
         - Thoát sớm ngay trong vòng lặp khi tập hợp used_cps đạt đủ 6.400 phần tử (cạn kiệt PUA).
 
@@ -85,7 +87,19 @@ class MarkdownImporter(BaseImporter):
         for m in _PUA_RE.finditer(text):
             used_cps.add(ord(m.group(0)))
             if len(used_cps) == _FAKE_CLOSE_PUA_COUNT:
-                break
+                return used_cps
+
+        if "&#" in text:
+            for m in _HTML_NUM_ENTITY_RE.finditer(text):
+                hex_str, dec_str = m.groups()
+                try:
+                    val = int(hex_str, 16) if hex_str is not None else int(dec_str, 10)
+                except ValueError:
+                    continue
+                if _FAKE_CLOSE_PUA_START <= val <= _FAKE_CLOSE_PUA_END:
+                    used_cps.add(val)
+                    if len(used_cps) == _FAKE_CLOSE_PUA_COUNT:
+                        break
         return used_cps
 
     @classmethod
@@ -93,27 +107,27 @@ class MarkdownImporter(BaseImporter):
         """Chọn ký tự giữ chỗ cho dấu đóng giả từ vùng Private Use Area của BMP (U+E000..U+F8FF).
 
         Độ phức tạp và cơ chế:
-        1. Fast-path: Kiểm tra text rỗng hoặc first_pua not in text.
+        1. Fast-path: Kiểm tra text rỗng hoặc (first_pua not in text và '&#') not in text.
            - Phép tìm kiếm chuỗi con 'not in' thực thi ở tầng C với thời gian O(N) trong trường hợp xấu nhất,
              nhưng không cấp phát bộ nhớ phụ nào (O(1) auxiliary memory), tối ưu cho hầu hết tài liệu thông thường.
-        2. Collision path: Khi U+E000 xuất hiện trong text (va chạm):
-           - Gọi cls._collect_used_pua_codepoints(text) quét các ký tự PUA bằng _PUA_RE.finditer(text) ở tầng C,
+        2. Collision path: Khi U+E000 xuất hiện trong text hoặc có HTML entity:
+           - Gọi cls._collect_used_pua_codepoints(text) quét các ký tự PUA và HTML entity ở tầng C,
              khống chế bộ nhớ phụ tối đa <= 6.400 phần tử và thoát sớm khi cạn kiệt.
            - Nếu used_cps đã đủ 6.400 ký tự (_FAKE_CLOSE_PUA_COUNT), trả về None ngay lập tức.
-           - Duyệt dải mã U+E001..U+F8FF để tìm điểm mã chưa dùng đầu tiên; trả về None nếu cạn kiệt.
+           - Duyệt dải mã U+E000..U+F8FF để tìm điểm mã chưa dùng đầu tiên; trả về None nếu cạn kiệt.
         """
         if not text:
             return chr(_FAKE_CLOSE_PUA_START)
 
         first_pua = chr(_FAKE_CLOSE_PUA_START)
-        if first_pua not in text:
+        if first_pua not in text and "&#" not in text:
             return first_pua
 
         used_cps = cls._collect_used_pua_codepoints(text)
         if len(used_cps) == _FAKE_CLOSE_PUA_COUNT:
             return None
 
-        for cp in range(_FAKE_CLOSE_PUA_START + 1, _FAKE_CLOSE_PUA_END + 1):
+        for cp in range(_FAKE_CLOSE_PUA_START, _FAKE_CLOSE_PUA_END + 1):
             if cp not in used_cps:
                 return chr(cp)
         return None
@@ -203,8 +217,18 @@ class MarkdownImporter(BaseImporter):
         return bool(m_close)
 
     @staticmethod
-    def _convert_delimited(seg: str, opener: str, closer: str, wrap: str, max_len: int, strip: bool) -> str:
-        """Đổi ``opener..closer`` (không có dấu \\ đứng ngay trước) thành ``wrap..wrap``; quét tuyến tính,
+    def _count_preceding_backslashes(text: str, idx: int) -> int:
+        """Đếm số lượng dấu gạch chéo ngược liên tiếp đứng ngay trước vị trí idx."""
+        p = idx - 1
+        count = 0
+        while p >= 0 and text[p] == "\\":
+            count += 1
+            p -= 1
+        return count
+
+    @classmethod
+    def _convert_delimited(cls, seg: str, opener: str, closer: str, wrap: str, max_len: int, strip: bool) -> str:
+        """Đổi ``opener..closer`` (không có số lẻ dấu \\ đứng ngay trước) thành ``wrap..wrap``; quét tuyến tính,
         nên dù có hàng chục nghìn dấu mở không đóng cũng không bị chậm."""
         out: list[str] = []
         i = 0
@@ -214,14 +238,14 @@ class MarkdownImporter(BaseImporter):
             j = seg.find(opener, i)
             if j == -1:
                 break
-            if j > 0 and seg[j - 1] == "\\":            # \\( là dấu gạch ngược thoát rồi tới dấu ngoặc thường
+            if cls._count_preceding_backslashes(seg, j) % 2 == 1:
                 out.append(seg[i : j + len(opener)])
                 i = j + len(opener)
                 continue
             start = j + len(opener)
             if close_at != -1 and close_at < start:
                 k = seg.find(closer, start)
-                while k > 0 and seg[k - 1] == "\\":      # closer bị thoát thì bỏ qua
+                while k != -1 and cls._count_preceding_backslashes(seg, k) % 2 == 1:
                     k = seg.find(closer, k + len(closer))
                 close_at = k
             if close_at == -1:                           # phía sau không còn closer nào: hết việc
@@ -232,7 +256,12 @@ class MarkdownImporter(BaseImporter):
                 continue
             body = seg[start:close_at]
             if strip:
-                body = body.strip()
+                body = body.lstrip()
+                rstripped = body.rstrip()
+                if rstripped and cls._count_preceding_backslashes(rstripped, len(rstripped)) % 2 == 1:
+                    body = rstripped + " {}"
+                else:
+                    body = rstripped
             if not body.strip():
                 out.append(seg[i:start])
                 i = start
@@ -242,15 +271,10 @@ class MarkdownImporter(BaseImporter):
         out.append(seg[i:])
         return "".join(out)
 
-    @staticmethod
-    def _is_escaped_backtick(text: str, idx: int) -> bool:
+    @classmethod
+    def _is_escaped_backtick(cls, text: str, idx: int) -> bool:
         """Kiểm tra ký tự backtick tại idx có bị thoát bởi số lẻ dấu gạch ngược hay không."""
-        p = idx - 1
-        count = 0
-        while p >= 0 and text[p] == "\\":
-            count += 1
-            p -= 1
-        return count % 2 == 1
+        return cls._count_preceding_backslashes(text, idx) % 2 == 1
 
     @classmethod
     def _find_code_spans(cls, text: str) -> list[tuple[int, int]]:
@@ -833,7 +857,9 @@ class MarkdownImporter(BaseImporter):
             out.append("".join(parts))
         return "".join(out)
 
-    def _parse_inlines(self, inline_token: Any, warnings: list[str] | None = None) -> list[Inline]:
+    def _parse_inlines(
+        self, inline_token: Any, warnings: list[str] | None = None, unsupported: list[str] | None = None
+    ) -> list[Inline]:
         """Chuyển đổi token inline của markdown-it thành danh sách Inline IR."""
         inlines: list[Inline] = []
         if not inline_token or not getattr(inline_token, "children", None):
@@ -858,6 +884,13 @@ class MarkdownImporter(BaseImporter):
                     msg = "Định dạng kiểu chữ (in đậm, in nghiêng, gạch ngang, mã nội tuyến...) đã được chuyển về nét viết tay chuẩn."
                     if msg not in warnings:
                         warnings.append(msg)
+            elif ctype == "image":
+                alt = child.content or ""
+                if alt:
+                    inlines.append(Text(text=alt))
+                if unsupported is not None:
+                    msg = f"image: {alt}" if alt else "image"
+                    unsupported.append(msg)
             else:
                 # Các thẻ định dạng như strong, em, s, link... ta lấy nội dung text bên trong
                 if child.content:
@@ -927,7 +960,9 @@ class MarkdownImporter(BaseImporter):
                 out.append(b)
         return out
 
-    def _parse_table(self, tokens: list[Any], i: int, warnings: list[str] | None = None) -> tuple[Table, int]:
+    def _parse_table(
+        self, tokens: list[Any], i: int, warnings: list[str] | None = None, unsupported: list[str] | None = None
+    ) -> tuple[Table, int]:
         n = len(tokens)
         rows: list[TableRow] = []
         col_alignments: list[str] = []
@@ -953,7 +988,7 @@ class MarkdownImporter(BaseImporter):
 
                         cell_inlines = []
                         if i + 1 < n and tokens[i + 1].type == "inline":
-                            cell_inlines = self._parse_inlines(tokens[i + 1], warnings)
+                            cell_inlines = self._parse_inlines(tokens[i + 1], warnings, unsupported)
                             i += 1
                         cells.append(TableCell(blocks=[Paragraph(inlines=cell_inlines)]))
                     i += 1
@@ -975,7 +1010,7 @@ class MarkdownImporter(BaseImporter):
                 level = int(tok.tag[1]) if len(tok.tag) > 1 and tok.tag[1].isdigit() else 1
                 inlines = []
                 if i + 1 < n and tokens[i + 1].type == "inline":
-                    inlines = self._parse_inlines(tokens[i + 1], warnings)
+                    inlines = self._parse_inlines(tokens[i + 1], warnings, unsupported)
                     i += 1
                 blocks.append(Heading(level=level, inlines=inlines))
 
@@ -983,7 +1018,7 @@ class MarkdownImporter(BaseImporter):
             elif tok.type == "paragraph_open":
                 inlines = []
                 if i + 1 < n and tokens[i + 1].type == "inline":
-                    inlines = self._parse_inlines(tokens[i + 1], warnings)
+                    inlines = self._parse_inlines(tokens[i + 1], warnings, unsupported)
                     i += 1
                 if inlines:
                     blocks.append(Paragraph(inlines=inlines))
@@ -1000,7 +1035,7 @@ class MarkdownImporter(BaseImporter):
 
             # 5. Table Block
             elif tok.type == "table_open":
-                table, i = self._parse_table(tokens, i, warnings)
+                table, i = self._parse_table(tokens, i, warnings, unsupported)
                 blocks.append(table)
 
             # 6. Code Block / Fenced Code
@@ -1011,6 +1046,13 @@ class MarkdownImporter(BaseImporter):
             # 7. Horizontal Rule (---)
             elif tok.type == "hr":
                 unsupported.append("hr: horizontal rule")
+
+            # 8. Blockquote (làm phẳng thành các đoạn văn, ghi nhận cảnh báo)
+            elif tok.type == "blockquote_open":
+                if warnings is not None:
+                    msg = "Khối trích dẫn (blockquote) đã được chuyển về đoạn văn viết tay tiêu chuẩn."
+                    if msg not in warnings:
+                        warnings.append(msg)
 
             i += 1
         return blocks, i

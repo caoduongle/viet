@@ -190,3 +190,88 @@ def test_write_options_color_hop_le(good_color):
 def test_write_options_color_khong_hop_le_chong_injection(bad_color):
     with pytest.raises(ValueError, match="Mã màu không hợp lệ"):
         WriteOptions(color=bad_color).validate()
+
+
+
+# ==============================================================================
+# Feature 067 / US3: WriteOptions validation for letter_gap, target_xh, pen_clearance_factor & types (T016)
+# ==============================================================================
+
+@pytest.mark.parametrize("val", [0.0, 0.5, 1.0, 5.0, 10.0])
+def test_write_options_letter_gap_hop_le(val):
+    opts = WriteOptions(letter_gap=val)
+    opts.validate()
+    assert opts.letter_gap == val
+
+
+@pytest.mark.parametrize("bad_val", [-0.1, -1.0, 10.1, 100.0, float("nan"), float("inf"), True, False, "1.0"])
+def test_write_options_letter_gap_sai(bad_val):
+    with pytest.raises(ValueError, match="letter_gap"):
+        WriteOptions(letter_gap=bad_val).validate()
+
+
+@pytest.mark.parametrize("val", [0.1, 5.0, 7.94, 25.0, 50.0])
+def test_write_options_target_xh_hop_le(val):
+    opts = WriteOptions(target_xh=val)
+    opts.validate()
+    assert opts.target_xh == val
+
+
+@pytest.mark.parametrize("bad_val", [0, -0.1, -5.0, 50.1, 100.0, float("nan"), float("inf"), True, False, "7.94"])
+def test_write_options_target_xh_sai(bad_val):
+    with pytest.raises(ValueError, match="target_xh"):
+        WriteOptions(target_xh=bad_val).validate()
+
+
+@pytest.mark.parametrize("val", [0.0, 0.8, 2.0, 5.0])
+def test_write_options_pen_clearance_factor_hop_le(val):
+    opts = WriteOptions(pen_clearance_factor=val)
+    opts.validate()
+    assert opts.pen_clearance_factor == val
+
+
+@pytest.mark.parametrize("bad_val", [-0.1, -2.0, 5.1, 10.0, float("nan"), float("inf"), True, False, "0.8"])
+def test_write_options_pen_clearance_factor_sai(bad_val):
+    with pytest.raises(ValueError, match="pen_clearance_factor"):
+        WriteOptions(pen_clearance_factor=bad_val).validate()
+
+
+@pytest.mark.parametrize(
+    ("field_name", "bool_val"),
+    [
+        ("scale", True),
+        ("line", True),
+        ("width", True),
+        ("space", False),
+        ("jitter", True),
+        ("wscale", False),
+        ("margin_left", True),
+        ("margin_right", False),
+        ("margin_top", True),
+        ("margin_bottom", False),
+    ],
+)
+def test_write_options_numeric_fields_reject_bool(field_name, bool_val):
+    """Xác nhận tất cả các trường số học từ chối kiểu bool (isinstance(val, bool) là True)."""
+    with pytest.raises(ValueError, match=field_name):
+        kwargs = {field_name: bool_val}
+        WriteOptions(**kwargs).validate()
+
+
+@pytest.mark.parametrize(
+    "flag_name",
+    [
+        "strict_case",
+        "stable_variants",
+        "snap_to_ruling",
+        "missing_grid",
+        "assemble_letters",
+        "auto_xh",
+    ],
+)
+def test_write_options_boolean_flags_require_bool(flag_name):
+    """Xác nhận các cờ logic từ chối giá trị không phải bool (ví dụ chuỗi 'yes', số 1)."""
+    for bad_val in ["true", "false", 1, 0, None, [True]]:
+        with pytest.raises(ValueError, match=flag_name):
+            kwargs = {flag_name: bad_val}
+            WriteOptions(**kwargs).validate()

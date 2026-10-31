@@ -161,77 +161,109 @@ function setupDetailModal(options = {}) {
 // -------------------------------------------------------------
 // Nạp kho & Cập nhật Giao diện
 // -------------------------------------------------------------
-export async function refreshBankView() {
+let lastBankSnapshotCache = { revision: null, profileId: null };
+
+function showBankErrorBanner(message) {
+  let banner = document.getElementById("bank-error-banner");
+  if (!banner) {
+    const summary = document.getElementById("bank-summary");
+    if (summary && summary.parentNode) {
+      banner = document.createElement("div");
+      banner.id = "bank-error-banner";
+      banner.className = "alert alert-danger";
+      banner.style.cssText = "margin-top: 0.5rem; padding: 0.5rem 0.75rem; background: #ffebee; color: #c62828; border-radius: 4px; font-size: 0.88rem; display: flex; justify-content: space-between; align-items: center;";
+      summary.parentNode.appendChild(banner);
+    }
+  }
+  if (banner) {
+    if (message) {
+      banner.innerHTML = `<span>⚠️ ${message}</span><button class="btn btn-sm btn-link" style="color: inherit; text-decoration: underline; background: none; border: none; cursor: pointer;" onclick="this.parentElement.style.display='none'">Đóng</button>`;
+      banner.style.display = "flex";
+    } else {
+      banner.style.display = "none";
+    }
+  }
+}
+
+export async function refreshBankView(force = false) {
   if (!sendWorkerFn) return;
 
   try {
     // 1. Cập nhật thông tin hồ sơ
     await updateProfileChip();
+    const activeProfileId = currentProfileId || "default";
 
-    // 2. Lấy thống kê tổng quan
-    const statsRes = await sendWorkerFn("get_stats");
-    let stats = {};
-    if (statsRes.ok) {
-      stats = statsRes.data || {};
-      const summary = document.getElementById("bank-summary");
-      if (summary) {
-        summary.textContent = `Kho mẫu hiện có ${stats.n_letters || 0} chữ cái, ${stats.n_samples || 0} mẫu nét.`;
-      }
-      const statusText = document.getElementById("status-text");
-      if (statusText) {
-        statusText.textContent = `${stats.n_letters || 0} chữ cái / ${stats.n_samples || 0} mẫu`;
-      }
+    // 2. Lấy toàn bộ snapshot kho mẫu trong 1 lượt gọi duy nhất
+    const snapRes = await sendWorkerFn("get_bank_snapshot", { profileId: activeProfileId });
+    if (!snapRes || !snapRes.ok) {
+      const err = snapRes?.error || "Không thể nạp dữ liệu kho mẫu";
+      showBankErrorBanner(`Lỗi tải kho mẫu: ${err}`);
+      console.error("Lỗi get_bank_snapshot:", snapRes);
+      return;
+    }
+    showBankErrorBanner(null);
+
+    const snapshot = snapRes.data || {};
+    const rev = snapshot.revision;
+
+    // Kiểm tra cache nếu không force và revision + profileId không đổi
+    if (!force && lastBankSnapshotCache.revision === rev && lastBankSnapshotCache.profileId === activeProfileId) {
+      return;
+    }
+    lastBankSnapshotCache = { revision: rev, profileId: activeProfileId };
+
+    const stats = snapshot.stats || {};
+    const summary = document.getElementById("bank-summary");
+    if (summary) {
+      summary.textContent = `Kho mẫu hiện có ${stats.n_letters || 0} chữ cái, ${stats.n_samples || 0} mẫu nét.`;
+    }
+    const statusText = document.getElementById("status-text");
+    if (statusText) {
+      statusText.textContent = `${stats.n_letters || 0} chữ cái / ${stats.n_samples || 0} mẫu`;
     }
 
-    // 3. Tổng hợp danh sách tất cả các nhãn ký tự
+    // 3. Tổng hợp danh sách nhãn từ snapshot
     allBankItems = [];
 
     // Chữ cái (letters)
-    const lettersRes = await sendWorkerFn("list_letters");
-    if (lettersRes.ok && Array.isArray(lettersRes.data)) {
-      for (const [ch, count] of lettersRes.data) {
+    if (Array.isArray(snapshot.letters)) {
+      for (const [ch, count] of snapshot.letters) {
         allBankItems.push({ label: ch, count, category: "letters" });
       }
     }
 
     // Chữ số (digits)
-    const digitCounts = stats.digit_counts || {};
+    const digitCounts = snapshot.digits || stats.digit_counts || {};
     for (const [d, count] of Object.entries(digitCounts)) {
       allBankItems.push({ label: d, count, category: "digits" });
     }
 
     // Dấu câu (punct)
-    const punctCounts = stats.punct_counts || {};
+    const punctCounts = snapshot.punct || stats.punct_counts || {};
     for (const [p, count] of Object.entries(punctCounts)) {
       allBankItems.push({ label: p, count, category: "punct" });
     }
 
     // Ký hiệu (symbols)
-    try {
-      const symRes = await sendWorkerFn("list_category_items", { category: "symbols" });
-      if (symRes && symRes.ok && Array.isArray(symRes.data)) {
-        for (const [sym, count] of symRes.data) {
-          allBankItems.push({ label: sym, count, category: "symbols" });
-        }
+    if (Array.isArray(snapshot.symbols)) {
+      for (const [sym, count] of snapshot.symbols) {
+        allBankItems.push({ label: sym, count, category: "symbols" });
       }
-    } catch (_) {}
+    }
 
     // Dấu thanh (marks)
-    try {
-      const marksRes = await sendWorkerFn("list_category_items", { category: "marks" });
-      if (marksRes && marksRes.ok && Array.isArray(marksRes.data)) {
-        for (const [m, count] of marksRes.data) {
-          allBankItems.push({ label: m, count, category: "marks" });
-        }
-      } else {
-        const toneCounts = stats.tone_mark_counts || {};
-        for (const [t, count] of Object.entries(toneCounts)) {
-          if (count > 0) {
-            allBankItems.push({ label: t, count, category: "marks" });
-          }
+    if (Array.isArray(snapshot.marks)) {
+      for (const [m, count] of snapshot.marks) {
+        allBankItems.push({ label: m, count, category: "marks" });
+      }
+    } else {
+      const toneCounts = stats.tone_mark_counts || {};
+      for (const [t, count] of Object.entries(toneCounts)) {
+        if (count > 0) {
+          allBankItems.push({ label: t, count, category: "marks" });
         }
       }
-    } catch (_) {}
+    }
 
     // Cập nhật số lượng trên các nút lọc
     updateCategoryCounts();
@@ -239,6 +271,7 @@ export async function refreshBankView() {
     // 4. Render danh sách ra lưới
     applyFiltersAndRender();
   } catch (err) {
+    showBankErrorBanner(`Lỗi hệ thống khi tải kho mẫu: ${err.message}`);
     console.error("Lỗi cập nhật kho mẫu:", err);
   }
 }

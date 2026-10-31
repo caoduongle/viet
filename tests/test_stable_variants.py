@@ -896,3 +896,53 @@ def test_chunked_token_occurrence_sync(tmp_path):
 
 
 
+
+
+
+# ==============================================================================
+# Feature 067 / US3: Repetitive word seed stability (T015)
+# ==============================================================================
+
+def test_repetitive_words_seed_stability_large_corpus():
+    """Kiểm tra độ ổn định seed cho tài liệu chứa 500 từ lặp lại khi chèn nội dung vào giữa."""
+    import time
+    from chuviettay.document.ir import Document, Paragraph, Text, align_document_seeds
+
+    # Tạo tài liệu 500 từ "là" lặp lại
+    words = ["là"] * 500
+    base_text = " ".join(words)
+    base_doc = Document(blocks=[Paragraph(inlines=[Text(base_text)])])
+
+    # Giả lập gán occurrence ban đầu cho base_doc
+    # extract_doc_elements sẽ gán occ từ 0..499
+    base_aligned = align_document_seeds(base_doc, base_doc)
+
+    # Chèn "mới chèn" vào giữa (vị trí 250)
+    edited_words = words[:250] + ["chèn", "mới"] + words[250:]
+    edited_text = " ".join(edited_words)
+    edited_doc = Document(blocks=[Paragraph(inlines=[Text(edited_text)])])
+
+    t0 = time.perf_counter()
+    res_doc = align_document_seeds(base_aligned, edited_doc)
+    elapsed_ms = (time.perf_counter() - t0) * 1000
+
+    # Kiểm tra thời gian thực thi < 200ms (tiêu chuẩn SC-007)
+    assert elapsed_ms < 200.0, f"align_document_seeds mất quá nhiều thời gian: {elapsed_ms:.2f} ms"
+
+    # Kiểm tra occurrence của các token trong Text node
+    p = res_doc.blocks[0]
+    text_node = p.inlines[0]
+    token_occs = getattr(text_node, "token_occurrences", None)
+    assert token_occs is not None and len(token_occs) == len(edited_words)
+
+    # 250 từ đầu tiên phải giữ nguyên occurrence 0..249
+    for i in range(250):
+        assert token_occs[i] == i, f"Token lặp ở đầu index {i} bị đổi occ: {token_occs[i]} != {i}"
+
+    # 250 từ phía sau phải giữ nguyên occurrence 250..499
+    for i in range(250):
+        idx_in_edited = 252 + i
+        expected_occ = 250 + i
+        assert token_occs[idx_in_edited] == expected_occ, (
+            f"Token lặp ở đuôi index {idx_in_edited} bị đổi occ: {token_occs[idx_in_edited]} != {expected_occ}"
+        )

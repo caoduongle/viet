@@ -34,6 +34,7 @@ let hasInitialRenderDone = false; // True khi đã thực hiện ít nhất 1 l�
 let lastRenderedBankTs = 0;       // Timestamp của kho mẫu được sử dụng trong lượt kết xuất gần nhất
 let currentBankRevision = 1;      // Số hiệu phiên bản kho mẫu hiện hành (tăng đơn điệu)
 let lastRenderedBankRevision = 0; // Phiên bản kho mẫu của bản vẽ đang hiển thị trên preview
+let pendingImportNotices = [];    // Thông báo từ lần nạp tệp (ví dụ DOCX) cần bảo toàn qua lượt render tự động đầu tiên
 
 // Quản lý thu phóng (Zoom State: 50% - 300%)
 let currentZoom = 1.0;
@@ -222,6 +223,7 @@ export function resetWriteSyncStateForTesting() {
   currentDoc = null;
   currentXoppBase64 = "";
   currentMissingBoxes = [];
+  pendingImportNotices = [];
 }
 
 /**
@@ -304,6 +306,7 @@ function clearPreview() {
   currentMissingBoxes = [];
   currentDoc = null;
   currentXoppBase64 = "";
+  pendingImportNotices = [];
 }
 
 function showRenderingIndicator(loading) {
@@ -411,15 +414,61 @@ function updatePaginationControls() {
   if (btnNext) btnNext.disabled = currentPageIndex >= total - 1;
 }
 
+function formatUnsupportedItem(u) {
+  if (typeof u !== "string") return String(u || "");
+  if (u.startsWith("code_block")) {
+    const info = u.includes(":") ? u.split(":")[1].trim() : "";
+    return info
+      ? `Khối mã nguồn (${info}): chưa hỗ trợ viết tay, đã được bỏ qua.`
+      : "Khối mã nguồn (code block): chưa hỗ trợ viết tay, đã được bỏ qua.";
+  }
+  if (u.startsWith("hr")) {
+    return "Đường kẻ ngang (horizontal rule): chưa hỗ trợ vẽ nét, đã được bỏ qua.";
+  }
+  if (u.startsWith("image")) {
+    const alt = u.includes(":") ? u.split(":")[1].trim() : "";
+    return alt
+      ? `Hình ảnh ("${alt}"): chưa hỗ trợ vẽ nét viết tay, chỉ giữ lại văn bản thay thế.`
+      : "Hình ảnh: chưa hỗ trợ vẽ nét viết tay, đã được bỏ qua.";
+  }
+  if (u.startsWith("table")) {
+    return "Bảng nằm trong mục danh sách: chưa hỗ trợ vẽ nét, đã được bỏ qua.";
+  }
+  return u;
+}
+
 function updateInfoPanel(res) {
   const warningsBox = document.getElementById("editor-warnings");
   const missingBox = document.getElementById("missing-tokens-box");
   const missingList = document.getElementById("missing-tokens-list");
 
-  // Warnings
+  // Warnings & Unsupported Content & Import Notices
   if (warningsBox) {
+    const allHtmlParts = [];
+
+    // 1. Pending import notices (e.g. from DOCX import)
+    if (pendingImportNotices && pendingImportNotices.length > 0) {
+      for (const note of pendingImportNotices) {
+        allHtmlParts.push(`<div>📄 ${escapeHtml(note)}</div>`);
+      }
+    }
+
+    // 2. Warnings
     if (res.warnings && res.warnings.length > 0) {
-      warningsBox.innerHTML = res.warnings.map((w) => `<div>⚠️ ${escapeHtml(w)}</div>`).join("");
+      for (const w of res.warnings) {
+        allHtmlParts.push(`<div>⚠️ ${escapeHtml(w)}</div>`);
+      }
+    }
+
+    // 3. Unsupported items
+    if (res.unsupported && res.unsupported.length > 0) {
+      for (const u of res.unsupported) {
+        allHtmlParts.push(`<div>ℹ️ ${escapeHtml(formatUnsupportedItem(u))}</div>`);
+      }
+    }
+
+    if (allHtmlParts.length > 0) {
+      warningsBox.innerHTML = allHtmlParts.join("");
       warningsBox.style.display = "block";
     } else {
       warningsBox.style.display = "none";
@@ -596,6 +645,7 @@ function setupFileDropAndOpen(textarea, options = {}) {
 async function handleFileImport(file, textarea) {
   const name = file.name.toLowerCase();
   if (name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".markdown")) {
+    pendingImportNotices = [];
     const text = await file.text();
     textarea.value = text;
     const selectFormat = document.getElementById("select-format");
@@ -616,21 +666,33 @@ async function handleFileImport(file, textarea) {
           selectFormat.value = "md";
           currentFormat = "md";
         }
-        const allNotes = [...(res.warnings || []), ...(res.unsupported || [])];
-        if (allNotes.length > 0) {
-          showWarning(`Đã chuyển nội dung file .docx sang Markdown (lưu ý: không giữ nguyên toạ độ in Word):\n• ${allNotes.join("\n• ")}`);
+        const docxNotes = ["Chế độ Content-First: Không giữ nguyên bố cục toạ độ in Word."];
+        if (Array.isArray(res.warnings) && res.warnings.length > 0) {
+          docxNotes.push(...res.warnings);
+        }
+        if (Array.isArray(res.unsupported) && res.unsupported.length > 0) {
+          docxNotes.push(...res.unsupported.map((item) => `Không hỗ trợ: ${item}`));
+        }
+        pendingImportNotices = docxNotes;
+        if (docxNotes.length > 1) {
+          showWarning(`Đã chuyển nội dung file .docx sang Markdown:\n• ${docxNotes.join("\n• ")}`);
         } else {
           showWarning("Đã chuyển nội dung file .docx sang Markdown thành công (chế độ Content-First, không giữ nguyên toạ độ in Word).");
         }
         triggerPreviewImmediate();
       } else {
+        pendingImportNotices = [];
         showWarning(`Lỗi mở file .docx: ${res?.error || "Không hỗ trợ"}`);
       }
     } catch (err) {
+      pendingImportNotices = [];
       showWarning(`Không thể đọc file .docx: ${err.message}`);
     } finally {
       showRenderingIndicator(false);
     }
+  } else {
+    pendingImportNotices = [];
+    showWarning("Chỉ hỗ trợ file văn bản (.txt), Markdown (.md), hoặc Word (.docx).");
   }
 }
 

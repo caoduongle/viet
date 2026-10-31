@@ -250,15 +250,48 @@ def align_document_seeds(base_doc: Document, edited_doc: Document) -> Document:
     base_keys = [(e["content_type"], e["element_id"]) for e in base_elems]
     edited_keys = [(e["content_type"], e["element_id"]) for e in edited_elems]
 
-    matcher = difflib.SequenceMatcher(None, base_keys, edited_keys)
-    assigned_occs = [None] * len(edited_elems)
+    n_base = len(base_keys)
+    n_edited = len(edited_keys)
+    assigned_occs: list[int | None] = [None] * n_edited
 
-    # 1. Gán occurrence cho các khối trùng khớp LCS
-    for match in matcher.get_matching_blocks():
-        for k in range(match.size):
-            base_idx = match.a + k
-            edited_idx = match.b + k
-            assigned_occs[edited_idx] = base_elems[base_idx]["occ"]
+    # Cắt bỏ tiền tố chung (common prefix) và hậu tố chung (common suffix) trong O(N)
+    # Áp dụng ngưỡng MIN_TRIM_LEN = 3 để tránh cắt tham lam khi phần tử biên ngẫu nhiên trùng khớp
+    MIN_TRIM_LEN = 3
+    min_len = min(n_base, n_edited)
+
+    p = 0
+    while p < min_len and base_keys[p] == edited_keys[p]:
+        p += 1
+    prefix_len = p if p >= MIN_TRIM_LEN else 0
+
+    s = 0
+    while (
+        s < min_len - prefix_len
+        and base_keys[n_base - 1 - s] == edited_keys[n_edited - 1 - s]
+    ):
+        s += 1
+    suffix_len = s if s >= MIN_TRIM_LEN else 0
+
+    # 1. Gán occurrence cho tiền tố chung
+    for i in range(prefix_len):
+        assigned_occs[i] = base_elems[i]["occ"]
+
+    # 2. Gán occurrence cho hậu tố chung
+    for i in range(suffix_len):
+        b_idx = n_base - suffix_len + i
+        e_idx = n_edited - suffix_len + i
+        assigned_occs[e_idx] = base_elems[b_idx]["occ"]
+
+    # 3. Chạy SequenceMatcher với autojunk=False trên đoạn giữa
+    base_mid = base_keys[prefix_len : n_base - suffix_len]
+    edited_mid = edited_keys[prefix_len : n_edited - suffix_len]
+    if base_mid and edited_mid:
+        mid_matcher = difflib.SequenceMatcher(None, base_mid, edited_mid, autojunk=False)
+        for match in mid_matcher.get_matching_blocks():
+            for k in range(match.size):
+                b_idx = prefix_len + match.a + k
+                e_idx = prefix_len + match.b + k
+                assigned_occs[e_idx] = base_elems[b_idx]["occ"]
 
     # 2. Gán occurrence mới cho các phần tử chèn thêm (unmatched)
     curr_max_counts = dict(base_counts)

@@ -92,18 +92,51 @@ class WriteOptions:
         if m not in ("semantic", "fidelity"):
             raise ValueError(f"Chế độ xử lý không hợp lệ: {self.mode!r}. Chỉ chấp nhận: semantic, fidelity")
 
-        if not math.isfinite(self.scale) or self.scale <= 0:
+        # Kiểm tra kiểu boolean cho các cờ logic
+        for b_name in ("strict_case", "stable_variants", "snap_to_ruling", "missing_grid", "assemble_letters", "auto_xh"):
+            b_val = getattr(self, b_name)
+            if not isinstance(b_val, bool):
+                raise ValueError(f"{b_name} phải là giá trị logic (True/False), nhận được: {b_val!r}")
+
+        # Kiểm tra các tham số số học cơ bản
+        if isinstance(self.scale, bool) or not isinstance(self.scale, (int, float)) or not math.isfinite(self.scale) or self.scale <= 0:
             raise ValueError(f"scale phải là số dương hữu hạn, nhận được: {self.scale}")
-        if self.line is not None and (not math.isfinite(self.line) or self.line <= 0):
+        if self.line is not None and (isinstance(self.line, bool) or not isinstance(self.line, (int, float)) or not math.isfinite(self.line) or self.line <= 0):
             raise ValueError(f"line phải là số dương hữu hạn, nhận được: {self.line}")
-        if self.width is not None and (not math.isfinite(self.width) or self.width <= 0):
+        if self.width is not None and (isinstance(self.width, bool) or not isinstance(self.width, (int, float)) or not math.isfinite(self.width) or self.width <= 0):
             raise ValueError(f"width phải là số dương hữu hạn, nhận được: {self.width}")
-        if not math.isfinite(self.space) or self.space < 0:
+        if isinstance(self.space, bool) or not isinstance(self.space, (int, float)) or not math.isfinite(self.space) or self.space < 0:
             raise ValueError(f"space phải là số không âm hữu hạn, nhận được: {self.space}")
-        if not math.isfinite(self.jitter) or self.jitter < 0:
+        if isinstance(self.jitter, bool) or not isinstance(self.jitter, (int, float)) or not math.isfinite(self.jitter) or self.jitter < 0:
             raise ValueError(f"jitter phải là số không âm hữu hạn, nhận được: {self.jitter}")
-        if not math.isfinite(self.wscale) or self.wscale <= 0:
+        if isinstance(self.wscale, bool) or not isinstance(self.wscale, (int, float)) or not math.isfinite(self.wscale) or self.wscale <= 0:
             raise ValueError(f"wscale phải là số dương hữu hạn, nhận được: {self.wscale}")
+
+        # Kiểm tra các tùy chọn chất lượng nét chữ và khoảng cách chữ cái
+        if (
+            isinstance(self.letter_gap, bool)
+            or not isinstance(self.letter_gap, (int, float))
+            or not math.isfinite(self.letter_gap)
+            or not (0.0 <= self.letter_gap <= 10.0)
+        ):
+            raise ValueError(f"letter_gap phải là số hữu hạn trong khoảng [0.0, 10.0], nhận được: {self.letter_gap}")
+
+        if (
+            isinstance(self.target_xh, bool)
+            or not isinstance(self.target_xh, (int, float))
+            or not math.isfinite(self.target_xh)
+            or not (0.0 < self.target_xh <= 50.0)
+        ):
+            raise ValueError(f"target_xh phải là số dương hữu hạn trong khoảng (0.0, 50.0], nhận được: {self.target_xh}")
+
+        if (
+            isinstance(self.pen_clearance_factor, bool)
+            or not isinstance(self.pen_clearance_factor, (int, float))
+            or not math.isfinite(self.pen_clearance_factor)
+            or not (0.0 <= self.pen_clearance_factor <= 5.0)
+        ):
+            raise ValueError(f"pen_clearance_factor phải là số hữu hạn trong khoảng [0.0, 5.0], nhận được: {self.pen_clearance_factor}")
+
         if self.seed is not None:
             if isinstance(self.seed, bool) or not isinstance(self.seed, int) or not (0 <= self.seed <= 4294967295):
                 raise ValueError("Hạt giống (seed) phải là số nguyên không âm trong khoảng [0, 4294967295] hoặc None.")
@@ -132,7 +165,7 @@ class WriteOptions:
             ("margin_top", self.margin_top),
             ("margin_bottom", self.margin_bottom),
         ):
-            if not math.isfinite(m_val) or m_val < 0:
+            if isinstance(m_val, bool) or not isinstance(m_val, (int, float)) or not math.isfinite(m_val) or m_val < 0:
                 raise ValueError(f"{m_name} phải là số không âm hữu hạn, nhận được: {m_val}")
 
         # Kiểm tra nền trang
