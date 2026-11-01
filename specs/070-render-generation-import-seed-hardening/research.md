@@ -152,3 +152,98 @@ Trong `tests/test_performance_regression.py` hàm `test_bank_snapshot_large_scal
 ### Quyết định kỹ thuật
 Cập nhật lại toàn bộ docstring và phần in thông báo `[BENCHMARK]` trong `test_performance_regression.py` thành:
 `"1.050+ nhãn và 3.520 mẫu nét đa biến thể"`, đảm bảo tính trung thực và nhất quán 100% giữa lý thuyết và thực nghiệm.
+
+---
+
+## Decision 7: Two-Stage Stale Guard & Atomic State Commit sau giải nén XOPP
+
+### Bối cảnh & Vấn đề
+Trong `write.js`, sau khi Worker trả về kết quả `res`, hệ thống hiện tại gọi:
+```javascript
+currentXoppBase64 = res.xopp_base64;
+currentMissingBoxes = res.missing_token_boxes || [];
+const xml = await decompressXoppBase64(res.xopp_base64);
+const parsedDoc = parseXoppXml(xml);
+currentDoc = parsedDoc;
+```
+**Lỗ hổng race condition thứ hai**:
+1. Thao tác `decompressXoppBase64` là bất đồng bộ (trên `DecompressionStream` hoặc `pako`).
+2. Trong khoảng thời gian chờ giải nén, người dùng có thể gõ thêm văn bản hoặc mở tệp mới $B$.
+3. Khi giải nén xong, hàm không kiểm tra lại thế hệ, dẫn đến kết quả cũ của $A$ vẫn ghi đè `currentDoc` và vẽ đè SVG lên giao diện.
+4. Nghiêm trọng hơn: `currentXoppBase64` bị gán TRƯỚC khi giải nén. Nếu giải nén thất bại, biến xuất tệp đã bị trỏ vào một tệp hỏng hoặc tệp chưa kiểm chứng.
+
+### Quyết định kỹ thuật
+- Áp dụng mô hình **Cam kết Trạng thái Nguyên tử (Atomic State Commit)**:
+  1. **Giai đoạn 1 (Sau Worker)**: Kiểm tra `thisGeneration === currentRenderGeneration` và `textarea.value === currentRenderSnapshot.text`. Nếu vi phạm $\to$ thoát ngay, không giải nén.
+  2. **Giải nén cục bộ**: Giải nén và parse XML vào biến cục bộ `xml` và `parsedDoc`.
+  3. **Giai đoạn 2 (Sau giải nén)**: Kiểm tra lại lần thứ hai:
+     ```javascript
+     if (thisGeneration !== currentRenderGeneration) return;
+     if (textarea && textarea.value !== currentRenderSnapshot?.text) return;
+     ```
+  4. **Atomic Commit**: Chỉ khi thỏa mãn cả 2 giai đoạn, mới commit đồng thời:
+     ```javascript
+     currentXoppBase64 = res.xopp_base64;
+     currentMissingBoxes = res.missing_token_boxes || [];
+     currentDoc = parsedDoc;
+     renderedGeneration = thisGeneration;
+     isRenderStale = false;
+     ```
+  5. Nếu giải nén hoặc parse thất bại: ghi log lỗi, không đụng chạm vào `currentXoppBase64` và giữ nguyên trạng thái an toàn.
+
+---
+
+## Decision 8: Export Stale Guard & Trạng thái Khóa xuất tệp an toàn
+
+### Bối cảnh & Vấn đề
+Khi tài liệu $A$ đã kết xuất xong, `currentXoppBase64` giữ dữ liệu của $A$. Khi người dùng gõ thêm $B$:
+- Nút xuất `.xopp`, `.pdf`, `.png`, `.svg`, `.zip` hiện chỉ kiểm tra `if (!currentXoppBase64) return;`.
+- Trong lúc $B$ đang chờ debounce hoặc đang render nền, người dùng bấm xuất file $\to$ tải xuống tài liệu $A$!
+
+### Quyết định kỹ thuật
+- Bổ sung biến trạng thái: `renderedGeneration = 0`, `isRenderStale = false`.
+- Ngay khi có sự kiện `input` trên `editor-text` hoặc thay đổi định dạng/tùy chọn: đánh dấu `isRenderStale = true`.
+- Xây dựng hàm kiểm tra an toàn `canExport()`:
+  ```javascript
+  function canExport() {
+    if (isRendering) return false;
+    if (isRenderStale) return false;
+    if (!currentXoppBase64 || !currentDoc) return false;
+    const textarea = document.getElementById("editor-text");
+    if (textarea && textarea.value !== currentRenderSnapshot?.text) return false;
+    return true;
+  }
+  ```
+- Tất cả các nút xuất file (`#btn-export-xopp`, `#btn-export-pdf`, `#btn-export-png`, `#btn-export-svg`, `#btn-export-zip`) đều gọi `if (!canExport()) { showWarning("Bản xem trước đang được cập nhật hoặc nội dung đã thay đổi. Vui lòng đợi kết xuất hoàn tất trước khi xuất file."); return; }`.
+
+---
+
+## Decision 9: Chặn nạp tệp khi Đặt lại Lịch sử Hạt giống Thất bại
+
+### Bối cảnh & Vấn đề
+Trong `handleFileImport()`, lệnh `await resetDocumentSeedHistory()` có thể trả về `false` nếu Worker gặp lỗi hoặc mất kết nối. Mã hiện tại không kiểm tra giá trị trả về, dẫn đến tài liệu mới vẫn được nạp và kết xuất trên nền lịch sử cũ.
+
+### Quyết định kỹ thuật
+- Trong `handleFileImport()` (cả cho `.txt`, `.md`, `.docx`):
+  ```javascript
+  const resetOk = await resetDocumentSeedHistory();
+  if (!resetOk) {
+    showWarning("Không thể đặt lại lịch sử hạt giống. Đã dừng thao tác nạp tài liệu để tránh sai lệch nét chữ.");
+    return;
+  }
+  ```
+- Đảm bảo tính toàn vẹn tuyệt đối: chỉ khi lịch sử hạt giống chắc chắn được xóa sạch thì tài liệu mới mới được hiển thị và kết xuất.
+
+---
+
+## Decision 10: Kiểm thử Xác định (Deterministic Testing) và Dọn dẹp Timer
+
+### Bối cảnh & Vấn đề
+1. E2E Race condition trong `write.spec.ts`: `textarea.fill()` có debounce 250ms; nếu file mới được chọn trước khi debounce kết thúc, render cũ chưa từng bắt đầu, làm test không kiểm tra đúng race condition.
+2. Unit test `render_generation.test.mjs`: Dùng chuỗi giả `fakeXoppB` không phải gzip hợp lệ, chỉ kiểm tra `isRendering === false`, không chứng minh được giải nén, parse XML và cập nhật DOM thành công.
+3. Unit test giữ timer 60s do `sendWorkerMessage("clear_document_history")` không được mô phỏng phản hồi.
+
+### Quyết định kỹ thuật
+- **E2E Race Condition xác định**: Kích hoạt `triggerPreviewImmediate()` cho văn bản $A$ trước khi mở file $B$, bảo đảm yêu cầu $A$ đã thực sự được Worker tiếp nhận và xử lý.
+- **Fixture XOPP hợp lệ**: Tạo helper sinh gzip XOPP hợp lệ bằng `zlib.gzipSync` chứa XML tối giản có stroke, xác nhận sau khi $B$ hoàn tất thì `currentDoc` được cập nhật, SVG được render và `canExport() === true`.
+- **Dọn dẹp timer**: Mô phỏng phản hồi cho `clear_document_history` ngay lập tức trong tất cả các test case, đảm bảo không còn Promise/timer treo nào.

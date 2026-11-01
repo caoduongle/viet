@@ -81,6 +81,13 @@ export function getPendingRequestsCount() {
   return pendingRequests.size;
 }
 
+export function clearPendingWorkerRequestsForTesting() {
+  for (const [id, req] of pendingRequests.entries()) {
+    if (req.timer) clearTimeout(req.timer);
+    pendingRequests.delete(id);
+  }
+}
+
 export function handleWorkerFatalError(errorMsg) {
   console.error("[Worker Fatal Error]", errorMsg);
   for (const [id, req] of pendingRequests.entries()) {

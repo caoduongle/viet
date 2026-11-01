@@ -289,11 +289,14 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
     );
     expect(baselineXinStrokes.length).toBeGreaterThan(0);
 
-    // 2. Kích hoạt render văn bản dài
-    const longText = "Văn bản rất dài cần kết xuất tốn thời gian: " + "xin chào ba má bạn ".repeat(15);
+    // 2. Kích hoạt render văn bản dài và chủ động đợi debounce 250ms để Worker tiếp nhận yêu cầu
+    const longText = "Văn bản rất dài cần kết xuất tốn thời gian: " + "xin chào ba má bạn ".repeat(25);
     await textarea.fill(longText);
 
-    // 3. Ngay lập tức mở tệp mới (sample_word.txt chỉ chứa "xin") khi render đang in-flight
+    // Chờ 260ms để debounce 250ms kích hoạt và yêu cầu write_text chắc chắn đã gửi xuống Worker
+    await page.waitForTimeout(260);
+
+    // 3. Trong khi Worker đang bận xử lý văn bản dài, lập tức mở tệp mới (sample_word.txt chỉ chứa "xin")
     const fileChooserPromise = page.waitForEvent("filechooser");
     await page.click("#btn-open-file");
     const fileChooser = await fileChooserPromise;
@@ -313,5 +316,49 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
 
     // Nét vẽ cuối cùng phải khớp hoàn toàn với baseline của "xin"
     expect(finalStrokes).toEqual(baselineXinStrokes);
+  });
+
+  test("Export Stale Guard: khóa xuất file khi đang render hoặc khi nội dung ô soạn thảo bị thay đổi", async ({ page }) => {
+    test.setTimeout(60000);
+    await page.goto("/");
+    await expect(page.locator("#splash-screen")).toBeHidden({ timeout: 30000 });
+
+    const welcomeModal = page.locator("#welcome-modal");
+    if (await welcomeModal.isVisible()) {
+      const bankFilePath = path.resolve("tests/data/kho_mau_tong_hop.json.gz");
+      const fileChooserPromise = page.waitForEvent("filechooser");
+      await page.click("#btn-welcome-import");
+      const fileChooser = await fileChooserPromise;
+      await fileChooser.setFiles(bankFilePath);
+      await expect(welcomeModal).toBeHidden({ timeout: 15000 });
+    }
+
+    await page.click('[data-tab="write"]');
+    const textarea = page.locator("#editor-text");
+    await expect(textarea).toBeVisible();
+    const btnExportXopp = page.locator("#btn-export-xopp");
+    const warningsBox = page.locator("#editor-warnings");
+
+    // 1. Soạn thảo văn bản và đợi kết xuất hoàn tất
+    await textarea.fill("Nội dung xuất chuẩn");
+    await page.waitForTimeout(600);
+    await expect(page.locator("#paper-svg-wrapper svg")).toBeVisible({ timeout: 10000 });
+
+    // 2. Tải thử file XOPP khi hợp lệ
+    const downloadPromise = page.waitForEvent("download");
+    await btnExportXopp.click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toBe("chuviet.xopp");
+
+    // 3. Người dùng gõ sửa ô soạn thảo bằng văn bản dài cần thời gian kết xuất -> lập tức stale
+    const longStaleText = "Văn bản sửa đổi dài cần kết xuất: " + "chữ viết tay tiếng Việt ".repeat(30);
+    await textarea.fill(longStaleText);
+
+    // Nhấn ngay nút xuất file khi đang stale (hoặc đang render)
+    await btnExportXopp.click({ force: true });
+
+    // Khẳng định: Cảnh báo hiển thị và chặn không cho xuất file cũ
+    await expect(warningsBox).toBeVisible({ timeout: 10000 });
+    await expect(warningsBox).toContainText("Bản xem trước đang được cập nhật hoặc nội dung đã thay đổi");
   });
 });

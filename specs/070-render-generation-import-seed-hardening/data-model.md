@@ -16,6 +16,7 @@ Mô hình trạng thái quản lý chu kỳ sống của các yêu cầu kết x
                                      ▼
                       ┌─────────────────────────────┐
                       │    Tăng requestId++         │
+                      │    Đánh dấu isRenderStale = true  │
                       │    Lưu Snapshot tham số     │
                       └──────────────┬──────────────┘
                                      │
@@ -32,7 +33,7 @@ Mô hình trạng thái quản lý chu kỳ sống của các yêu cầu kết x
                        ▼                              │
              [Worker trả về kết quả]                  │
                        │                              │
-          requestId == currentRequestId?              │
+          Stage 1: requestId == currentRequestId?     │
                        │                              │
            ┌───────────┴───────────┐                  │
            │ Đúng                  │ Sai              │
@@ -42,8 +43,21 @@ Mô hình trạng thái quản lý chu kỳ sống của các yêu cầu kết x
      ┌─────┴─────┐                                    │
      │ Có        │ Không                              │
      ▼           ▼                                    │
-  [Cập nhật   [BỎ QUA]                                │
-   DOM & XOPP]                                        │
+[Giải nén XOPP & [BỎ QUA]                             │
+ Parse XML cục bộ]                                    │
+     │                                                │
+     ▼                                                │
+Stage 2: requestId == currentRequestId?               │
+     │   và Snapshot vẫn khớp DOM?                    │
+     │                                                │
+     ├───────────┬───────────┐                        │
+     │ Sai/Lỗi   │ Đúng                               │
+     ▼           ▼                                    │
+ [BỎ QUA KẾT QUẢ]  [ATOMIC COMMIT:                     │
+                    - currentXoppBase64                │
+                    - currentDoc = parsedDoc           │
+                    - isRenderStale = false            │
+                    - Cập nhật DOM SVG & Trang]        │
      │           │                                    │
      └─────┬─────┘                                    │
            │                                          │
@@ -77,11 +91,13 @@ interface RenderRequestSnapshot {
 #### `RenderLifecycleState` (Client-side Session)
 ```typescript
 interface RenderLifecycleState {
-  currentRequestId: number;                       // ID của yêu cầu mới nhất hiện tại
+  currentRequestId: number;                       // ID của yêu cầu mới nhất hiện tại (currentRenderGeneration)
+  renderedGeneration: number;                     // ID của yêu cầu đã render và hiển thị thành công gần nhất
   activeRequestSnapshot: RenderRequestSnapshot | null; // Snapshot của yêu cầu đang được hiển thị
-  isRendering: boolean;                           // Cờ báo hiệu Worker đang bận xử lý
+  isRendering: boolean;                           // Cờ báo hiệu Worker hoặc giải nén đang bận xử lý
   hasPendingRequest: boolean;                     // Cờ báo hiệu có yêu cầu mới đang xếp hàng
   pendingParams: Record<string, any> | null;      // Tham số của yêu cầu đang chờ thực thi
+  isRenderStale: boolean;                         // Cờ báo hiệu nội dung editor/tùy chọn hiện tại khác với renderedGeneration
 }
 ```
 

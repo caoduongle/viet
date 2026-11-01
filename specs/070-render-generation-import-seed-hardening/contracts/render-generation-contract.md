@@ -80,13 +80,50 @@ async function resetDocumentSeedHistory(): Promise<boolean>;
 
 ---
 
-## 4. UI Stale Result Guard Contract: `requestRender` (`write.js`)
+## 4. UI Two-Stage Stale Guard Contract: `requestRender` (`write.js`)
 
-Trước khi áp dụng kết quả `res` từ Worker vào DOM và lưu trữ biến trạng thái, Main Thread BẮT BUỘC phải thỏa mãn toàn bộ các điều kiện sau:
+Để đảm bảo tính toàn vẹn trạng thái và loại trừ triệt để race condition, Main Thread BẮT BUỘC phải thực hiện kiểm tra 2 giai đoạn (Two-Stage Stale Guard):
 
+### Giai đoạn 1 (Ngay khi Worker trả kết quả):
 1. `res && res.ok === true`
-2. `currentRequestId === requestSnapshot.requestId` (kết quả không bị thế hệ mới hơn vượt qua)
-3. `textarea && textarea.value === requestSnapshot.text` (nội dung ô soạn thảo hiện tại không bị gõ/thay đổi thêm trong lúc chờ Worker)
-4. `textarea && textarea.value.trim().length > 0` (ô soạn thảo không bị xóa trắng giữa chừng)
+2. `thisGeneration === currentRenderGeneration`
+3. `textarea && textarea.value === currentRenderSnapshot.text`
+4. `textarea && textarea.value.trim().length > 0`
 
-Nếu **bất kỳ** điều kiện nào bị vi phạm, kết quả `res` bị BỎ QUA và xem như đã lỗi thời (stale), không được cập nhật vào `currentDoc` hay `currentXoppBase64`.
+Nếu vi phạm bất kỳ điều kiện nào $\to$ HỦY BỎ ngay lập tức, không giải nén XOPP.
+
+### Giai đoạn 2 (Sau khi giải nén XOPP và parse XML thành công vào biến cục bộ):
+1. Quá trình giải nén và parse XML vào `parsedDoc` thành công, không phát sinh ngoại lệ.
+2. `thisGeneration === currentRenderGeneration` (kiểm tra lại lần 2 để đảm bảo không có yêu cầu mới xuất hiện trong thời gian giải nén)
+3. `textarea && textarea.value === currentRenderSnapshot.text`
+
+Chỉ khi thỏa mãn cả 3 điều kiện ở Giai đoạn 2, hệ thống mới thực hiện **Atomic Commit**:
+```javascript
+currentXoppBase64 = res.xopp_base64;
+currentMissingBoxes = res.missing_token_boxes || [];
+currentDoc = parsedDoc;
+renderedGeneration = thisGeneration;
+isRenderStale = false;
+// Cập nhật DOM SVG và thông tin trang
+```
+
+---
+
+## 5. UI Export Stale Guard Contract (`write.js`)
+
+Tất cả các nút xuất file (`#btn-export-xopp`, `#btn-export-pdf`, `#btn-export-png`, `#btn-export-svg`, `#btn-export-zip`) BẮT BUỘC phải kiểm tra điều kiện xuất an toàn:
+
+```typescript
+function canExport(): boolean {
+  if (isRendering) return false;
+  if (isRenderStale) return false;
+  if (!currentXoppBase64) return false;
+  const textarea = document.getElementById("editor-text");
+  if (textarea && textarea.value !== currentRenderSnapshot?.text) return false;
+  return true;
+}
+```
+
+Nếu `canExport() === false`:
+- Chặn hành vi tải file.
+- Hiển thị thông báo trên `warningsBox`: `"Bản xem trước đang được cập nhật hoặc nội dung đã thay đổi. Vui lòng đợi kết xuất hoàn tất trước khi xuất file."`

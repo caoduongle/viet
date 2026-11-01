@@ -2,76 +2,81 @@
 
 **Feature Branch**: `070-render-generation-import-seed-hardening`  
 **Created**: 2026-11-01  
-**Status**: Draft  
-**Input**: Rà soát repository viet sau commit `57ca957`, xử lý triệt để race condition khi kết xuất tài liệu cũ ghi đè lên tài liệu mới (render generation), củng cố kiểm thử E2E về reset seed khi nhập file đa định dạng, chuẩn hóa kiểm tra phản hồi API reset và đồng bộ benchmark kho mẫu đa biến thể.
+**Updated**: 2026-11-01 (Bổ sung Two-Stage Stale Guard sau giải nén XOPP, Khóa xuất file khi kết quả cũ, Kiểm thử xác định và Xử lý lỗi reset seed)  
+**Status**: Ready for Planning  
+**Input**: Rà soát repository viet sau commit `7c74c23`, xử lý triệt để race condition trong khoảng chờ giải nén XOPP, khóa xuất file (.xopp, .pdf, .png, .svg, .zip) khi bản render chưa hoàn tất hoặc bị cũ, kiểm thử E2E race condition có tính xác định, củng cố unit test giải nén XOPP hợp lệ và xử lý chặn nạp tài liệu khi reset seed thất bại.
 
 ---
 
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - Ngăn chặn kết quả kết xuất cũ ghi đè lên tài liệu mới (Priority: P1)
+### User Story 1 - Ngăn chặn kết quả kết xuất cũ ghi đè lên tài liệu mới và khóa xuất tệp khi bản kết xuất bị cũ (Priority: P1) 🎯 MVP
 
-Khi người dùng đang soạn thảo hoặc mở một tài liệu mới trong lúc tài liệu trước đó vẫn đang được hệ thống xử lý kết xuất ở tiến trình nền, hệ thống phải xác định và loại bỏ các kết quả kết xuất đã lỗi thời, đảm bảo vùng xem trước và tệp xuất ra luôn tương ứng chính xác 100% với nội dung hiện có trên màn hình.
+Khi người dùng đang soạn thảo hoặc mở một tài liệu mới trong lúc tài liệu trước đó vẫn đang được xử lý ở tiến trình nền (kể cả trong khoảng thời gian giải nén và phân tích tệp .xopp), hệ thống phải xác định và loại bỏ triệt để các kết quả kết xuất đã lỗi thời qua mô hình Cam kết Trạng thái Nguyên tử (Atomic State Commit). Đồng thời, hệ thống phải theo dõi trạng thái tính mới của bản kết xuất, khóa hoặc ngăn chặn người dùng xuất tệp (.xopp, .pdf, .png, .svg, .zip) khi nội dung soạn thảo hiện tại chưa khớp với bản kết xuất đã hoàn tất.
 
-**Why this priority**: Tránh hiện tượng nội dung tài liệu cũ đột ngột chớp tắt hoặc ghi đè lên tài liệu mới, và ngăn ngừa nguy cơ nghiêm trọng khi người dùng tải xuống tệp kết xuất của tài liệu trước đó thay vì tài liệu mới đang hiển thị.
+**Why this priority**: Triệt tiêu hoàn toàn rủi ro người dùng đang xem hoặc tải xuống tệp kết xuất của tài liệu cũ $A$ trong khi đang chỉnh sửa tài liệu mới $B$, bảo vệ tính toàn vẹn của dữ liệu xuất ra.
 
-**Independent Test**: Gửi yêu cầu kết xuất cho tài liệu A, lập tức thay thế bằng tài liệu B trước khi A xử lý xong; xác nhận kết quả trả về của A bị từ chối và giao diện chỉ cập nhật bản xem trước tương ứng với tài liệu B.
+**Independent Test**:
+1. Gửi yêu cầu kết xuất cho tài liệu $A$, trong lúc đang giải nén $A$ lập tức kích hoạt yêu cầu tài liệu $B$; xác nhận $A$ bị loại bỏ sau khi giải nén xong và chỉ $B$ được cam kết vào giao diện.
+2. Soạn tài liệu $A$ đã render hoàn tất, sau đó gõ thêm nội dung $B$; khi $B$ chưa render xong, các nút xuất tệp phải bị khóa hoặc thông báo cảnh báo rõ ràng rằng bản xem trước đang cũ và không cho phép tải xuống tệp của $A$.
 
 **Acceptance Scenarios**:
-1. **Given** người dùng bắt đầu kết xuất tài liệu $A$, **When** người dùng xóa hoặc thay thế bằng nội dung tài liệu $B$ trước khi kết quả của $A$ hoàn tất, **Then** kết quả của $A$ khi hoàn tất không được cập nhật vào vùng hiển thị và tệp xuất, đồng thời tài liệu $B$ được kết xuất chuẩn xác.
-2. **Given** hệ thống đang trong quá trình kết xuất một tài liệu lớn, **When** người dùng xóa sạch toàn bộ nội dung trong ô soạn thảo, **Then** bản xem trước lập tức được xóa trắng và không bao giờ bị kết quả của tài liệu lớn ghi đè lại sau đó.
-3. **Given** nhiều lượt chỉnh sửa liên tiếp tạo ra các yêu cầu kết xuất dồn dập, **When** các kết quả trả về không theo thứ tự thời gian gửi, **Then** hệ thống chỉ chấp nhận kết quả của lượt chỉnh sửa mới nhất và loại bỏ tất cả các kết quả cũ hơn.
+1. **Given** hệ thống đang giải nén kết quả XOPP của tài liệu $A$, **When** người dùng thay đổi nội dung sang tài liệu $B$, **Then** sau khi giải nén xong, kết quả của $A$ bị từ chối và không được ghi nhận vào `currentDoc` hay `currentXoppBase64`.
+2. **Given** tài liệu $A$ đã kết xuất xong và người dùng sửa ô soạn thảo thành $B$, **When** người dùng bấm các nút xuất tệp (.xopp, .pdf, .png, .svg, .zip) trước khi $B$ kết xuất xong, **Then** hệ thống chặn hành động xuất tệp và hiển thị thông báo bản xem trước đang được cập nhật, ngăn ngừa tải nhầm dữ liệu của $A$.
+3. **Given** quá trình giải nén hoặc phân tích cú pháp XOPP gặp sự cố dữ liệu không hợp lệ, **Then** hệ thống giữ nguyên trạng thái hợp lệ trước đó hoặc dọn dẹp sạch sẽ, tuyệt đối không gán dữ liệu XOPP chưa được kiểm chứng vào biến xuất tệp.
 
 ---
 
-### User Story 2 - Kiểm chứng E2E việc xóa sạch lịch sử hạt giống khi mở tài liệu mới (Priority: P1)
+### User Story 2 - Kiểm chứng E2E việc xóa sạch lịch sử hạt giống khi mở tài liệu mới và xử lý an toàn khi reset lỗi (Priority: P1)
 
-Khi người dùng mở một tệp văn bản mới (hỗ trợ cả định dạng văn bản thuần .txt, định dạng Markdown .md, và tài liệu Word .docx), hệ thống phải khởi tạo lại trạng thái đối chiếu hạt giống nét chữ độc lập từ đầu, không kế thừa chỉ số xuất hiện (occurrence) của các từ lặp từ tài liệu đã soạn thảo trước đó.
+Khi người dùng mở một tệp văn bản mới (.txt, .md, .docx), hệ thống phải đặt lại lịch sử đối chiếu hạt giống độc lập từ đầu (occurrence = 0). Nếu thao tác đặt lại lịch sử hạt giống gặp sự cố từ dịch vụ nền, hệ thống phải dừng quá trình nạp tệp và hiển thị cảnh báo lỗi rõ ràng, không âm thầm tiếp tục kết xuất tài liệu mới trên nền lịch sử cũ.
 
-**Why this priority**: Đảm bảo tính nhất quán và nguyên bản của tài liệu mới nhập; các từ trong tài liệu mới không bị áp dụng sai biến thể nét chữ do ảnh hưởng từ tài liệu cũ còn lưu trong bộ nhớ phiên làm việc.
+**Why this priority**: Đảm bảo các từ ngữ trong tài liệu mới mở không bị áp dụng sai biến thể nét chữ do kế thừa lịch sử cũ, và đảm bảo mọi lỗi đặt lại hạt giống đều được xử lý minh bạch thay vì bỏ qua âm thầm.
 
-**Independent Test**: Viết tài liệu A chứa các từ lặp khiến biến thể nét chữ chuyển sang biến thể tiếp theo (occurrence $\ge 1$), sau đó mở tài liệu B chứa cùng các từ đó; xác nhận nét chữ của các từ trong tài liệu B khớp hoàn toàn với một tài liệu được mở mới từ đầu (occurrence = 0).
+**Independent Test**:
+1. Viết tài liệu chứa từ lặp `"xin xin chào ba"`, sau đó mở tệp mới chỉ chứa `"xin"`; xác nhận nét vẽ của từ `"xin"` trong tệp mới khớp 100% với baseline độc lập ban đầu.
+2. Mô phỏng dịch vụ nền trả về lỗi khi đặt lại lịch sử hạt giống; xác nhận hệ thống hiển thị thông báo cảnh báo lỗi và không nạp nội dung tệp mới vào trình soạn thảo.
 
 **Acceptance Scenarios**:
-1. **Given** tài liệu cũ đã kích hoạt biến thể nâng cao cho từ lặp, **When** người dùng mở một tệp .txt mới chứa từ đó, **Then** từ đó trong tài liệu mới được tạo hình với biến thể ban đầu độc lập.
-2. **Given** tài liệu cũ đã có lịch sử soạn thảo dài, **When** người dùng mở tệp .md hoặc .docx mới, **Then** quá trình chuyển đổi và nạp tài liệu tự động xóa sạch dấu vết đối chiếu cũ trước khi hiển thị.
-3. **Given** hệ thống đang xử lý dở dang việc kết xuất tài liệu hiện tại, **When** người dùng kích hoạt mở một tệp mới, **Then** yêu cầu kết xuất cũ bị vô hiệu hóa ngay lập tức và tài liệu mới được kết xuất với trạng thái hạt giống sạch.
+1. **Given** tài liệu cũ đã có từ lặp với occurrence $\ge 1$, **When** người dùng mở tệp .txt, .md hoặc .docx mới chứa từ đó, **Then** từ đó trong tài liệu mới được tạo hình với occurrence = 0 độc lập.
+2. **Given** người dùng chọn mở một tệp văn bản, **When** lệnh đặt lại lịch sử hạt giống trả về trạng thái thất bại (`{ ok: false }`), **Then** hệ thống thông báo lỗi rõ ràng trên vùng cảnh báo và hủy thao tác nạp tài liệu.
 
 ---
 
-### User Story 3 - Tăng cường độ bền vững cho kiểm thử hình thái nét vẽ và xử lý phản hồi API (Priority: P2)
+### User Story 3 - Kiểm thử xác định (Deterministic Testing) và dọn dẹp tiến trình kiểm thử (Priority: P2)
 
-Kiểm thử tự động đối chiếu hình thái nét chữ phải nhóm các nét vẽ theo thực thể từ hoặc khối ký tự thay vì phụ thuộc vào các vị trí chỉ số mảng cố định, đồng thời tầng giao diện phải kiểm tra đầy đủ cờ trạng thái thành công/thất bại từ dịch vụ lõi khi yêu cầu đặt lại lịch sử tài liệu.
+Các bài kiểm thử tự động (cả kiểm thử đơn vị Node.js và kiểm thử đầu-cuối E2E trên trình duyệt) phải được thiết kế có tính xác định tuyệt đối (deterministic): kiểm thử E2E race condition phải chứng minh được yêu cầu render tài liệu cũ đã thực sự được gửi xuống Worker trước khi tài liệu mới ập tới; kiểm thử đơn vị Node.js phải sử dụng fixture XOPP gzip hợp lệ chứng minh giải nén, phân tích cú pháp và cập nhật giao diện thành công; đồng thời toàn bộ timer của yêu cầu Worker trong kiểm thử đơn vị phải được dọn dẹp triệt để không giữ tiến trình Node.js chạy ngầm.
 
-**Why this priority**: Loại bỏ sự mong manh của bộ kiểm thử khi bộ ký tự mẫu trong kho được cập nhật, và đảm bảo bất kỳ sự cố nào ở dịch vụ xử lý nền khi xóa lịch sử hạt giống đều được phát hiện và cảnh báo kịp thời.
+**Why this priority**: Đảm bảo bộ kiểm thử không bị phụ thuộc vào tốc độ máy chủ CI (flaky tests), khẳng định đầy đủ chu trình render thành công của tài liệu mới và tối ưu hóa thời gian thực thi CI.
 
-**Independent Test**: Thực hiện phân tách và so sánh các nét vẽ theo từng từ ngữ trong văn bản qua nhiều lượt chỉnh sửa; mô phỏng phản hồi lỗi từ dịch vụ nền và xác nhận giao diện bắt được trạng thái lỗi này.
+**Independent Test**: Chạy `node --test tests/js/render_generation.test.mjs` và `npx playwright test tests/e2e/write.spec.ts` xác nhận 100% kịch bản đạt kết quả xanh tức thì, tiến trình Node.js giải phóng ngay sau khi test hoàn tất.
 
 **Acceptance Scenarios**:
-1. **Given** hai lần kết xuất của một tài liệu có các từ được giữ nguyên và từ chèn thêm, **When** bộ kiểm thử so sánh hình thái nét chữ, **Then** các nét được định vị và đối chiếu dựa trên từ ngữ tương ứng mà không bị gãy vỡ bởi chỉ số mảng cố định.
-2. **Given** lệnh đặt lại lịch sử hạt giống được gửi xuống dịch vụ nền, **When** dịch vụ nền trả về kết quả mang trạng thái thất bại, **Then** tầng giao diện ghi nhận lỗi và đưa ra cảnh báo thích hợp thay vì âm thầm bỏ qua.
+1. **Given** kịch bản kiểm thử E2E race condition, **When** gửi tài liệu $A$, **Then** test chủ động xác nhận Worker đã tiếp nhận yêu cầu $A$ trước khi kích hoạt mở tệp $B$.
+2. **Given** kịch bản kiểm thử đơn vị Node.js cho tài liệu $B$, **When** Worker trả về fixture XOPP gzip hợp lệ, **Then** test khẳng định tài liệu $B$ giải nén thành công, phân tích cú pháp thành công và trạng thái `currentDoc` được cập nhật chính xác.
+3. **Given** các yêu cầu thông điệp Worker trong môi trường kiểm thử (như lệnh reset hạt giống), **Then** tất cả các Promise và timer nội bộ đều được giải phóng ngay lập tức sau khi test kết thúc.
 
 ---
 
-### User Story 4 - Chuẩn hóa chú thích và số liệu đo kiểm hiệu năng kho mẫu đa biến thể (Priority: P3)
+### User Story 4 - Chuẩn hóa tài liệu kiểm thử và đo kiểm hiệu năng kho mẫu đa biến thể (Priority: P3)
 
-Tài liệu và mã nguồn kiểm thử hiệu năng bản chụp kho mẫu quy mô lớn phải đồng bộ chính xác giữa số liệu khai báo trong chú thích và cấu trúc dữ liệu thực tế được sinh ra trong bài đo.
+Tài liệu hướng dẫn kiểm chứng (`quickstart.md`) và mã nguồn kiểm thử phải đồng bộ số liệu chính xác về số lượng bài test thực tế (23+ tests E2E) và cấu trúc dữ liệu đo kiểm kho mẫu quy mô lớn (1.050+ nhãn và 3.520 mẫu nét đa biến thể dưới 200ms).
 
-**Why this priority**: Đảm bảo tính minh bạch, nhất quán và độ tin cậy tuyệt đối của các báo cáo đo kiểm kỹ thuật khi đối chiếu giữa tài liệu đặc tả và mã nguồn thực thi.
+**Why this priority**: Đảm bảo tính nhất quán và minh bạch 100% giữa tài liệu đặc tả, checklist nghiệm thu và kết quả chạy CI thực tế.
 
-**Independent Test**: Chạy bài kiểm thử hiệu năng kho mẫu đa biến thể và đối chiếu cấu trúc dữ liệu tạo ra (số nhãn, số biến thể, tổng số mẫu) với phần chú thích kỹ thuật.
+**Independent Test**: Chạy toàn bộ các bộ kiểm thử và đối chiếu bảng số liệu ghi nhận trong `quickstart.md`.
 
 **Acceptance Scenarios**:
-1. **Given** bài đo hiệu năng trích xuất bản chụp kho mẫu, **When** khởi tạo dữ liệu tổng hợp với 1.050+ nhãn và 3.520 mẫu nét, **Then** phần chú thích và các assertion kiểm tra số lượng mẫu khớp chính xác từng danh mục dữ liệu.
+1. **Given** tài liệu `quickstart.md`, **When** người đọc đối chiếu phần quy trình hồi quy và bảng kết quả thực tế, **Then** số lượng bài test E2E đồng bộ nhất quán 100% với số test thực tế được thực thi trên Playwright.
 
 ---
 
 ### Edge Cases
 
-- **Xóa trắng và nhập nhanh nội dung mới**: Người dùng xóa toàn bộ nội dung tài liệu A rồi dán ngay nội dung tài liệu B trong vòng vài mili-giây khi kết xuất của A vẫn đang chạy.
-- **Mở tệp bị lỗi hoặc tệp rỗng**: Khi người dùng chọn mở một tệp văn bản rỗng hoặc tệp bị hỏng định dạng, hệ thống phải xử lý an toàn, không để sót trạng thái kết xuất rác.
-- **Kết quả trả về chậm bất thường từ dịch vụ nền**: Một tác vụ kết xuất phức tạp của tài liệu A bị nghẽn và trả về sau khi người dùng đã chỉnh sửa qua các tài liệu B, C, D.
-- **Nhiều thao tác mở tệp liên tiếp**: Người dùng chọn mở tệp 1 rồi lập tức bấm chọn mở tiếp tệp 2 khi tệp 1 chưa kịp nạp xong.
+- **Thay đổi tài liệu ngay trong lúc giải nén XOPP**: Người dùng gõ phím hoặc mở tệp mới đúng vào khoảnh khắc Worker đã tính toán xong nhưng giao diện đang giải nén tệp gzip XOPP.
+- **Bấm nút xuất tệp khi đang gõ phím liên tục**: Người dùng vừa nhập xong một đoạn văn bản và lập tức bấm nút xuất file trong khi debounce 250ms chưa kết thúc hoặc Worker chưa trả về kết quả mới.
+- **Lỗi giải nén tệp XOPP bị hỏng**: Tệp XOPP do Worker sinh ra bị suy hao dữ liệu khi nén/giải nén base64, giao diện không được cập nhật trạng thái xuất tệp rác.
+- **Thất bại kết nối khi reset hạt giống**: Worker bị quá tải hoặc bận rộn khiến lệnh đặt lại lịch sử tài liệu trả về lỗi hoặc quá thời gian chờ (timeout).
 
 ---
 
@@ -79,22 +84,24 @@ Tài liệu và mã nguồn kiểm thử hiệu năng bản chụp kho mẫu quy
 
 ### Functional Requirements
 
-- **FR-001**: Hệ thống MUST gán một mã định danh thế hệ kết xuất (Render Generation / Request ID) tăng đơn điệu cho mỗi yêu cầu kết xuất được phát ra từ trình soạn thảo.
-- **FR-002**: Hệ thống MUST chỉ áp dụng dữ liệu kết xuất (bản xem trước, dữ liệu tệp xuất, thông tin trang) vào giao diện người dùng khi mã định danh của kết quả trả về trùng khớp với mã định danh thế hệ kết xuất mới nhất đang kích hoạt.
-- **FR-003**: Hệ thống MUST hủy bỏ và không cập nhật giao diện đối với bất kỳ kết quả kết xuất nào có mã định danh thế hệ cũ hơn mã hiện hành, ngay cả khi nội dung ô soạn thảo hiện tại không rỗng.
-- **FR-004**: Hệ thống MUST lưu giữ ảnh chụp tham số kết xuất (nội dung văn bản, định dạng tài liệu, các tùy chọn liên quan) tại thời điểm phát yêu cầu và kiểm tra tính tương hợp của ảnh chụp này trước khi dựng giao diện.
-- **FR-005**: Hệ thống MUST tự động gửi yêu cầu đặt lại lịch sử đối chiếu hạt giống xuống dịch vụ nền khi người dùng mở thành công một tài liệu mới (áp dụng cho cả tệp văn bản .txt, Markdown .md và Word .docx).
-- **FR-006**: Tầng giao diện người dùng MUST kiểm tra tường minh trạng thái thành công của phản hồi từ lệnh đặt lại lịch sử hạt giống, không chỉ dừng lại ở việc bắt ngoại lệ kết nối.
-- **FR-007**: Bài kiểm thử tự động đầu-cuối (E2E) MUST xác nhận rằng từ ngữ trong tài liệu mới mở không kế thừa chỉ số biến thể nét chữ (occurrence) từ tài liệu đã soạn thảo trước đó, thông qua việc đối sánh hình học nét vẽ với một bản kết xuất độc lập.
-- **FR-008**: Bài đo kiểm hiệu năng bản chụp kho mẫu quy mô lớn MUST đồng bộ chuẩn xác phần chú thích kỹ thuật với số lượng thực tế: 1.050+ nhãn và 3.520 mẫu nét đa biến thể, duy trì thời gian thực thi dưới ngưỡng 200 mili-giây.
+- **FR-001**: Hệ thống MUST gán một mã định danh thế hệ kết xuất (`currentRenderGeneration` / `requestId`) tăng đơn điệu cho mỗi yêu cầu kết xuất được phát sinh từ ô soạn thảo hoặc lệnh mở tệp.
+- **FR-002**: Hệ thống MUST áp dụng cơ chế bảo vệ Cam kết Nguyên tử (Two-Stage Stale Guard): kiểm tra thế hệ kết xuất lần 1 khi nhận kết quả từ Worker, và kiểm tra lại lần 2 SAU KHI hoàn tất giải nén XOPP và phân tích tài liệu XML.
+- **FR-003**: Hệ thống MUST giữ kết quả giải nén XOPP và phân tích XML trong các biến cục bộ, chỉ cam kết ghi đè vào trạng thái toàn cục (`currentXoppBase64`, `currentDoc`, `currentMissingBoxes`, vùng hiển thị SVG) khi mã thế hệ tại thời điểm sau giải nén vẫn là mã thế hệ hiện hành và nội dung ô soạn thảo khớp với bản chụp tham số kết xuất.
+- **FR-004**: Nếu quá trình giải nén hoặc phân tích cú pháp XOPP thất bại, hệ thống MUST giữ nguyên trạng thái kết xuất hợp lệ trước đó hoặc đưa về trạng thái rỗng an toàn; tuyệt đối không cập nhật `currentXoppBase64` bằng dữ liệu chưa được xác thực tính toàn vẹn.
+- **FR-005**: Hệ thống MUST theo dõi trạng thái tính mới của bản kết xuất (`isRenderStale` / `isPreviewStale`). Ngay khi người dùng thay đổi nội dung ô soạn thảo hoặc thay đổi tùy chọn định dạng/bút vẽ, hệ thống MUST đánh dấu bản kết xuất hiện tại là cũ (stale).
+- **FR-006**: Các chức năng xuất tệp (.xopp, .pdf, .png, .svg, .zip) MUST kiểm tra trạng thái tính mới của bản kết xuất trước khi thực hiện xuất; nếu bản kết xuất đang bị cũ (`isRenderStale === true`) hoặc đang trong quá trình kết xuất (`isRendering === true`), hệ thống MUST chặn thao tác xuất và thông báo cảnh báo rõ ràng cho người dùng, ngăn ngừa xuất nhầm tệp của nội dung trước đó.
+- **FR-007**: Khi người dùng mở tệp mới (.txt, .md, .docx), hệ thống MUST gọi lệnh đặt lại lịch sử hạt giống (`resetDocumentSeedHistory`); nếu lệnh này trả về thất bại (`false`), hệ thống MUST hiển thị cảnh báo lỗi rõ ràng và dừng thao tác nạp tệp, KHÔNG tiếp tục kết xuất tài liệu mới trên nền lịch sử cũ.
+- **FR-008**: Bài kiểm thử E2E race condition MUST được xây dựng có tính xác định (deterministic), xác nhận yêu cầu kết xuất của tài liệu cũ đã được gửi xuống Worker trước khi kích hoạt mở tệp mới.
+- **FR-009**: Bài kiểm thử đơn vị Node.js MUST sử dụng fixture XOPP gzip hợp lệ để kiểm chứng luồng giải nén, phân tích cú pháp và cập nhật giao diện thành công của tài liệu mới, đồng thời giải phóng toàn bộ timer Worker để tiến trình Node.js không bị treo.
+- **FR-010**: Tài liệu hướng dẫn kiểm chứng (`quickstart.md`) MUST đồng bộ thống nhất số lượng bài test E2E thực tế (23+ tests) giữa phần hướng dẫn và bảng ghi nhận kết quả.
 
 ---
 
 ### Key Entities
 
-- **Render Request**: Đại diện cho một yêu cầu kết xuất từ trình soạn thảo, gồm mã định danh thế hệ tăng đơn điệu (`requestId`), nội dung văn bản, định dạng (txt/md), tùy chọn nét chữ và mốc thời gian tạo.
-- **Render Generation State**: Trạng thái quản lý thế hệ kết xuất hiện hành trong phiên làm việc, lưu giữ mã định danh mới nhất (`activeRequestId`) và tham số của yêu cầu đang chờ xử lý (`pendingRequest`).
-- **Document History State**: Trạng thái lịch sử tài liệu lưu trong dịch vụ nền phục vụ thuật toán căn chỉnh hạt giống, bao gồm cấu trúc tài liệu của lượt kết xuất gần nhất (`_last_doc`) và hạt giống ngẫu nhiên tương ứng (`_last_seed`).
+- **Render Generation State**: Trạng thái quản lý thế hệ kết xuất, gồm `currentRenderGeneration` (mã thế hệ hiện hành tăng đơn điệu) và `currentRenderSnapshot` (bản chụp `generation`, `text`, `format`).
+- **Render Freshness State**: Trạng thái tính mới của bản kết xuất, gồm `renderedGeneration` (thế hệ của bản kết xuất đã hoàn tất và hiển thị thành công) và cờ `isRenderStale` (bằng `true` khi nội dung ô soạn thảo hoặc tùy chọn khác với bản kết xuất hiện tại).
+- **XOPP Export Payload**: Dữ liệu xuất tệp đã được kiểm chứng tính toàn vẹn thông qua giải nén và phân tích cú pháp thành công (`currentXoppBase64`), chỉ được phép sử dụng khi `isRenderStale === false`.
 
 ---
 
@@ -102,17 +109,17 @@ Tài liệu và mã nguồn kiểm thử hiệu năng bản chụp kho mẫu quy
 
 ### Measurable Outcomes
 
-- **SC-001**: Loại bỏ 100% hiện tượng kết quả kết xuất cũ ghi đè lên bản xem trước hoặc tệp xuất khi nội dung ô soạn thảo đã thay đổi sang tài liệu khác.
-- **SC-002**: 100% các thao tác mở tài liệu mới (.txt, .md, .docx) đều khởi tạo trạng thái đối chiếu hạt giống độc lập, với độ sai lệch hình thái nét vẽ so với bản kết xuất gốc bằng 0.
-- **SC-003**: Toàn bộ bộ kiểm thử tự động đầu-cuối (E2E) trên trình duyệt (bao gồm các kịch bản kiểm tra mở tài liệu và race condition kết xuất dồn dập) vượt qua (PASS) mà không có lỗi bảng điều khiển (Console errors).
-- **SC-004**: Toàn bộ bộ kiểm thử đơn vị, kiểm thử tích hợp và kiểm thử hồi quy của hệ thống đạt tỷ lệ thành công 100% trên tất cả các môi trường hỗ trợ.
-- **SC-005**: Thời gian tổng hợp và trích xuất bản chụp kho mẫu quy mô lớn (1.050+ nhãn và 3.520 mẫu nét) duy trì dưới 200 mili-giây.
+- **SC-001**: Loại bỏ 100% rủi ro kết quả kết xuất cũ ghi đè lên giao diện người dùng, kể cả trong khoảng thời gian chờ giải nén và phân tích tệp XOPP.
+- **SC-002**: Loại bỏ 100% rủi ro người dùng xuất tệp (.xopp, .pdf, .png, .svg, .zip) chứa nội dung tài liệu cũ khi đang soạn thảo hoặc mở tài liệu mới.
+- **SC-003**: 100% thao tác mở tệp mới khi gặp lỗi đặt lại lịch sử hạt giống đều được chặn an toàn và thông báo cảnh báo minh bạch trên giao diện người dùng.
+- **SC-004**: Bộ kiểm thử đơn vị Node.js giải phóng 100% tài nguyên và timer ngay sau khi hoàn thành, không có tiến trình treo quá 1 giây.
+- **SC-005**: Toàn bộ các bài kiểm thử E2E Playwright (23+ tests) và Python pytest (>1.427 tests) vượt qua (PASS) 100% trên môi trường kiểm thử.
+- **SC-006**: Tài liệu kỹ thuật, bảng đo kiểm hiệu năng và checklist nghiệm thu đạt tính nhất quán 100%.
 
 ---
 
 ## Assumptions
 
-- Trình duyệt người dùng hỗ trợ Web Worker và chia sẻ thông điệp bất đồng bộ tiêu chuẩn.
-- Các định dạng tệp nhập vào (.txt, .md, .docx) tuân thủ đúng định dạng mà hệ thống đang hỗ trợ phân tích cú pháp.
-- Người dùng tương tác trên một luồng soạn thảo đơn tại mỗi thời điểm trong một tab làm việc, nhưng các thao tác gõ, xóa và mở tệp có thể diễn ra với tần suất cao (dưới 200ms giữa các thao tác).
-- Môi trường thực thi của dịch vụ nền duy trì tính tất định đối với các hạt giống ngẫu nhiên đã cho.
+- Quá trình giải nén XOPP trên Web Client sử dụng hàm bất đồng bộ `decompressXoppBase64` dựa trên `DecompressionStream` hoặc thư viện nén thuần chạy trên luồng chính của trình duyệt.
+- Các nút xuất tệp trên giao diện (`#btn-export-xopp`, `#btn-export-pdf`, `#btn-export-png`, `#btn-export-svg`, `#btn-export-zip`) được kết nối tập trung qua một hàm điều phối kiểm tra tính mới trước khi kích hoạt tải xuống.
+- Khi người dùng đang soạn thảo nhanh, việc giữ lại hình ảnh xem trước cũ kèm thông báo "Đang cập nhật..." là trải nghiệm thị giác tốt hơn việc xóa trắng màn hình gây nhấp nháy, miễn là chức năng xuất tệp bị khóa an toàn trong khoảng thời gian này.

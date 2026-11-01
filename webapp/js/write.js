@@ -28,6 +28,8 @@ let hasPendingRequest = false;
 let pendingParams = null;
 let currentRenderGeneration = 0; // Thế hệ kết xuất tăng đơn điệu chống race condition (070)
 let currentRenderSnapshot = null;  // Ảnh chụp tham số của thế hệ kết xuất mới nhất
+let renderedGeneration = 0;       // Mã thế hệ của bản kết xuất đã hoàn tất và hiển thị thành công (070)
+let isRenderStale = false;         // True khi nội dung textarea hoặc tùy chọn kết xuất khác với bản render hiện tại (070)
 
 // Trạng thái đồng bộ kho mẫu (052-write-preview-bank-sync & 054-repo-audit-hardening)
 let isBankHydrated = false;       // True khi kho mẫu từ IndexedDB (hoặc profile rỗng ban đầu) đã sẵn sàng
@@ -98,6 +100,8 @@ export function initWriteTab(options = {}) {
 
   // 2. Debounce 250ms khi gõ
   bindWriteEvent(textarea, "input", () => {
+    isRenderStale = true;
+    updateExportButtonsState();
     if (!isComposing) {
       triggerPreviewWithDebounce();
     }
@@ -106,6 +110,8 @@ export function initWriteTab(options = {}) {
   // 3. Đổi định dạng Markdown / Text
   if (selectFormat) {
     bindWriteEvent(selectFormat, "change", (e) => {
+      isRenderStale = true;
+      updateExportButtonsState();
       currentFormat = e.target.value;
       triggerPreviewImmediate();
     }, opts);
@@ -233,6 +239,10 @@ export function getWritePreviewSyncState() {
  * Reset trạng thái đồng bộ phục vụ kiểm thử đơn vị.
  */
 export function resetWriteSyncStateForTesting() {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
   isBankHydrated = false;
   isBankDirty = false;
   hasInitialRenderDone = false;
@@ -248,10 +258,36 @@ export function resetWriteSyncStateForTesting() {
   pendingImportNotices = [];
   currentRenderGeneration = 0;
   currentRenderSnapshot = null;
+  renderedGeneration = 0;
+  isRenderStale = false;
 }
 
 export function getRenderGenerationForTesting() {
   return currentRenderGeneration;
+}
+
+export function getRenderedGenerationForTesting() {
+  return renderedGeneration;
+}
+
+export function isRenderStaleForTesting() {
+  return isRenderStale;
+}
+
+/**
+ * Kiểm tra xem bản kết xuất hiện tại có hợp lệ và sẵn sàng để xuất file hay không.
+ * Ngăn ngừa người dùng xuất nhầm tài liệu cũ khi đang soạn thảo hoặc đang render (070).
+ * @returns {boolean}
+ */
+export function canExport() {
+  if (isRendering) return false;
+  if (isRenderStale) return false;
+  if (!currentXoppBase64 || !currentDoc) return false;
+  const textarea = typeof document !== "undefined" ? document.getElementById("editor-text") : null;
+  const currentVal = textarea?.value?.trim() || "";
+  if (!currentVal) return false;
+  if (textarea && textarea.value !== currentRenderSnapshot?.text) return false;
+  return true;
 }
 
 export function resetWritePreviewForTesting() {
@@ -302,17 +338,37 @@ async function requestRender(params) {
     }
 
     if (res && res.ok) {
+      // Giải nén XML từ xopp vào biến cục bộ (Two-Stage Stale Guard & Atomic State Commit - Feature 070)
+      let parsedDoc = null;
+      try {
+        const xml = await decompressXoppBase64(res.xopp_base64);
+        parsedDoc = parseXoppXml(xml);
+      } catch (decompressErr) {
+        console.error("Lỗi giải nén tệp XOPP:", decompressErr);
+        showWarning("Không thể giải nén dữ liệu kết xuất XOPP.");
+        return;
+      }
+
+      // Stage 2 Stale Guard: Kiểm tra lại thế hệ kết xuất sau khi hoàn tất giải nén bất đồng bộ
+      if (thisGeneration !== currentRenderGeneration) {
+        return;
+      }
+      if (textarea && textarea.value !== currentRenderSnapshot?.text) {
+        return;
+      }
+
+      // Atomic State Commit: Chỉ khi vẫn là thế hệ mới nhất mới ghi nhận vào trạng thái toàn cục
       currentXoppBase64 = res.xopp_base64;
       currentMissingBoxes = res.missing_token_boxes || [];
-
-      // Giải nén XML từ xopp
-      const xml = await decompressXoppBase64(res.xopp_base64);
-      currentDoc = parseXoppXml(xml);
+      currentDoc = parsedDoc;
+      renderedGeneration = thisGeneration;
+      isRenderStale = false;
 
       // Cập nhật giao diện
       updatePaginationControls();
       renderCurrentPage();
       updateInfoPanel(res);
+      updateExportButtonsState();
 
       hasInitialRenderDone = true;
       lastRenderedBankRevision = requestBankRev;
@@ -339,6 +395,7 @@ async function requestRender(params) {
   } finally {
     isRendering = false;
     showRenderingIndicator(false);
+    updateExportButtonsState();
 
     // Nếu có request mới gửi đến trong lúc đang render -> chạy ngay bản mới nhất
     if (hasPendingRequest) {
@@ -353,6 +410,8 @@ async function requestRender(params) {
 function clearPreview() {
   currentRenderGeneration++;
   currentRenderSnapshot = null;
+  renderedGeneration = 0;
+  isRenderStale = true;
   hasPendingRequest = false;
   pendingParams = null;
   const wrapper = document.getElementById("paper-svg-wrapper");
@@ -369,6 +428,7 @@ function clearPreview() {
   currentDoc = null;
   currentXoppBase64 = "";
   pendingImportNotices = [];
+  updateExportButtonsState();
 }
 
 function showRenderingIndicator(loading) {
@@ -710,7 +770,11 @@ async function handleFileImport(file, textarea) {
     pendingImportNotices = [];
     const text = await file.text();
     clearPreview();
-    await resetDocumentSeedHistory();
+    const resetOk = await resetDocumentSeedHistory();
+    if (!resetOk) {
+      showWarning("Không thể đặt lại lịch sử hạt giống. Đã dừng thao tác nạp tài liệu để tránh sai lệch nét chữ.");
+      return;
+    }
     textarea.value = text;
     const selectFormat = document.getElementById("select-format");
     if (selectFormat) {
@@ -725,7 +789,11 @@ async function handleFileImport(file, textarea) {
       const res = await sendWorkerMessage("import_docx", { bytes: buffer });
       if (res && res.ok) {
         clearPreview();
-        await resetDocumentSeedHistory();
+        const resetOk = await resetDocumentSeedHistory();
+        if (!resetOk) {
+          showWarning("Không thể đặt lại lịch sử hạt giống. Đã dừng thao tác nạp tài liệu để tránh sai lệch nét chữ.");
+          return;
+        }
         textarea.value = res.markdown_text || res.text || "";
         const selectFormat = document.getElementById("select-format");
         if (selectFormat) {
@@ -1130,6 +1198,32 @@ export async function loadLatexSymbols(container, textarea, modal, fetchFn = nul
 // -------------------------------------------------------------
 // Xuất file (.xopp, PNG, SVG, ZIP, In/PDF) (T050)
 // -------------------------------------------------------------
+function updateExportButtonsState() {
+  if (typeof document === "undefined") return;
+  const allowed = canExport();
+  const exportBtnIds = [
+    "btn-export-xopp",
+    "btn-export-png",
+    "btn-export-svg",
+    "btn-export-zip",
+    "btn-print-pdf",
+  ];
+  for (const id of exportBtnIds) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (typeof el.setAttribute === "function") {
+      el.setAttribute("aria-disabled", String(!allowed));
+    }
+    if (el.classList) {
+      if (!allowed) {
+        el.classList.add("btn-disabled");
+      } else {
+        el.classList.remove("btn-disabled");
+      }
+    }
+  }
+}
+
 function setupExportButtons(options = {}) {
   const btnXopp = document.getElementById("btn-export-xopp");
   const btnPng = document.getElementById("btn-export-png");
@@ -1137,87 +1231,91 @@ function setupExportButtons(options = {}) {
   const btnZip = document.getElementById("btn-export-zip");
   const btnPrint = document.getElementById("btn-print-pdf");
 
+  const guardExport = (actionFn) => {
+    if (!canExport()) {
+      showWarning("Bản xem trước đang được cập nhật hoặc nội dung đã thay đổi. Vui lòng đợi kết xuất hoàn tất trước khi xuất file.");
+      return;
+    }
+    actionFn();
+  };
+
   // Xuất file .xopp gốc
   if (btnXopp) {
     bindWriteEvent(btnXopp, "click", () => {
-      if (!currentXoppBase64) {
-        alert("Chưa có nội dung kết xuất để xuất file .xopp.");
-        return;
-      }
-      exportXopp(currentXoppBase64, "chuviet.xopp");
+      guardExport(() => exportXopp(currentXoppBase64, "chuviet.xopp"));
     }, options);
   }
 
   // Tải ảnh PNG trang hiện tại
   if (btnPng) {
     bindWriteEvent(btnPng, "click", () => {
-      const svgEl = document.querySelector("#paper-svg-wrapper svg");
-      if (!svgEl) {
-        alert("Chưa có trang giấy để xuất ảnh.");
-        return;
-      }
-      exportPng(svgEl, `trang_${currentPageIndex + 1}.png`, 2.0, false);
+      guardExport(() => {
+        const svgEl = document.querySelector("#paper-svg-wrapper svg");
+        if (svgEl) {
+          exportPng(svgEl, `trang_${currentPageIndex + 1}.png`, 2.0, false);
+        }
+      });
     }, options);
   }
 
   // Tải ảnh SVG trang hiện tại
   if (btnSvg) {
     bindWriteEvent(btnSvg, "click", () => {
-      const svgEl = document.querySelector("#paper-svg-wrapper svg");
-      if (!svgEl) {
-        alert("Chưa có trang giấy để xuất file SVG.");
-        return;
-      }
-      exportSvg(svgEl, `trang_${currentPageIndex + 1}.svg`);
+      guardExport(() => {
+        const svgEl = document.querySelector("#paper-svg-wrapper svg");
+        if (svgEl) {
+          exportSvg(svgEl, `trang_${currentPageIndex + 1}.svg`);
+        }
+      });
     }, options);
   }
 
   // Tải toàn bộ các trang dạng ZIP
   if (btnZip) {
     bindWriteEvent(btnZip, "click", () => {
-      if (!currentDoc || !currentDoc.pages.length) {
-        alert("Chưa có trang nào để xuất ZIP.");
-        return;
-      }
-      const files = [];
-      currentDoc.pages.forEach((page, idx) => {
-        const svgStr = renderPageSvgString(page, { missingBoxes: currentMissingBoxes });
-        const encoder = new TextEncoder();
-        files.push({
-          name: `trang_${idx + 1}.svg`,
-          data: encoder.encode(svgStr),
+      guardExport(() => {
+        if (!currentDoc || !currentDoc.pages.length) return;
+        const files = [];
+        currentDoc.pages.forEach((page, idx) => {
+          const svgStr = renderPageSvgString(page, { missingBoxes: currentMissingBoxes });
+          const encoder = new TextEncoder();
+          files.push({
+            name: `trang_${idx + 1}.svg`,
+            data: encoder.encode(svgStr),
+          });
         });
+        const zipBytes = createZipArchive(files);
+        const blob = new Blob([zipBytes], { type: "application/zip" });
+        downloadBlob(blob, "tailieu_anh.zip");
       });
-      const zipBytes = createZipArchive(files);
-      const blob = new Blob([zipBytes], { type: "application/zip" });
-      downloadBlob(blob, "tailieu_anh.zip");
     }, options);
   }
 
   // In / Xuất PDF
   if (btnPrint) {
     bindWriteEvent(btnPrint, "click", () => {
-      if (!currentDoc || !currentDoc.pages.length) {
-        alert("Chưa có nội dung để in.");
-        return;
-      }
-      const printContainer = document.getElementById("print-container");
-      if (printContainer) {
-        printContainer.innerHTML = "";
-        currentDoc.pages.forEach((page) => {
-          const pageDiv = document.createElement("div");
-          pageDiv.className = "print-page-wrapper";
-          const svgEl = renderPageSvgElement(page, { missingBoxes: currentMissingBoxes });
-          pageDiv.appendChild(svgEl);
-          printContainer.appendChild(pageDiv);
-        });
-        printContainer.style.display = "block";
-        window.print();
-        setTimeout(() => {
-          printContainer.style.display = "none";
+      guardExport(() => {
+        if (!currentDoc || !currentDoc.pages.length) return;
+        const printContainer = document.getElementById("print-container");
+        if (printContainer) {
           printContainer.innerHTML = "";
-        }, 1000);
-      }
+          currentDoc.pages.forEach((page) => {
+            const pageDiv = document.createElement("div");
+            pageDiv.className = "print-page-wrapper";
+            const svgEl = renderPageSvgElement(page, { missingBoxes: currentMissingBoxes });
+            pageDiv.appendChild(svgEl);
+            printContainer.appendChild(pageDiv);
+          });
+          printContainer.style.display = "block";
+          window.print();
+          setTimeout(() => {
+            printContainer.style.display = "none";
+            printContainer.innerHTML = "";
+          }, 1000);
+        }
+      });
     }, options);
   }
+
+  updateExportButtonsState();
 }

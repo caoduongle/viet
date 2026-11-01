@@ -31,5 +31,5 @@
 
 ## Notes
 
-- Đặc tả kỹ thuật tập trung vào giá trị người dùng: chống chớp tắt hoặc ghi đè kết quả kết xuất cũ, bảo đảm tính độc lập hạt giống khi nhập file, và củng cố độ bền vững của bộ kiểm thử hồi quy.
+- Đặc tả kỹ thuật tập trung vào giá trị người dùng: chống chớp tắt hoặc ghi đè kết quả kết xuất cũ (Two-Stage Stale Guard sau giải nén XOPP), khóa an toàn chức năng xuất file khi kết quả kết xuất bị cũ hoặc đang cập nhật, bảo đảm tính độc lập hạt giống khi nhập file và xử lý dừng nạp khi reset thất bại, củng cố tính xác định (deterministic) của kiểm thử E2E và Node unit test.
 - Toàn bộ 16/16 tiêu chí kiểm định chất lượng đều ĐẠT (PASS). Đã sẵn sàng cho giai đoạn lập kế hoạch chi tiết (`/speckit-plan`).

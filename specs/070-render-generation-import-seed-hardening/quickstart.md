@@ -87,7 +87,7 @@ npm run test:unit
 npm run test:browser
 npm run test:golden
 
-# 4. Bộ kiểm thử E2E Playwright trên trình duyệt (22 tests)
+# 4. Bộ kiểm thử E2E Playwright trên trình duyệt (24 tests)
 npx playwright test
 
 # 5. Toàn bộ kiểm thử Python (>1.427 tests)
@@ -106,9 +106,11 @@ pytest
 
 | Kịch bản kiểm chứng | Lệnh thực thi | Kết quả thực tế | Trạng thái |
 | :--- | :--- | :--- | :--- |
-| **Kịch bản 1** (Chống ghi đè render cũ) | `npx playwright test tests/e2e/write.spec.ts -g "không bị kết quả cũ ghi đè"` | 100% PASS. Two-Layer Stale Guard chặn đứng race condition in-flight, bản xem trước chỉ hiển thị nét chữ tài liệu mới. | ✅ PASS |
+| **Kịch bản 1** (Chống ghi đè render cũ - Two-Stage Guard) | `npx playwright test tests/e2e/write.spec.ts -g "không bị kết quả cũ ghi đè"` | 100% PASS. Two-Stage Stale Guard chặn đứng race condition in-flight và sau giải nén XOPP, bản xem trước chỉ hiển thị nét chữ tài liệu mới. | ✅ PASS |
 | **Kịch bản 2** (Độc lập seed khi mở file) | `npx playwright test tests/e2e/write.spec.ts -g "xóa trắng hoặc mở file mới"` | 100% PASS. Nét vẽ từ "xin" của tài liệu mới trùng khớp 100% với baseline `occurrence = 0`, không kế thừa lịch sử cũ (.txt, .md, .docx). | ✅ PASS |
-| **Kịch bản 3** (Bền vững hóa assertion nét) | `pytest tests/test_stable_variants.py -k "test_app_controller_stable_variants_workflow" -v` | 1 passed in 0.40s. `group_strokes_by_word_proximity` phân tách chính xác 4 từ (doc1) và 5 từ (doc2), đối sánh hình thái nét tương đối của từ "ba" thành công. | ✅ PASS |
-| **Kịch bản 4** (Multi-variant Benchmark) | `pytest tests/test_performance_regression.py -k "test_bank_snapshot_large_scale_performance" -v -s` | 1 passed in 1.51s. Log in: `[BENCHMARK] get_bank_snapshot 1.050+ nhãn và 3.520 mẫu nét đa biến thể hoàn tất trong: 1.91 ms` ($< 200$ ms). | ✅ PASS |
-| **Hồi quy Web E2E (23 tests)** | `npx playwright test` | 23 passed in 3.2m (100% PASS toàn bộ 23 bài test Playwright). | ✅ PASS |
-| **Hồi quy Python (1.427 tests)** | `pytest` | 1.427 passed in 61.00s (100% PASS trên Windows local; tương ứng 1.406 passed trên Ubuntu Linux CI). | ✅ PASS |
+| **Kịch bản 3** (Export Stale Guard) | `npx playwright test tests/e2e/write.spec.ts -g "Export Stale Guard"` | 100% PASS. Khóa toàn bộ các nút xuất tệp (.xopp, .pdf, .png, .svg, .zip) khi nội dung thay đổi hoặc đang render dở dang, hiển thị cảnh báo người dùng. | ✅ PASS |
+| **Kịch bản 4** (Bền vững hóa assertion nét) | `pytest tests/test_stable_variants.py -k "test_app_controller_stable_variants_workflow" -v` | 1 passed in 0.40s. `group_strokes_by_word_proximity` phân tách chính xác 4 từ (doc1) và 5 từ (doc2), đối sánh hình thái nét tương đối của từ "ba" thành công. | ✅ PASS |
+| **Kịch bản 5** (Multi-variant Benchmark) | `pytest tests/test_performance_regression.py -k "test_bank_snapshot_large_scale_performance" -v -s` | 1 passed in 1.51s. Log in: `[BENCHMARK] get_bank_snapshot 1.050+ nhãn và 3.520 mẫu nét đa biến thể hoàn tất trong: 1.91 ms` ($< 200$ ms). | ✅ PASS |
+| **Kiểm thử đơn vị Node.js (71 tests)** | `npm run test:unit` | 71 passed in 3.7s. 100% PASS (bao gồm 4/4 test render generation & export guard với fixture XOPP gzip chuẩn, không treo timer). | ✅ PASS |
+| **Hồi quy Web E2E (24 tests)** | `npx playwright test` | 24 passed in 4.5m (100% PASS toàn bộ 24 bài test Playwright). | ✅ PASS |
+| **Hồi quy Python (1.427 tests)** | `pytest` | 1.427 passed (100% PASS trên Windows local; tương ứng 1.406 passed trên Ubuntu Linux CI). | ✅ PASS |
