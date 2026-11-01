@@ -26,6 +26,8 @@ let debounceTimer = null;
 let isRendering = false;
 let hasPendingRequest = false;
 let pendingParams = null;
+let currentRenderGeneration = 0; // Thế hệ kết xuất tăng đơn điệu chống race condition (070)
+let currentRenderSnapshot = null;  // Ảnh chụp tham số của thế hệ kết xuất mới nhất
 
 // Trạng thái đồng bộ kho mẫu (052-write-preview-bank-sync & 054-repo-audit-hardening)
 let isBankHydrated = false;       // True khi kho mẫu từ IndexedDB (hoặc profile rỗng ban đầu) đã sẵn sàng
@@ -140,6 +142,25 @@ function triggerPreviewWithDebounce() {
   }, 250);
 }
 
+/**
+ * Gửi thông điệp xóa lịch sử hạt giống và căn chỉnh xuống Worker,
+ * kiểm tra tường minh phản hồi { ok: true } và cảnh báo nếu thất bại (070).
+ * @returns {Promise<boolean>}
+ */
+export async function resetDocumentSeedHistory() {
+  try {
+    const res = await sendWorkerMessage("clear_document_history");
+    if (!res || res.ok === false) {
+      console.warn("Dịch vụ nền báo lỗi khi xóa lịch sử hạt giống:", res?.error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn("Không thể gửi thông điệp xóa lịch sử hạt giống:", err);
+    return false;
+  }
+}
+
 export function triggerPreviewImmediate() {
   const textarea = document.getElementById("editor-text");
   if (!textarea) return;
@@ -147,7 +168,7 @@ export function triggerPreviewImmediate() {
   const text = textarea.value;
   if (!text.trim()) {
     clearPreview();
-    sendWorkerMessage("clear_document_history").catch((e) => console.warn("Lỗi xóa lịch sử seed:", e));
+    resetDocumentSeedHistory();
     return;
   }
 
@@ -225,13 +246,31 @@ export function resetWriteSyncStateForTesting() {
   currentXoppBase64 = "";
   currentMissingBoxes = [];
   pendingImportNotices = [];
+  currentRenderGeneration = 0;
+  currentRenderSnapshot = null;
+}
+
+export function getRenderGenerationForTesting() {
+  return currentRenderGeneration;
+}
+
+export function resetWritePreviewForTesting() {
+  resetWriteSyncStateForTesting();
 }
 
 /**
- * Thực hiện yêu cầu render với mô hình "Một request chờ" (One Pending Request)
- * và kiểm soát phiên bản kho mẫu đơn điệu (054-repo-audit-hardening).
+ * Thực hiện yêu cầu render với mô hình "Một request chờ" (One Pending Request),
+ * kiểm soát thế hệ kết xuất (Render Generation - Feature 070) và kiểm soát phiên bản kho mẫu đơn điệu.
  */
 async function requestRender(params) {
+  const thisGeneration = ++currentRenderGeneration;
+  currentRenderSnapshot = {
+    generation: thisGeneration,
+    text: params.text,
+    format: params.format,
+  };
+  params.requestId = thisGeneration;
+
   if (isRendering) {
     hasPendingRequest = true;
     pendingParams = params;
@@ -245,11 +284,20 @@ async function requestRender(params) {
   try {
     const res = await sendWorkerMessage("write_text", params);
 
-    // Kiểm tra nếu ô soạn thảo đã bị xóa trắng trong lúc render thì hủy cập nhật DOM
+    // Two-Layer Stale Guard (Feature 070):
+    // 1. Kiểm tra thế hệ kết xuất: nếu có yêu cầu mới hơn hoặc clearPreview đã kích hoạt thì bỏ qua ngay
+    if (thisGeneration !== currentRenderGeneration) {
+      return;
+    }
+
+    // 2. Kiểm tra snapshot ô soạn thảo: nếu đã bị xóa trắng hoặc bị sửa khác với bản gửi đi thì hủy bỏ
     const textarea = typeof document !== "undefined" ? document.getElementById("editor-text") : null;
     const currentVal = textarea?.value?.trim() || "";
     if (!currentVal) {
       clearPreview();
+      return;
+    }
+    if (textarea && textarea.value !== currentRenderSnapshot?.text) {
       return;
     }
 
@@ -303,6 +351,8 @@ async function requestRender(params) {
 }
 
 function clearPreview() {
+  currentRenderGeneration++;
+  currentRenderSnapshot = null;
   hasPendingRequest = false;
   pendingParams = null;
   const wrapper = document.getElementById("paper-svg-wrapper");
@@ -659,7 +709,8 @@ async function handleFileImport(file, textarea) {
   if (name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".markdown")) {
     pendingImportNotices = [];
     const text = await file.text();
-    await sendWorkerMessage("clear_document_history").catch((e) => console.warn("Lỗi xóa lịch sử seed:", e));
+    clearPreview();
+    await resetDocumentSeedHistory();
     textarea.value = text;
     const selectFormat = document.getElementById("select-format");
     if (selectFormat) {
@@ -673,7 +724,8 @@ async function handleFileImport(file, textarea) {
       const buffer = await file.arrayBuffer();
       const res = await sendWorkerMessage("import_docx", { bytes: buffer });
       if (res && res.ok) {
-        await sendWorkerMessage("clear_document_history").catch((e) => console.warn("Lỗi xóa lịch sử seed:", e));
+        clearPreview();
+        await resetDocumentSeedHistory();
         textarea.value = res.markdown_text || res.text || "";
         const selectFormat = document.getElementById("select-format");
         if (selectFormat) {

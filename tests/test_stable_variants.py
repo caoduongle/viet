@@ -1054,6 +1054,42 @@ def test_align_document_seeds_multi_step_consecutive_edits():
     assert occs_d3[10] == 1  # nay đuôi
 
 
+def group_strokes_by_word_proximity(strokes: list[str], min_gap: float = 4.0) -> list[list[str]]:
+    """Phân nhóm danh sách nét vẽ XML thành các từ dựa trên khoảng cách tọa độ trục X.
+
+    Trong pipeline kết xuất văn bản tiếng Việt từ trái sang phải:
+    - Khoảng cách giữa các nét vẽ trong cùng một từ (chữ cái, dấu phụ, dấu thanh) thường <= 3.0 pt.
+    - Khoảng cách giữa hai từ kế tiếp nhau (space width) thường >= 8.0 pt.
+    Hàm này nhóm các nét vẽ liên tiếp có khoảng cách trục X < min_gap vào cùng một từ ngữ.
+    """
+    if not strokes:
+        return []
+
+    def _stroke_x_bounds(s_text: str) -> tuple[float, float]:
+        nums = [float(x) for x in s_text.split()]
+        xs = [nums[i] for i in range(0, len(nums), 2)]
+        return min(xs), max(xs)
+
+    clusters: list[list[str]] = []
+    current_cluster: list[str] = [strokes[0]]
+    _, current_max_x = _stroke_x_bounds(strokes[0])
+
+    for s in strokes[1:]:
+        min_x, max_x = _stroke_x_bounds(s)
+        if min_x > current_max_x + min_gap:
+            clusters.append(current_cluster)
+            current_cluster = [s]
+            current_max_x = max_x
+        else:
+            current_cluster.append(s)
+            current_max_x = max(current_max_x, max_x)
+
+    if current_cluster:
+        clusters.append(current_cluster)
+
+    return clusters
+
+
 def test_app_controller_stable_variants_workflow(tiny_bank_path, tmp_path):
     """T005 [US1]: Kiểm tra luồng AppController.write_document duy trì nét vẽ qua nhiều lần gọi."""
     from chuviettay.controller.app_controller import AppController
@@ -1089,18 +1125,25 @@ def test_app_controller_stable_variants_workflow(tiny_bank_path, tmp_path):
     strokes1 = [s.text.strip() for s in root1.findall(".//stroke") if s.text]
     strokes2 = [s.text.strip() for s in root2.findall(".//stroke") if s.text]
 
-    assert len(strokes1) == 13 and len(strokes2) == 18
+    # Gom nhóm các nét vẽ thành từng từ ngữ dựa trên khoảng cách không gian trục X thay vì slice cứng
+    words1 = group_strokes_by_word_proximity(strokes1, min_gap=4.0)
+    words2 = group_strokes_by_word_proximity(strokes2, min_gap=4.0)
 
-    # 1. Toàn bộ các nét của từ "xin" đầu tiên (strokes 0..2) phải trùng khớp tuyệt đối
-    assert strokes1[0:3] == strokes2[0:3], "Toàn bộ nét chữ của từ 'xin' đầu tiên bị thay đổi giữa 2 lần render"
+    # doc1 có 4 từ: ["xin", "xin", "chào", "ba"]
+    # doc2 có 5 từ: ["xin", "xin", "chào", "chào", "ba"]
+    assert len(words1) == 4, f"Số từ gom nhóm trong doc1 kỳ vọng là 4, thực tế là {len(words1)}"
+    assert len(words2) == 5, f"Số từ gom nhóm trong doc2 kỳ vọng là 5, thực tế là {len(words2)}"
 
-    # 2. Toàn bộ các nét của từ "xin" thứ hai (strokes 3..5) phải trùng khớp tuyệt đối
-    assert strokes1[3:6] == strokes2[3:6], "Toàn bộ nét chữ của từ 'xin' thứ hai bị thay đổi giữa 2 lần render"
+    # 1. Toàn bộ các nét của từ "xin" đầu tiên (words1[0] vs words2[0]) phải trùng khớp tuyệt đối
+    assert words1[0] == words2[0], "Toàn bộ nét chữ của từ 'xin' đầu tiên bị thay đổi giữa 2 lần render"
 
-    # 3. Toàn bộ các nét của từ "chào" đầu tiên (strokes 6..10) phải trùng khớp tuyệt đối
-    assert strokes1[6:11] == strokes2[6:11], "Toàn bộ nét chữ của từ 'chào' đầu tiên bị thay đổi giữa 2 lần render"
+    # 2. Toàn bộ các nét của từ "xin" thứ hai (words1[1] vs words2[1]) phải trùng khớp tuyệt đối
+    assert words1[1] == words2[1], "Toàn bộ nét chữ của từ 'xin' thứ hai bị thay đổi giữa 2 lần render"
 
-    # 4. Kiểm tra từ "ba" ở cuối câu (strokes 11..12 ở doc1, 16..17 ở doc2):
+    # 3. Toàn bộ các nét của từ "chào" đầu tiên (words1[2] vs words2[2]) phải trùng khớp tuyệt đối
+    assert words1[2] == words2[2], "Toàn bộ nét chữ của từ 'chào' đầu tiên bị thay đổi giữa 2 lần render"
+
+    # 4. Kiểm tra từ "ba" ở cuối câu (words1[3] ở doc1, words2[4] ở doc2):
     # Dù bị đẩy sang phải do từ "chào" thứ hai chèn vào, hình thái hình học (relative stroke structure)
     # và tọa độ tương đối giữa các điểm phải giữ nguyên 100%.
     def _relative_stroke_coords(stroke_str: str) -> list[tuple[float, float]]:
@@ -1108,8 +1151,8 @@ def test_app_controller_stable_variants_workflow(tiny_bank_path, tmp_path):
         x0, y0 = nums[0], nums[1]
         return [(round(nums[i] - x0, 3), round(nums[i + 1] - y0, 3)) for i in range(0, len(nums), 2)]
 
-    ba_strokes1_rel = [_relative_stroke_coords(s) for s in strokes1[11:13]]
-    ba_strokes2_rel = [_relative_stroke_coords(s) for s in strokes2[16:18]]
+    ba_strokes1_rel = [_relative_stroke_coords(s) for s in words1[3]]
+    ba_strokes2_rel = [_relative_stroke_coords(s) for s in words2[4]]
     assert ba_strokes1_rel == ba_strokes2_rel, (
         "Hình thái hình học các nét vẽ của từ 'ba' bị thay đổi sau khi chèn từ phía trước!"
     )

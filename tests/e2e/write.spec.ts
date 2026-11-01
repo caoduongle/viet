@@ -131,7 +131,7 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
   });
 
   test("xóa trắng hoặc mở file mới tự động đặt lại lịch sử hạt giống, không kế thừa occurrence cũ", async ({ page }) => {
-    test.setTimeout(60000);
+    test.setTimeout(90000);
     await page.goto("/");
     await expect(page.locator("#splash-screen")).toBeHidden({ timeout: 30000 });
 
@@ -151,7 +151,16 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
 
     const svgWrapper = page.locator("#paper-svg-wrapper");
 
-    // 1. Gõ văn bản A gồm 2 từ lặp "xin xin chào ba"
+    // 1. Kết xuất từ "xin" độc lập ban đầu làm baseline cho occurrence = 0
+    await textarea.fill("xin");
+    await page.waitForTimeout(600);
+    await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
+    const strokesXinBaseline = await svgWrapper.locator("polyline").evaluateAll((elements) =>
+      elements.map((el) => el.getAttribute("points") || "")
+    );
+    expect(strokesXinBaseline.length).toBeGreaterThan(0);
+
+    // 2. Gõ văn bản A gồm 2 từ lặp "xin xin chào ba" (từ "xin" thứ 2 nhận occurrence = 1)
     await textarea.fill("xin xin chào ba");
     await page.waitForTimeout(600);
     await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
@@ -160,9 +169,9 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
     const strokesRound1 = await svgWrapper.locator("polyline").evaluateAll((elements) =>
       elements.map((el) => el.getAttribute("points") || "")
     );
-    expect(strokesRound1.length).toBeGreaterThan(0);
+    expect(strokesRound1.length).toBeGreaterThan(strokesXinBaseline.length);
 
-    // 2. Xóa sạch ô soạn thảo
+    // 3. Xóa sạch ô soạn thảo
     await textarea.fill("");
     await page.waitForTimeout(400);
 
@@ -170,7 +179,7 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
     await expect(svgWrapper.locator("svg")).toBeHidden();
     await expect(page.locator("#preview-placeholder")).toBeVisible();
 
-    // 3. Gõ lại y nguyên văn bản A
+    // 4. Gõ lại y nguyên văn bản A
     await textarea.fill("xin xin chào ba");
     await page.waitForTimeout(600);
     await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
@@ -182,19 +191,127 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
     // Khẳng định hình thái nét chữ của văn bản A sau khi xóa trắng trùng khớp 100% với lần 1
     expect(strokesRound2).toEqual(strokesRound1);
 
-    // 4. Mở tệp mới (accept_sample.txt)
+    // 5. Mở tệp mới chỉ chứa từ "xin" (tests/data/sample_word.txt)
+    // Nếu hệ thống reset seed thành công, từ "xin" trong tệp mới nhận occurrence = 0
+    // và nét vẽ phải trùng khớp 100% với strokesXinBaseline
     const fileChooserPromise = page.waitForEvent("filechooser");
     await page.click("#btn-open-file");
     const fileChooser = await fileChooserPromise;
-    const sampleFilePath = path.resolve("tests/data/accept_sample.txt");
-    await fileChooser.setFiles(sampleFilePath);
+    const sampleWordPath = path.resolve("tests/data/sample_word.txt");
+    await fileChooser.setFiles(sampleWordPath);
 
     await page.waitForTimeout(600);
     await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
+    await expect(textarea).toHaveValue("xin");
 
     const strokesAfterImport = await svgWrapper.locator("polyline").evaluateAll((elements) =>
       elements.map((el) => el.getAttribute("points") || "")
     );
-    expect(strokesAfterImport.length).toBeGreaterThan(0);
+
+    // Chứng minh toán học: Mở tệp mới xóa sạch lịch sử seed và đặt lại occurrence = 0
+    expect(strokesAfterImport).toEqual(strokesXinBaseline);
+  });
+
+  test("mở tệp Markdown (.md) và Word (.docx) nạp nội dung chính xác và kích hoạt reset seed", async ({ page }) => {
+    test.setTimeout(90000);
+    await page.goto("/");
+    await expect(page.locator("#splash-screen")).toBeHidden({ timeout: 30000 });
+
+    const welcomeModal = page.locator("#welcome-modal");
+    if (await welcomeModal.isVisible()) {
+      const bankFilePath = path.resolve("tests/data/kho_mau_tong_hop.json.gz");
+      const fileChooserPromise = page.waitForEvent("filechooser");
+      await page.click("#btn-welcome-import");
+      const fileChooser = await fileChooserPromise;
+      await fileChooser.setFiles(bankFilePath);
+      await expect(welcomeModal).toBeHidden({ timeout: 15000 });
+    }
+
+    await page.click('[data-tab="write"]');
+    const textarea = page.locator("#editor-text");
+    await expect(textarea).toBeVisible();
+    const svgWrapper = page.locator("#paper-svg-wrapper");
+    const selectFormat = page.locator("#select-format");
+
+    // 1. Mở tệp Markdown (.md)
+    let fileChooserPromise = page.waitForEvent("filechooser");
+    await page.click("#btn-open-file");
+    let fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles(path.resolve("tests/data/sample_import.md"));
+
+    await page.waitForTimeout(600);
+    await expect(textarea).toHaveValue("# Tiêu đề Markdown\n\nxin chào ba");
+    await expect(selectFormat).toHaveValue("md");
+    await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
+    const polylineCountMd = await svgWrapper.locator("polyline").count();
+    expect(polylineCountMd).toBeGreaterThan(0);
+
+    // 2. Mở tệp Word (.docx)
+    fileChooserPromise = page.waitForEvent("filechooser");
+    await page.click("#btn-open-file");
+    fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles(path.resolve("tests/data/sample_import.docx"));
+
+    // Đợi trích xuất DOCX và nạp vào textarea
+    await expect(textarea).toHaveValue(/Tài liệu Word kiểm thử/, { timeout: 20000 });
+    await expect(selectFormat).toHaveValue("md");
+    await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
+    const polylineCountDocx = await svgWrapper.locator("polyline").count();
+    expect(polylineCountDocx).toBeGreaterThan(0);
+  });
+
+  test("xử lý race condition: nạp tệp mới ngay khi đang render dở dang không bị kết quả cũ ghi đè", async ({ page }) => {
+    test.setTimeout(90000);
+    await page.goto("/");
+    await expect(page.locator("#splash-screen")).toBeHidden({ timeout: 30000 });
+
+    const welcomeModal = page.locator("#welcome-modal");
+    if (await welcomeModal.isVisible()) {
+      const bankFilePath = path.resolve("tests/data/kho_mau_tong_hop.json.gz");
+      const fileChooserPromise = page.waitForEvent("filechooser");
+      await page.click("#btn-welcome-import");
+      const fileChooser = await fileChooserPromise;
+      await fileChooser.setFiles(bankFilePath);
+      await expect(welcomeModal).toBeHidden({ timeout: 15000 });
+    }
+
+    await page.click('[data-tab="write"]');
+    const textarea = page.locator("#editor-text");
+    await expect(textarea).toBeVisible();
+    const svgWrapper = page.locator("#paper-svg-wrapper");
+
+    // 1. Lấy baseline nét vẽ của từ "xin"
+    await textarea.fill("xin");
+    await page.waitForTimeout(600);
+    await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 10000 });
+    const baselineXinStrokes = await svgWrapper.locator("polyline").evaluateAll((elements) =>
+      elements.map((el) => el.getAttribute("points") || "")
+    );
+    expect(baselineXinStrokes.length).toBeGreaterThan(0);
+
+    // 2. Kích hoạt render văn bản dài
+    const longText = "Văn bản rất dài cần kết xuất tốn thời gian: " + "xin chào ba má bạn ".repeat(15);
+    await textarea.fill(longText);
+
+    // 3. Ngay lập tức mở tệp mới (sample_word.txt chỉ chứa "xin") khi render đang in-flight
+    const fileChooserPromise = page.waitForEvent("filechooser");
+    await page.click("#btn-open-file");
+    const fileChooser = await fileChooserPromise;
+    await fileChooser.setFiles(path.resolve("tests/data/sample_word.txt"));
+
+    // Đợi đủ lâu để mọi tác vụ nền xử lý xong (1.5 giây)
+    await page.waitForTimeout(1500);
+
+    // 4. Khẳng định: Textarea giữ đúng nội dung tệp mới "xin"
+    await expect(textarea).toHaveValue("xin");
+
+    // 5. Khẳng định: Bản xem trước SVG hiển thị đúng nét vẽ của "xin", không bị dính văn bản dài cũ
+    await expect(svgWrapper.locator("svg")).toBeVisible();
+    const finalStrokes = await svgWrapper.locator("polyline").evaluateAll((elements) =>
+      elements.map((el) => el.getAttribute("points") || "")
+    );
+
+    // Nét vẽ cuối cùng phải khớp hoàn toàn với baseline của "xin"
+    expect(finalStrokes).toEqual(baselineXinStrokes);
   });
 });

@@ -135,7 +135,7 @@ _res = _bridge.load_bank(_data, create_if_missing=${createIfMissing ? "True" : "
       const pyBytes = pyodide.globals.get("_bank_bytes").toJs();
       result = pyBytes;
     } else if (method === "write_text") {
-      const { text, options, format } = params || {};
+      const { text, options, format, requestId } = params || {};
       pyodide.globals.set("_write_text", text || "");
       pyodide.globals.set("_write_fmt", format || "txt");
       pyodide.globals.set("_write_opts_json", JSON.stringify(options || {}));
@@ -145,6 +145,9 @@ _opts = json.loads(_write_opts_json)
 _write_res = _bridge.write_text(_write_text, _opts, fmt=_write_fmt)
 `);
       result = pyodide.globals.get("_write_res").toJs({ dict_converter: Object.fromEntries });
+      if (requestId !== undefined && result && typeof result === "object") {
+        result.requestId = requestId;
+      }
     } else if (method === "teach_sample") {
       const { label, strokes, width, category, calibrating, pixel_strokes, deferred_save } = params || {};
       pyodide.globals.set("_teach_label", label || "");

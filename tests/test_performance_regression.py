@@ -90,7 +90,7 @@ def test_ci_invariant_bank_snapshot_latency(bridge_with_tiny_bank):
 
 
 def test_bank_snapshot_large_scale_performance(tmp_path):
-    """[Feature 068 / US4] Kiểm tra thời gian tạo snapshot trên kho mẫu quy mô lớn (1.050+ nhãn, 3.400+ mẫu nét đa biến thể) < 200ms."""
+    """[Feature 068 / US4] Kiểm tra thời gian tạo snapshot trên kho mẫu quy mô lớn (1.050+ nhãn, 3.520 mẫu nét đa biến thể) < 200ms."""
     import gzip
     import json
     from chuviettay.browser.bridge import BrowserBridge
@@ -99,10 +99,10 @@ def test_bank_snapshot_large_scale_performance(tmp_path):
     # Khởi tạo một kho mẫu lớn đa biến thể:
     # - 700 từ x 3 biến thể = 2.100 mẫu
     # - 300 chữ cái x 4 biến thể = 1.200 mẫu
-    # - 20 ký hiệu x 2 biến thể = 40 mẫu
-    # - 30 dấu thanh x 2 biến thể = 60 mẫu
+    # - 50 ký hiệu x 2 biến thể = 100 mẫu
+    # - 5 nhóm dấu thanh x 20 mẫu = 100 mẫu
     # - 10 chữ số x 2 biến thể = 20 mẫu
-    # Tổng cộng: 1.050+ nhãn và 3.420 mẫu nét
+    # Tổng cộng: 1.050+ nhãn và 3.520 mẫu nét
     words_dict = {
         f"word_{i}": [{"w": 10.0 + v * 0.1, "s": [[0, 0, 5, -5 + v * 0.2]], "inst_w": 10.0} for v in range(3)]
         for i in range(700)
@@ -156,7 +156,7 @@ def test_bank_snapshot_large_scale_performance(tmp_path):
     t0 = time.perf_counter()
     res = bridge.get_bank_snapshot(profile_id="large_scale_profile")
     elapsed_ms = (time.perf_counter() - t0) * 1000
-    print(f"\n[BENCHMARK] get_bank_snapshot 1.050+ nhãn và 3.400+ biến thể hoàn tất trong: {elapsed_ms:.2f} ms")
+    print(f"\n[BENCHMARK] get_bank_snapshot 1.050+ nhãn và 3.520 mẫu nét đa biến thể hoàn tất trong: {elapsed_ms:.2f} ms")
 
     assert res["ok"] is True, f"Failed: {res}"
     data = res["data"]
@@ -172,12 +172,12 @@ def test_bank_snapshot_large_scale_performance(tmp_path):
         + sum(len(v) for v in raw_bank_data["marks"].values())
         + sum(len(v) for v in raw_bank_data["digits"].values())
     )
-    assert total_bank_samples >= 3400
+    assert total_bank_samples >= 3520
     assert data["stats"]["n_words"] >= 700
     assert data["stats"]["n_letters"] >= 300
     assert data["stats"]["n_samples"] >= 1400  # Tổng mẫu ký tự nguyên tử (letters + symbols + marks + digits)
     assert elapsed_ms < 200.0, (
-        f"get_bank_snapshot trên 1.050+ nhãn và 3.400+ biến thể vượt ngưỡng 200ms: {elapsed_ms:.2f} ms"
+        f"get_bank_snapshot trên 1.050+ nhãn và 3.520 mẫu nét đa biến thể vượt ngưỡng 200ms: {elapsed_ms:.2f} ms"
     )
 
 
