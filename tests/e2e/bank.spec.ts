@@ -148,10 +148,12 @@ test.describe("User Story 4: Quản lý Kho mẫu chữ (E2E)", () => {
     }
 
     await page.click('[data-tab="bank"]');
+    await expect(page.locator("#tab-bank")).toHaveClass(/active/);
 
-    // Gọi trực tiếp showBankErrorBanner với chuỗi chứa thẻ HTML
+    // Chờ refreshBankView ban đầu hoàn tất ổn định trước khi gọi showBankErrorBanner
     await page.evaluate(async () => {
       const bankModule = await import("/js/bank.js");
+      await bankModule.refreshBankView();
       bankModule.showBankErrorBanner("<b id='xss-test-payload'>injection</b><img src=x onerror=alert(1)>");
     });
 

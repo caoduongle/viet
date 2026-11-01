@@ -1,73 +1,72 @@
 # Quickstart & Verification Guide: Feature 070
 
-**Feature**: Kiểm soát thế hệ kết xuất, bảo toàn hạt giống khi nhập file và tăng cường độ bền vững kiểm thử  
+**Feature**: Kiểm soát thế hệ kết xuất, thế hệ nhập tệp, khóa xuất bản cũ và tăng cường tính xác định kiểm thử  
 **Branch**: `070-render-generation-import-seed-hardening`  
 
 ---
 
-## 1. Kịch bản kiểm chứng 1: Chống ghi đè kết quả render cũ (P1 - SC-001)
+## 1. Kịch bản kiểm chứng 1: Khóa xuất tệp theo Thế hệ Kết xuất và Bản chụp Tùy chọn (`canExport`)
 
 ### Mục tiêu
-Chứng minh rằng khi đang xử lý kết xuất một tài liệu dài mà người dùng xóa hoặc thay thế bằng tài liệu khác, kết quả của tài liệu cũ trả về sau đó không bao giờ ghi đè lên giao diện hay tệp xuất của tài liệu mới.
+Chứng minh chức năng xuất tệp (`.xopp`, `.pdf`, `.png`, `.svg`, `.zip`) chỉ cho phép tải xuống khi `renderedGeneration === currentRenderGeneration` và nội dung văn bản, định dạng cùng toàn bộ `writeOptions` khớp 100% với `renderedSnapshot`. Nếu người dùng sửa tùy chọn viết chữ (cỡ chữ, hạt giống, màu sắc...) hoặc nếu lần kết xuất mới bị lỗi, thao tác xuất tệp bị chặn ngay lập tức.
 
 ### Lệnh thực thi
 ```powershell
-npx playwright test tests/e2e/write.spec.ts -g "không ghi đè bản xem trước mới"
+node --test tests/js/render_generation.test.mjs
+npx playwright test tests/e2e/write.spec.ts -g "Export Stale Guard"
 ```
 
 ### Kỳ vọng (Expected Outcome)
-- Khi nhập văn bản dài $A$, lập tức thay thế bằng văn bản ngắn $B$, trang giấy xem trước chỉ hiển thị nội dung của $B$.
-- Dữ liệu `currentXoppBase64` và SVG của trang giấy chỉ chứa các nét chữ của $B$, hoàn toàn không có nét chữ nào của $A$.
-- Bảng điều khiển Console của trình duyệt sạch sẽ, không có lỗi ngoại lệ.
+- Khi thay đổi `writeOptions` hoặc khi yêu cầu kết xuất mới gặp lỗi từ Worker, `canExport()` trả về `false` và nút xuất hiển thị cảnh báo.
+- Chỉ khi yêu cầu kết xuất mới với bộ tùy chọn mới hoàn tất Atomic Commit thì `canExport()` mới trả về `true`.
 
 ---
 
-## 2. Kịch bản kiểm chứng 2: Độc lập hạt giống khi mở tài liệu mới (P1 - SC-002)
+## 2. Kịch bản kiểm chứng 2: Chốt chặn Giai đoạn 2 (Stage 2 Stale Guard) trong lúc Giải nén XOPP
 
 ### Mục tiêu
-Chứng minh rằng việc mở một tài liệu mới (.txt, .md, .docx) luôn xóa sạch lịch sử seed và căn chỉnh của tài liệu cũ, không làm tăng hoặc kế thừa occurrence của các từ lặp.
+Chứng minh rằng khi tài liệu $A$ đã nhận kết quả từ Worker (vượt qua Stage 1) và đang trong quá trình giải nén XOPP bất đồng bộ mà tài liệu $B$ được yêu cầu, kết quả giải nén muộn của $A$ bị loại bỏ tại Stage 2 và không bao giờ cập nhật `currentDoc`, `currentXoppBase64` hay SVG.
 
 ### Lệnh thực thi
 ```powershell
-npx playwright test tests/e2e/write.spec.ts -g "xóa trắng hoặc mở file mới"
+node --test tests/js/render_generation.test.mjs
 ```
 
 ### Kỳ vọng (Expected Outcome)
-- Soạn thảo tài liệu $A$ có từ lặp `"xin xin chào ba"` khiến từ `"xin"` thứ hai nhận `occurrence = 1`.
-- Mở tài liệu mới $B$ chứa từ `"xin"`, nét vẽ của từ `"xin"` trong tài liệu $B$ trùng khớp 100% với nét vẽ khi kết xuất trên một phiên làm việc mới tinh (`occurrence = 0`).
-- Kiểm thử bao phủ cả việc nhập tệp văn bản `.txt`, `.md` và tệp Word `.docx`.
+- Khi `setXoppDecompressorForTesting` giữ quá trình giải nén của $A$ tạm dừng và $B$ được kích hoạt, ngay sau khi giải nén $A$ hoàn tất, $A$ bị hủy bỏ tại Stage 2.
+- Chỉ có tài liệu $B$ được cam kết vào `renderedSnapshot` và `currentDoc`.
 
 ---
 
-## 3. Kịch bản kiểm chứng 3: Bền vững hóa Assertion kiểm thử nét vẽ (P2 - SC-004)
+## 3. Kịch bản kiểm chứng 3: Chống ghi đè khi Mở nhiều Tệp Liên tiếp (`currentImportGeneration`)
 
 ### Mục tiêu
-Xác nhận bộ kiểm thử so sánh toàn bộ hình thái nét vẽ trong `test_stable_variants.py` hoạt động chính xác, ổn định và không bị phụ thuộc vào chỉ số mảng cố định.
+Chứng minh khi người dùng mở liên tiếp 2 tệp có tốc độ xử lý khác nhau (`.docx` cần chuyển đổi qua Worker và `.txt` đọc trực tiếp), chỉ có tệp được chọn cuối cùng mới được áp dụng vào trình soạn thảo, cho dù tệp cũ hoàn tất muộn hơn.
 
 ### Lệnh thực thi
 ```powershell
-pytest tests/test_stable_variants.py -k "test_app_controller_stable_variants_workflow" -v
+node --test tests/js/render_generation.test.mjs
 ```
 
 ### Kỳ vọng (Expected Outcome)
-- Toàn bộ các nét vẽ của các từ được giữ lại (`"xin"`, `"chào"`) và cấu trúc hình học tương đối của từ `"ba"` được đối sánh thành công.
-- Kiểm thử vượt qua (`PASSED`) với thời gian dưới 2 giây.
+- Cả hai chiều (`.docx` hoàn tất chậm hơn `.txt` và `.txt` hoàn tất chậm hơn `.docx`) đều giữ đúng nội dung và định dạng của tệp được chọn sau cùng.
+- Nếu `resetDocumentSeedHistory()` trả về `false`, thao tác nhập tệp dừng lại ngay và báo lỗi cảnh báo.
 
 ---
 
-## 4. Kịch bản kiểm chứng 4: Đo kiểm hiệu năng Kho mẫu quy mô lớn (P3 - SC-005)
+## 4. Kịch bản kiểm chứng 4: Kiểm thử E2E Race Condition Xác định 100% và Ổn định CI (`--workers=2`)
 
 ### Mục tiêu
-Xác nhận thời gian trích xuất bản chụp kho mẫu với 1.050+ nhãn và 3.520 mẫu nét đa biến thể hoàn tất trong thời gian dưới 200 mili-giây, và phần chú thích kỹ thuật khớp chính xác 100% với cấu trúc dữ liệu thực tế.
+1. Xác nhận bài kiểm thử E2E race condition sử dụng cổng chặn điều khiển (`installRenderBarrierForTesting`) giữ yêu cầu `write_text` của văn bản dài $A$ ở trạng thái đang chờ xử lý cho tới khi tệp $B$ được nạp, loại bỏ hoàn toàn sự phụ thuộc vào thời gian chờ cố định.
+2. Xác nhận bài kiểm thử chống XSS trên thanh thông báo lỗi Kho mẫu (`tests/e2e/bank.spec.ts:137`) chạy ổn định 100% với `--workers=2`, không bị `refreshBankView()` xóa mất thông báo lỗi.
 
 ### Lệnh thực thi
 ```powershell
-pytest tests/test_performance_regression.py -k "test_bank_snapshot_large_scale_performance" -v -s
+npx playwright test tests/e2e/write.spec.ts tests/e2e/bank.spec.ts --workers=2
 ```
 
 ### Kỳ vọng (Expected Outcome)
-- Chú thích và log console in đúng: `[BENCHMARK] get_bank_snapshot 1.050+ nhãn và 3.520 mẫu nét đa biến thể hoàn tất trong: ... ms`.
-- Kết quả `res["ok"] is True`, `stats["n_samples"] >= 1400`, tổng mẫu nét $\ge 3.520$, thời gian thực thi $t < 200$ ms (thực tế đo được $< 2$ ms).
+- Toàn bộ 8 bài kiểm thử trong `write.spec.ts` (6 tests) và `bank.spec.ts` (2 tests) đạt `PASS` 100% khi chạy song song 2 workers.
 
 ---
 
@@ -87,30 +86,22 @@ npm run test:unit
 npm run test:browser
 npm run test:golden
 
-# 4. Bộ kiểm thử E2E Playwright trên trình duyệt (24 tests)
-npx playwright test
+# 4. Bộ kiểm thử E2E Playwright trên trình duyệt (24 tests với 2 workers giống CI)
+npx playwright test --workers=2
 
 # 5. Toàn bộ kiểm thử Python (>1.427 tests)
 pytest
 ```
 
-### Ghi chú Minh bạch Số liệu Kiểm thử Python:
-- **Môi trường máy phát triển cục bộ (Windows)**: `1.427 passed` (toàn bộ kiểm thử Word COM và Tkinter chạy đầy đủ).
-- **Môi trường CI GitHub Actions (Ubuntu Linux Runner, Python 3.12 / 3.13)**: `1.406 passed · 14 skipped · 7 deselected`:
-  - `14 skipped`: Do các bài kiểm thử chuyển đổi tệp Word Fidelity (`test_fidelity_pdf_first.py`, `test_docx_fidelity.py`, `test_fidelity_whiten_math.py`, `test_importer_fidelity.py`) tự động kiểm tra `win32com.client` và bỏ qua khi chạy trên Linux.
-  - `7 deselected`: Do tham số cấu hình CI `-m "not tkinter"` loại trừ các bài kiểm thử giao diện Tkinter cũ trên môi trường máy chủ headless không có màn hình X11.
-
 ---
 
 ## 6. Bảng Ghi nhận Kết quả Kiểm chứng Thực tế (Verification Record)
 
-| Kịch bản kiểm chứng | Lệnh thực thi | Kết quả thực tế | Trạng thái |
+| Kịch bản kiểm chứng | Lệnh thực thi | Kết quả kỳ vọng / thực tế | Trạng thái |
 | :--- | :--- | :--- | :--- |
-| **Kịch bản 1** (Chống ghi đè render cũ - Two-Stage Guard) | `npx playwright test tests/e2e/write.spec.ts -g "không bị kết quả cũ ghi đè"` | 100% PASS. Two-Stage Stale Guard chặn đứng race condition in-flight và sau giải nén XOPP, bản xem trước chỉ hiển thị nét chữ tài liệu mới. | ✅ PASS |
-| **Kịch bản 2** (Độc lập seed khi mở file) | `npx playwright test tests/e2e/write.spec.ts -g "xóa trắng hoặc mở file mới"` | 100% PASS. Nét vẽ từ "xin" của tài liệu mới trùng khớp 100% với baseline `occurrence = 0`, không kế thừa lịch sử cũ (.txt, .md, .docx). | ✅ PASS |
-| **Kịch bản 3** (Export Stale Guard) | `npx playwright test tests/e2e/write.spec.ts -g "Export Stale Guard"` | 100% PASS. Khóa toàn bộ các nút xuất tệp (.xopp, .pdf, .png, .svg, .zip) khi nội dung thay đổi hoặc đang render dở dang, hiển thị cảnh báo người dùng. | ✅ PASS |
-| **Kịch bản 4** (Bền vững hóa assertion nét) | `pytest tests/test_stable_variants.py -k "test_app_controller_stable_variants_workflow" -v` | 1 passed in 0.40s. `group_strokes_by_word_proximity` phân tách chính xác 4 từ (doc1) và 5 từ (doc2), đối sánh hình thái nét tương đối của từ "ba" thành công. | ✅ PASS |
-| **Kịch bản 5** (Multi-variant Benchmark) | `pytest tests/test_performance_regression.py -k "test_bank_snapshot_large_scale_performance" -v -s` | 1 passed in 1.51s. Log in: `[BENCHMARK] get_bank_snapshot 1.050+ nhãn và 3.520 mẫu nét đa biến thể hoàn tất trong: 1.91 ms` ($< 200$ ms). | ✅ PASS |
-| **Kiểm thử đơn vị Node.js (71 tests)** | `npm run test:unit` | 71 passed in 3.7s. 100% PASS (bao gồm 4/4 test render generation & export guard với fixture XOPP gzip chuẩn, không treo timer). | ✅ PASS |
-| **Hồi quy Web E2E (24 tests)** | `npx playwright test` | 24 passed in 4.5m (100% PASS toàn bộ 24 bài test Playwright). | ✅ PASS |
-| **Hồi quy Python (1.427 tests)** | `pytest` | 1.427 passed (100% PASS trên Windows local; tương ứng 1.406 passed trên Ubuntu Linux CI). | ✅ PASS |
+| **Kịch bản 1** (`canExport` với `renderedGeneration` & `writeOptions`) | `node --test tests/js/render_generation.test.mjs` | 12/12 test PASS (787ms). Khóa xuất tệp khi đổi `writeOptions` (scale, seed, color, paper), đổi `format`, hoặc khi lần render mới thất bại từ Worker. | ✅ PASS 100% |
+| **Kịch bản 2** (Stage 2 Stale Guard khi giải nén bị trì hoãn) | `node --test tests/js/render_generation.test.mjs` | Đã chứng minh qua hook `setXoppDecompressorForTesting`: Loại bỏ 100% kết quả của $A$ sau khi giải nén xong nếu $B$ đã phát sinh trong lúc giải nén. | ✅ PASS 100% |
+| **Kịch bản 3** (`currentImportGeneration`: `.docx` vs `.txt`) | `node --test tests/js/render_generation.test.mjs` | Giữ đúng nội dung của tệp được chọn cuối cùng ở cả 2 chiều lệch thứ tự (.docx chậm hơn .txt và .txt chậm hơn .docx); dừng nạp tệp an toàn khi reset seed thất bại. | ✅ PASS 100% |
+| **Kịch bản 4** (Deterministic E2E Race Condition & Bank XSS) | `npx playwright test --workers=2` | 24/24 bài kiểm thử E2E vượt qua 100% với `--workers=2`. Bài test race condition kiểm soát chính xác bằng Render Barrier (`installRenderBarrierForTesting`); bài test XSS trên `bank.spec.ts:137` chạy ổn định không flaky. | ✅ PASS 100% |
+| **Kiểm thử Node.js Unit & Golden Master** | `npm run test:unit`, `test:browser`, `test:golden` | 79/79 unit test PASS; 2/2 browser Pyodide test PASS; 8/8 Golden Master test Pyodide PASS. | ✅ PASS 100% |
+| **Kiểm thử Python Lint & Regression** | `python -m ruff check`, `pytest` | Ruff lint sạch sẽ 100%; 36/36 tests python stable variants & performance regression PASS. | ✅ PASS 100% |

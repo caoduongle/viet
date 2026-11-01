@@ -200,6 +200,9 @@ export async function refreshBankView(force = false) {
   if (!sendWorkerFn) return;
 
   try {
+    // Xóa banner lỗi cũ ngay khi bắt đầu làm mới để tránh ghi đè thông báo lỗi phát sinh trong thời gian chờ
+    showBankErrorBanner(null);
+
     // 1. Cập nhật thông tin hồ sơ
     await updateProfileChip();
     const activeProfileId = (await storage.getSetting("active_profile_id", "default_profile")) || "default_profile";
@@ -212,7 +215,6 @@ export async function refreshBankView(force = false) {
       console.error("Lỗi get_bank_snapshot:", snapRes);
       return;
     }
-    showBankErrorBanner(null);
 
     const snapshot = snapRes.data || {};
     const rev = snapshot.revision;

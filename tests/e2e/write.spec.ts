@@ -289,27 +289,37 @@ test.describe("User Story 2: Viết chữ, xem trước SVG và xuất file (E2E
     );
     expect(baselineXinStrokes.length).toBeGreaterThan(0);
 
-    // 2. Kích hoạt render văn bản dài và chủ động đợi debounce 250ms để Worker tiếp nhận yêu cầu
+    // 2. Cài đặt Render Barrier xác định (không phụ thuộc thời gian phỏng đoán)
+    await page.evaluate(() => {
+      window.__installRenderBarrierForTesting();
+    });
+
     const longText = "Văn bản rất dài cần kết xuất tốn thời gian: " + "xin chào ba má bạn ".repeat(25);
     await textarea.fill(longText);
 
-    // Chờ 260ms để debounce 250ms kích hoạt và yêu cầu write_text chắc chắn đã gửi xuống Worker
-    await page.waitForTimeout(260);
+    // Chờ xác nhận 100%: yêu cầu write_text của văn bản dài đã gửi xuống Worker và đang in-flight
+    await page.evaluate(async () => {
+      await window.__activeRenderBarrier.waitForRequestStart();
+    });
 
-    // 3. Trong khi Worker đang bận xử lý văn bản dài, lập tức mở tệp mới (sample_word.txt chỉ chứa "xin")
+    // 3. Trong khi Worker đang xử lý văn bản dài, mở tệp mới (sample_word.txt chỉ chứa "xin")
     const fileChooserPromise = page.waitForEvent("filechooser");
     await page.click("#btn-open-file");
     const fileChooser = await fileChooserPromise;
     await fileChooser.setFiles(path.resolve("tests/data/sample_word.txt"));
 
-    // Đợi đủ lâu để mọi tác vụ nền xử lý xong (1.5 giây)
-    await page.waitForTimeout(1500);
+    // 4. Giải phóng barrier cho phản hồi của văn bản dài tiếp tục
+    await page.evaluate(() => {
+      if (window.__activeRenderBarrier) {
+        window.__activeRenderBarrier.release();
+      }
+    });
 
-    // 4. Khẳng định: Textarea giữ đúng nội dung tệp mới "xin"
+    // 5. Khẳng định: Textarea giữ đúng nội dung tệp mới "xin"
     await expect(textarea).toHaveValue("xin");
 
-    // 5. Khẳng định: Bản xem trước SVG hiển thị đúng nét vẽ của "xin", không bị dính văn bản dài cũ
-    await expect(svgWrapper.locator("svg")).toBeVisible();
+    // 6. Khẳng định: Bản xem trước SVG hiển thị đúng nét vẽ của "xin", không bị dính văn bản dài cũ
+    await expect(svgWrapper.locator("svg")).toBeVisible({ timeout: 15000 });
     const finalStrokes = await svgWrapper.locator("polyline").evaluateAll((elements) =>
       elements.map((el) => el.getAttribute("points") || "")
     );

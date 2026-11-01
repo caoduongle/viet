@@ -1,7 +1,8 @@
-# Specification Quality Checklist: Feature 070 - Render Generation, Import Seed Reset & Test Hardening
+# Specification Quality Checklist: Feature 070 - Render Generation, Import Generation, Export Stale Guard & Test Hardening
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning  
 **Created**: 2026-11-01  
+**Updated**: 2026-11-01 (Bổ sung kiểm chứng `renderedGeneration` & `renderedSnapshot` đầy đủ trong `canExport()`, bộ đếm `importGeneration` chống ghi đè khi mở nhiều tệp liên tiếp, kiểm thử Stage 2 giải nén XOPP có kiểm soát, xác định hóa E2E race condition và ổn định hóa bài kiểm thử XSS kho mẫu trên CI)  
 **Feature**: [spec.md](../spec.md)  
 
 ## Content Quality
@@ -31,5 +32,10 @@
 
 ## Notes
 
-- Đặc tả kỹ thuật tập trung vào giá trị người dùng: chống chớp tắt hoặc ghi đè kết quả kết xuất cũ (Two-Stage Stale Guard sau giải nén XOPP), khóa an toàn chức năng xuất file khi kết quả kết xuất bị cũ hoặc đang cập nhật, bảo đảm tính độc lập hạt giống khi nhập file và xử lý dừng nạp khi reset thất bại, củng cố tính xác định (deterministic) của kiểm thử E2E và Node unit test.
+- Đặc tả đã bao phủ trọn vẹn toàn bộ 5 nhóm cải tiến từ báo cáo rà soát commit `53258d2`:
+  1. **P1 – Khóa xuất tệp theo `renderedGeneration` và `renderedSnapshot` (gồm cả `writeOptions` và `format`)**: Ngăn xuất nhầm tài liệu cũ khi người dùng đổi tùy chọn viết chữ hoặc khi lần kết xuất mới bị lỗi.
+  2. **P2 – Kiểm thử trực tiếp Stage 2 Stale Guard (giải nén XOPP bị trì hoãn)**: Chứng minh kết quả giải nén muộn bị loại bỏ trước khi cam kết.
+  3. **P2 – Kiểm soát thế hệ nhập tệp (`currentImportGeneration`)**: Ngăn chặn kết quả đọc/chuyển đổi tệp cũ (.docx vs .txt/.md) hoàn tất muộn ghi đè lên tệp được chọn sau cùng.
+  4. **P2 – Xác định hóa hoàn toàn bài kiểm thử E2E Race Condition**: Điều khiển thời điểm phản hồi của tiến trình nền thay vì chờ thời gian cố định.
+  5. **P3 – Dọn dẹp `debounceTimer` và ổn định hóa bài kiểm thử XSS trên CI (`bank.spec.ts:137`)**: Loại bỏ tranh chấp thời điểm với `refreshBankView()` khi chạy đa luồng `--workers=2`.
 - Toàn bộ 16/16 tiêu chí kiểm định chất lượng đều ĐẠT (PASS). Đã sẵn sàng cho giai đoạn lập kế hoạch chi tiết (`/speckit-plan`).

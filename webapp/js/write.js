@@ -29,7 +29,11 @@ let pendingParams = null;
 let currentRenderGeneration = 0; // Thế hệ kết xuất tăng đơn điệu chống race condition (070)
 let currentRenderSnapshot = null;  // Ảnh chụp tham số của thế hệ kết xuất mới nhất
 let renderedGeneration = 0;       // Mã thế hệ của bản kết xuất đã hoàn tất và hiển thị thành công (070)
+let renderedSnapshot = null;       // Bản chụp bất biến của bản kết xuất đã cam kết thành công trên giao diện (070)
 let isRenderStale = false;         // True khi nội dung textarea hoặc tùy chọn kết xuất khác với bản render hiện tại (070)
+let currentImportGeneration = 0;  // Bộ đếm thế hệ nhập tệp (.txt, .md, .docx) tăng đơn điệu chống ghi đè (070)
+let customXoppDecompressorForTesting = null; // Hook can thiệp giải nén XOPP cho kiểm thử đơn vị (070)
+let activeRenderBarrierForTesting = null;    // Hook cổng chặn điều khiển render cho kiểm thử E2E xác định (070)
 
 // Trạng thái đồng bộ kho mẫu (052-write-preview-bank-sync & 054-repo-audit-hardening)
 let isBankHydrated = false;       // True khi kho mẫu từ IndexedDB (hoặc profile rỗng ban đầu) đã sẵn sàng
@@ -47,8 +51,8 @@ const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3.0;
 const ZOOM_STEP = 0.1;
 
-// Tùy chọn viết chữ mặc định
-const writeOptions = {
+// Tùy chọn viết chữ mặc định bất biến
+export const DEFAULT_WRITE_OPTIONS = Object.freeze({
   scale: 1.0,
   line: null,
   space: 1.0,
@@ -59,9 +63,41 @@ const writeOptions = {
   paper: "a4",
   orientation: "portrait",
   background: "lined",
+  background_color: "#ffffffff",
   stable_variants: true,
   assemble_letters: true,
-};
+});
+
+// Tùy chọn viết chữ hiện hành
+const writeOptions = { ...DEFAULT_WRITE_OPTIONS };
+
+export function cloneWriteOptions(opts) {
+  if (!opts) return {};
+  return { ...opts };
+}
+
+export function areWriteOptionsEqual(opt1, opt2) {
+  if (!opt1 || !opt2) return opt1 === opt2;
+  const keys = [
+    "scale",
+    "line",
+    "space",
+    "jitter",
+    "wscale",
+    "color",
+    "seed",
+    "paper",
+    "orientation",
+    "background",
+    "background_color",
+    "stable_variants",
+    "assemble_letters",
+  ];
+  for (const k of keys) {
+    if (opt1[k] !== opt2[k]) return false;
+  }
+  return true;
+}
 
 let currentFormat = "md"; // "md" hoặc "txt"
 
@@ -259,7 +295,16 @@ export function resetWriteSyncStateForTesting() {
   currentRenderGeneration = 0;
   currentRenderSnapshot = null;
   renderedGeneration = 0;
+  renderedSnapshot = null;
   isRenderStale = false;
+  currentImportGeneration = 0;
+  currentFormat = "md";
+  customXoppDecompressorForTesting = null;
+  activeRenderBarrierForTesting = null;
+
+  for (const k of Object.keys(DEFAULT_WRITE_OPTIONS)) {
+    writeOptions[k] = DEFAULT_WRITE_OPTIONS[k];
+  }
 }
 
 export function getRenderGenerationForTesting() {
@@ -274,6 +319,74 @@ export function isRenderStaleForTesting() {
   return isRenderStale;
 }
 
+export function getImportGenerationForTesting() {
+  return currentImportGeneration;
+}
+
+export function getRenderedSnapshotForTesting() {
+  return renderedSnapshot ? { ...renderedSnapshot, options: cloneWriteOptions(renderedSnapshot.options) } : null;
+}
+
+export function getWriteOptionsForTesting() {
+  return cloneWriteOptions(writeOptions);
+}
+
+export function setWriteOptionsForTesting(opts) {
+  Object.assign(writeOptions, opts);
+}
+
+export function setCurrentFormatForTesting(fmt) {
+  currentFormat = fmt;
+}
+
+export function setXoppDecompressorForTesting(fn) {
+  customXoppDecompressorForTesting = typeof fn === "function" ? fn : null;
+}
+
+export function installRenderBarrierForTesting() {
+  let requestStartedResolve;
+  const requestStartedPromise = new Promise((resolve) => {
+    requestStartedResolve = resolve;
+  });
+  let releaseResolve;
+  const releasePromise = new Promise((resolve) => {
+    releaseResolve = resolve;
+  });
+
+  const barrier = {
+    onRequestStart: (requestId) => {
+      if (requestStartedResolve) {
+        requestStartedResolve(requestId);
+        requestStartedResolve = null;
+      }
+    },
+    waitToProceed: () => releasePromise,
+    release: () => {
+      if (releaseResolve) {
+        releaseResolve();
+        releaseResolve = null;
+      }
+      if (activeRenderBarrierForTesting === barrier) {
+        activeRenderBarrierForTesting = null;
+      }
+    },
+    waitForRequestStart: () => requestStartedPromise,
+  };
+
+  activeRenderBarrierForTesting = barrier;
+
+  if (typeof window !== "undefined") {
+    window.__activeRenderBarrier = barrier;
+  }
+
+  return barrier;
+}
+
+if (typeof window !== "undefined") {
+  window.__installRenderBarrierForTesting = installRenderBarrierForTesting;
+  window.__setXoppDecompressorForTesting = setXoppDecompressorForTesting;
+}
+
 /**
  * Kiểm tra xem bản kết xuất hiện tại có hợp lệ và sẵn sàng để xuất file hay không.
  * Ngăn ngừa người dùng xuất nhầm tài liệu cũ khi đang soạn thảo hoặc đang render (070).
@@ -282,11 +395,14 @@ export function isRenderStaleForTesting() {
 export function canExport() {
   if (isRendering) return false;
   if (isRenderStale) return false;
-  if (!currentXoppBase64 || !currentDoc) return false;
+  if (renderedGeneration === 0 || renderedGeneration !== currentRenderGeneration) return false;
+  if (!currentXoppBase64 || !currentDoc || !renderedSnapshot) return false;
   const textarea = typeof document !== "undefined" ? document.getElementById("editor-text") : null;
   const currentVal = textarea?.value?.trim() || "";
   if (!currentVal) return false;
-  if (textarea && textarea.value !== currentRenderSnapshot?.text) return false;
+  if (textarea && textarea.value !== renderedSnapshot.text) return false;
+  if (currentFormat !== renderedSnapshot.format) return false;
+  if (!areWriteOptionsEqual(writeOptions, renderedSnapshot.options)) return false;
   return true;
 }
 
@@ -304,8 +420,13 @@ async function requestRender(params) {
     generation: thisGeneration,
     text: params.text,
     format: params.format,
+    options: cloneWriteOptions(params.options || writeOptions),
   };
   params.requestId = thisGeneration;
+
+  // Đánh dấu stale ngay lập tức khi bắt đầu yêu cầu render mới
+  isRenderStale = true;
+  updateExportButtonsState();
 
   if (isRendering) {
     hasPendingRequest = true;
@@ -317,8 +438,18 @@ async function requestRender(params) {
   isRendering = true;
   showRenderingIndicator(true);
 
+  const activeBarrier = activeRenderBarrierForTesting;
+  if (activeBarrier) {
+    activeBarrier.onRequestStart(thisGeneration);
+  }
+
   try {
     const res = await sendWorkerMessage("write_text", params);
+
+    // Nếu barrier kiểm thử E2E được kích hoạt, chờ tín hiệu release trước khi tiếp tục
+    if (activeBarrier) {
+      await activeBarrier.waitToProceed();
+    }
 
     // Two-Layer Stale Guard (Feature 070):
     // 1. Kiểm tra thế hệ kết xuất: nếu có yêu cầu mới hơn hoặc clearPreview đã kích hoạt thì bỏ qua ngay
@@ -341,7 +472,9 @@ async function requestRender(params) {
       // Giải nén XML từ xopp vào biến cục bộ (Two-Stage Stale Guard & Atomic State Commit - Feature 070)
       let parsedDoc = null;
       try {
-        const xml = await decompressXoppBase64(res.xopp_base64);
+        const xml = customXoppDecompressorForTesting
+          ? await customXoppDecompressorForTesting(res.xopp_base64)
+          : await decompressXoppBase64(res.xopp_base64);
         parsedDoc = parseXoppXml(xml);
       } catch (decompressErr) {
         console.error("Lỗi giải nén tệp XOPP:", decompressErr);
@@ -362,6 +495,12 @@ async function requestRender(params) {
       currentMissingBoxes = res.missing_token_boxes || [];
       currentDoc = parsedDoc;
       renderedGeneration = thisGeneration;
+      renderedSnapshot = {
+        generation: thisGeneration,
+        text: params.text,
+        format: params.format,
+        options: cloneWriteOptions(params.options || writeOptions),
+      };
       isRenderStale = false;
 
       // Cập nhật giao diện
@@ -410,6 +549,7 @@ async function requestRender(params) {
 function clearPreview() {
   currentRenderGeneration++;
   currentRenderSnapshot = null;
+  renderedSnapshot = null;
   renderedGeneration = 0;
   isRenderStale = true;
   hasPendingRequest = false;
@@ -764,41 +904,56 @@ function setupFileDropAndOpen(textarea, options = {}) {
   }, options);
 }
 
-async function handleFileImport(file, textarea) {
+export async function handleFileImport(file, textarea) {
+  const thisImportGen = ++currentImportGeneration;
   const name = file.name.toLowerCase();
+
   if (name.endsWith(".txt") || name.endsWith(".md") || name.endsWith(".markdown")) {
-    pendingImportNotices = [];
     const text = await file.text();
+    if (thisImportGen !== currentImportGeneration) return false;
+
     clearPreview();
     const resetOk = await resetDocumentSeedHistory();
+    if (thisImportGen !== currentImportGeneration) return false;
+
     if (!resetOk) {
       showWarning("Không thể đặt lại lịch sử hạt giống. Đã dừng thao tác nạp tài liệu để tránh sai lệch nét chữ.");
-      return;
+      return false;
     }
+
+    pendingImportNotices = [];
     textarea.value = text;
+    currentFormat = name.endsWith(".txt") ? "txt" : "md";
     const selectFormat = document.getElementById("select-format");
     if (selectFormat) {
-      selectFormat.value = name.endsWith(".txt") ? "txt" : "md";
-      currentFormat = selectFormat.value;
+      selectFormat.value = currentFormat;
     }
     triggerPreviewImmediate();
+    return true;
   } else if (name.endsWith(".docx")) {
     showRenderingIndicator(true);
     try {
       const buffer = await file.arrayBuffer();
+      if (thisImportGen !== currentImportGeneration) return false;
+
       const res = await sendWorkerMessage("import_docx", { bytes: buffer });
+      if (thisImportGen !== currentImportGeneration) return false;
+
       if (res && res.ok) {
         clearPreview();
         const resetOk = await resetDocumentSeedHistory();
+        if (thisImportGen !== currentImportGeneration) return false;
+
         if (!resetOk) {
           showWarning("Không thể đặt lại lịch sử hạt giống. Đã dừng thao tác nạp tài liệu để tránh sai lệch nét chữ.");
-          return;
+          return false;
         }
+
         textarea.value = res.markdown_text || res.text || "";
+        currentFormat = "md";
         const selectFormat = document.getElementById("select-format");
         if (selectFormat) {
           selectFormat.value = "md";
-          currentFormat = "md";
         }
         const docxNotes = ["Chế độ Content-First: Không giữ nguyên bố cục toạ độ in Word."];
         if (Array.isArray(res.warnings) && res.warnings.length > 0) {
@@ -814,19 +969,29 @@ async function handleFileImport(file, textarea) {
           showWarning("Đã chuyển nội dung file .docx sang Markdown thành công (chế độ Content-First, không giữ nguyên toạ độ in Word).");
         }
         triggerPreviewImmediate();
+        return true;
       } else {
-        pendingImportNotices = [];
-        showWarning(`Lỗi mở file .docx: ${res?.error || "Không hỗ trợ"}`);
+        if (thisImportGen === currentImportGeneration) {
+          pendingImportNotices = [];
+          showWarning(`Lỗi mở file .docx: ${res?.error || "Không hỗ trợ"}`);
+        }
+        return false;
       }
     } catch (err) {
-      pendingImportNotices = [];
-      showWarning(`Không thể đọc file .docx: ${err.message}`);
+      if (thisImportGen === currentImportGeneration) {
+        pendingImportNotices = [];
+        showWarning(`Không thể đọc file .docx: ${err.message}`);
+      }
+      return false;
     } finally {
-      showRenderingIndicator(false);
+      if (!isRendering && thisImportGen === currentImportGeneration) {
+        showRenderingIndicator(false);
+      }
     }
   } else {
     pendingImportNotices = [];
     showWarning("Chỉ hỗ trợ file văn bản (.txt), Markdown (.md), hoặc Word (.docx).");
+    return false;
   }
 }
 
@@ -983,6 +1148,8 @@ function setupOptionsModal(options = {}) {
       bindWriteEvent(r, "input", (e) => {
         v.textContent = e.target.value;
         writeOptions[prop] = parseFloat(e.target.value);
+        isRenderStale = true;
+        updateExportButtonsState();
       }, options);
     }
   };
@@ -997,6 +1164,8 @@ function setupOptionsModal(options = {}) {
   if (optLine) {
     bindWriteEvent(optLine, "change", (e) => {
       writeOptions.line = e.target.value ? parseFloat(e.target.value) : null;
+      isRenderStale = true;
+      updateExportButtonsState();
     }, options);
   }
 
@@ -1016,11 +1185,15 @@ function setupOptionsModal(options = {}) {
     bindWriteEvent(optSeed, "input", () => {
       if (optSeedError) optSeedError.style.display = "none";
       optSeed.classList.remove("is-invalid");
+      isRenderStale = true;
+      updateExportButtonsState();
     }, options);
 
     bindWriteEvent(optSeed, "change", (e) => {
       const parsed = parseSeed(e.target.value, writeOptions.seed);
       writeOptions.seed = parsed.seed;
+      isRenderStale = true;
+      updateExportButtonsState();
       optSeed.value = parsed.seed !== null && parsed.seed !== undefined ? parsed.seed : "";
       if (!parsed.valid && parsed.message) {
         if (optSeedError) {
@@ -1044,6 +1217,8 @@ function setupOptionsModal(options = {}) {
       }
       if (optSeedError) optSeedError.style.display = "none";
       writeOptions.seed = nextSeed;
+      isRenderStale = true;
+      updateExportButtonsState();
       triggerPreviewImmediate();
     }, options);
   }
@@ -1055,9 +1230,13 @@ function setupOptionsModal(options = {}) {
     bindWriteEvent(optColor, "input", (e) => {
       optColorHex.value = e.target.value + "ff";
       writeOptions.color = optColorHex.value;
+      isRenderStale = true;
+      updateExportButtonsState();
     }, options);
     bindWriteEvent(optColorHex, "change", (e) => {
       writeOptions.color = e.target.value;
+      isRenderStale = true;
+      updateExportButtonsState();
     }, options);
   }
 
@@ -1067,6 +1246,8 @@ function setupOptionsModal(options = {}) {
     if (el) {
       bindWriteEvent(el, "change", (e) => {
         writeOptions[prop] = e.target.value;
+        isRenderStale = true;
+        updateExportButtonsState();
       }, options);
     }
   };
@@ -1085,17 +1266,11 @@ function setupOptionsModal(options = {}) {
 
   if (btnReset) {
     bindWriteEvent(btnReset, "click", () => {
-      writeOptions.scale = 1.0;
-      writeOptions.line = null;
-      writeOptions.space = 1.0;
-      writeOptions.jitter = 1.0;
-      writeOptions.wscale = 1.0;
-      writeOptions.color = "#000000ff";
-      writeOptions.seed = 42;
-      writeOptions.paper = "a4";
-      writeOptions.orientation = "portrait";
-      writeOptions.background = "lined";
-      writeOptions.background_color = "#ffffffff";
+      for (const k of Object.keys(DEFAULT_WRITE_OPTIONS)) {
+        writeOptions[k] = DEFAULT_WRITE_OPTIONS[k];
+      }
+      isRenderStale = true;
+      updateExportButtonsState();
 
       // Reset DOM elements
       document.getElementById("opt-scale").value = 1.0;
